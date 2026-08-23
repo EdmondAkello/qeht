@@ -67,13 +67,13 @@ class DelineateCatchmentAlgorithm(QehtAlgorithm):
         self.addParameter(QgsProcessingParameterRasterLayer(
             FAC, "Flow accumulation (for snapping)", optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
-            POINTS, "Pour points", [QgsProcessing.TypeVectorPoint]))
+            POINTS, "Pour points", [QgsProcessing.SourceType.TypeVectorPoint]))
         self.addParameter(QgsProcessingParameterNumber(
-            SNAP, "Snap radius (cells)", QgsProcessingParameterNumber.Integer,
+            SNAP, "Snap radius (cells)", QgsProcessingParameterNumber.Type.Integer,
             defaultValue=5, minValue=0, maxValue=100))
         self.addParameter(QgsProcessingParameterNumber(
             SNAP_THRESHOLD, "Snap-to-stream threshold (cells; 0 = snap to max accumulation)",
-            QgsProcessingParameterNumber.Double, defaultValue=200.0, minValue=0.0))
+            QgsProcessingParameterNumber.Type.Double, defaultValue=200.0, minValue=0.0))
         self.addParameter(QgsProcessingParameterRasterDestination(
             RASTER_OUT, "Catchment raster"))
         self.addParameter(QgsProcessingParameterVectorDestination(

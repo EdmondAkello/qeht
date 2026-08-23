@@ -3,6 +3,10 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.8.3]
+### Changed
+- **QGIS 4 / PyQt6 compatibility: fixed all "QT6 Check" enum-scoping findings** reported by the plugin repository's `pyqgis4-checker` across `alg_watershed.py`, `alg_longest_flowpath.py`, `alg_fill.py`, `alg_characteristics.py`, `alg_streams.py`, and `alg_streamlines.py`. PyQt6 requires fully-scoped enum access (e.g. `QgsProcessing.SourceType.TypeVectorPoint`, `QgsProcessingParameterNumber.Type.Integer`, `QgsProcessingParameterNumber.Type.Double`) where PyQt5 accepted the legacy unscoped form; this check is informational rather than blocking for repository approval, but fixed anyway so the plugin loads cleanly under QGIS 4 without relying on PyQt6's temporary backward-compatibility shims.
+
 ## [0.8.2]
 ### Changed
 - Documentation pass: replaced project-identifying site names with generic
