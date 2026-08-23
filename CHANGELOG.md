@@ -20,6 +20,8 @@ development history of the numerical core and Processing tools.
   ahead of public distribution. All validation numbers, percentages, and
   methodology are unchanged; the full 48-check test suite
   (`python -m qeht.tests.test_core`) still passes with zero regressions.
+- Cleared the `experimental` flag for the initial public release, now that
+  the plugin has been installed and exercised in live QGIS 3.44.6.
 
 ## [0.8.1]
 ### Changed
