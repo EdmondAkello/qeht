@@ -199,7 +199,7 @@ Completed as of 0.8.2:
 - `LICENSE` file added (GPL-2.0-or-later), author attributed to Edmond Akello.
 - `CITATION.cff` added, author attributed to Edmond Akello.
 - `metadata.txt`: author, email, and real homepage/repository/tracker URLs
-  (`https://github.com/edmondakello/qeht`) populated; `changelog` pointer
+  (`https://github.com/EdmondAkello/qeht`) populated; `changelog` pointer
   added.
 - `CHANGELOG.md` added, derived from the version history.
 - Reproducible example datasets added: a real-world DEM (`examples/example_dem.tif`,
