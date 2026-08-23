@@ -52,7 +52,7 @@ class StreamNetworkAlgorithm(QehtAlgorithm):
         self.addParameter(QgsProcessingParameterRasterLayer(FAC, "Flow accumulation (cell count)"))
         self.addParameter(QgsProcessingParameterEnum(MODE, "Threshold type", options=MODES, defaultValue=0))
         self.addParameter(QgsProcessingParameterNumber(
-            THRESHOLD, "Threshold value", QgsProcessingParameterNumber.Double,
+            THRESHOLD, "Threshold value", QgsProcessingParameterNumber.Type.Double,
             defaultValue=1000.0, minValue=1.0))
         self.addParameter(QgsProcessingParameterRasterDestination(STREAMS, "Stream mask"))
         self.addParameter(QgsProcessingParameterRasterDestination(ORDER, "Strahler order"))

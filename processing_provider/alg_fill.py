@@ -52,11 +52,11 @@ class FillDepressionsAlgorithm(QehtAlgorithm):
         self.addParameter(QgsProcessingParameterRasterLayer(DEM, "Input DEM"))
         self.addParameter(QgsProcessingParameterNumber(
             MIN_SLOPE, "Minimum slope across filled surfaces (m/m)",
-            QgsProcessingParameterNumber.Double, defaultValue=0.0,
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
             minValue=0.0, maxValue=0.1))
         self.addParameter(QgsProcessingParameterNumber(
             NODATA_OVERRIDE, "Treat this value as NoData (leave blank to trust the header)",
-            QgsProcessingParameterNumber.Double, optional=True))
+            QgsProcessingParameterNumber.Type.Double, optional=True))
         self.addParameter(QgsProcessingParameterRasterDestination(
             OUTPUT, "Conditioned DEM"))
         self.addParameter(QgsProcessingParameterRasterDestination(

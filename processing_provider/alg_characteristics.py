@@ -65,13 +65,13 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
             RAW_DEM,"Raw DEM (for reported elevations)",optional=True))
         self.addParameter(QgsProcessingParameterRasterLayer(FAC,"Flow accumulation"))
         self.addParameter(QgsProcessingParameterFeatureSource(
-            POINTS,"Pour points",[QgsProcessing.TypeVectorPoint]))
+            POINTS,"Pour points",[QgsProcessing.SourceType.TypeVectorPoint]))
         self.addParameter(QgsProcessingParameterNumber(
-            SNAP,"Snap radius (cells)",QgsProcessingParameterNumber.Integer,
+            SNAP,"Snap radius (cells)",QgsProcessingParameterNumber.Type.Integer,
             defaultValue=5,minValue=0,maxValue=100))
         self.addParameter(QgsProcessingParameterNumber(
             SNAP_THRESHOLD,"Snap-to-stream threshold (cells; 0 = max accumulation)",
-            QgsProcessingParameterNumber.Double,defaultValue=200.0,minValue=0.0))
+            QgsProcessingParameterNumber.Type.Double,defaultValue=200.0,minValue=0.0))
         self.addParameter(QgsProcessingParameterBoolean(
             NESTED,"Non-overlapping (local) catchments",defaultValue=False))
         self.addParameter(QgsProcessingParameterVectorDestination(

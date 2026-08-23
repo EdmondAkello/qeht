@@ -45,7 +45,7 @@ class StreamLinesAlgorithm(QehtAlgorithm):
         self.addParameter(QgsProcessingParameterRasterLayer(DEM,"Conditioned DEM (for slope)",optional=True))
         self.addParameter(QgsProcessingParameterEnum(MODE,"Threshold type",options=MODES,defaultValue=0))
         self.addParameter(QgsProcessingParameterNumber(
-            THRESHOLD,"Threshold value",QgsProcessingParameterNumber.Double,
+            THRESHOLD,"Threshold value",QgsProcessingParameterNumber.Type.Double,
             defaultValue=1000.0,minValue=1.0))
         self.addParameter(QgsProcessingParameterVectorDestination(OUTPUT,"Stream reaches"))
 
