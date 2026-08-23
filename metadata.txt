@@ -1,0 +1,38 @@
+[general]
+name=QEHT Engineering Hydrology
+qgisMinimumVersion=3.22
+qgisMaximumVersion=4.99
+description=In-process terrain, drainage-network and catchment analysis for engineering hydrology. Equivalent to commercial reference hydrology/raster toolsets, with no external executables.
+version=0.8.2
+author=Edmond Akello
+email=francenicklaus@gmail.com
+about=A security-conscious QGIS plugin providing terrain, drainage-network
+    and watershed analysis equivalent to commercial reference hydrology
+    and raster toolsets.
+
+    All computation runs IN-PROCESS using only the NumPy and GDAL libraries
+    already bundled with QGIS. The plugin never spawns a child process, never
+    calls gdal_polygonize.exe, saga_cmd.exe or the GRASS batch wrappers, and
+    requires no pip installation. This makes it usable on managed workstations
+    where endpoint security blocks subprocess execution from GUI applications.
+
+    Tools: Fill depressions, D8 flow direction, flow accumulation, stream
+    network with Strahler ordering, catchment delineation with pour-point
+    snapping, and longest flow path with length/drop/slope for time-of-
+    concentration calculations.
+
+    Flow direction uses steepest descent weighted by distance and is written
+    in the standard D8 1/2/4/.../128 encoding, so grids interchange directly
+    with commercial reference GIS and hydrology toolsets in both directions.
+
+    Licensed under the GNU General Public License version 2 or later.
+category=Raster
+tags=hydrology,watershed,catchment,DEM,D8,flow accumulation,drainage,Strahler,engineering
+icon=icon.svg
+experimental=True
+deprecated=False
+hasProcessingProvider=yes
+homepage=https://github.com/edmondakello/qeht
+repository=https://github.com/edmondakello/qeht
+tracker=https://github.com/edmondakello/qeht/issues
+changelog=See CHANGELOG.md
