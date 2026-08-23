@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.8.2
+**Version:** 0.8.3
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -238,7 +238,7 @@ The recommended sequencing is to establish the public GitHub repository now — 
 
 ## 10. Citation
 
-See `CITATION.cff`. In brief: QEHT: QGIS Engineering Hydrology Toolkit, v0.8.2, GPL-2.0-or-later.
+See `CITATION.cff`. In brief: QEHT: QGIS Engineering Hydrology Toolkit, v0.8.3, GPL-2.0-or-later.
 
 ## 11. Licence
 
