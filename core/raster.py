@@ -96,6 +96,71 @@ def audit_nodata(array, valid, declared_nodata):
     return warnings
 
 
+def resampling_stats(array, valid, min_overlap=50):
+    """Signature of nearest-neighbour resampling (v0.13.1).
+
+    A DEM reprojected or regridded with nearest neighbour repeats whole
+    source rows and columns wherever the output grid is finer than the
+    source along that axis. The repeats are exact, so they create
+    artificial flats and exactly tied neighbours: flat routing then decides
+    where flow goes, and a single tied cell on a river can move a large
+    catchment from one crossing to another (seen on a real project:
+    ~176 km2 moved between two culverts).
+
+    Returns a dict: duplicated_rows / duplicated_cols (counts of rows or
+    columns that exactly repeat the previous one over >= 99 % of their
+    overlapping valid cells and are not constant), their shares, and
+    tied_share (share of E and S neighbour pairs with identical values).
+    """
+    a = np.asarray(array)
+    v = np.asarray(valid, dtype=bool)
+
+    def _dups(x, m):
+        ov = m[1:] & m[:-1]
+        n_ov = ov.sum(axis=1)
+        eq = ((x[1:] == x[:-1]) & ov).sum(axis=1)
+        xmask = np.where(ov, x[1:], np.nan)
+        with np.errstate(all="ignore"):
+            import warnings as _w
+            with _w.catch_warnings():
+                _w.simplefilter("ignore", RuntimeWarning)
+                span = np.nanmax(xmask, axis=1) - np.nanmin(xmask, axis=1)
+        dup = (n_ov >= min_overlap) & (eq >= 0.99 * n_ov) & (np.nan_to_num(span) > 0)
+        considered = int((n_ov >= min_overlap).sum())
+        return int(dup.sum()), considered
+
+    dr, nr = _dups(a, v)
+    dc, nc = _dups(a.T, v.T)
+    pe = v[:, 1:] & v[:, :-1]
+    ps = v[1:] & v[:-1]
+    ties = int(((a[:, 1:] == a[:, :-1]) & pe).sum() + ((a[1:] == a[:-1]) & ps).sum())
+    pairs = int(pe.sum() + ps.sum())
+    return {"duplicated_rows": dr, "duplicated_cols": dc,
+            "duplicated_row_share": dr / max(nr, 1), "duplicated_col_share": dc / max(nc, 1),
+            "tied_share": ties / max(pairs, 1)}
+
+
+def audit_resampling(array, valid, threshold=0.002):
+    """Warn when the DEM looks nearest-neighbour resampled (see resampling_stats).
+
+    threshold : share of duplicated rows or columns that triggers the
+        warning (0.2 %). Calibrated on real clips: nearest-neighbour
+        reprojections showed 0.45-1.5 %, native and bilinear grids 0 %.
+    """
+    st = resampling_stats(array, valid)
+    worst = max(st["duplicated_row_share"], st["duplicated_col_share"])
+    if worst < threshold:
+        return []
+    return [
+        f"{st['duplicated_rows']:,} rows ({100 * st['duplicated_row_share']:.2f}%) and "
+        f"{st['duplicated_cols']:,} columns ({100 * st['duplicated_col_share']:.2f}%) exactly "
+        f"repeat their neighbour, and {100 * st['tied_share']:.1f}% of neighbouring cells are "
+        "exactly equal. The DEM was probably resampled or reprojected with nearest neighbour. "
+        "The repeats create artificial flats and ties, so flow routing on them is arbitrary "
+        "and a catchment can switch between crossings. Resample the source DEM with bilinear "
+        "(or cubic) into the local UTM zone and run again."]
+
+
 def read_dem(path, band=1, nodata_override=None):
     """Read a DEM into (array, valid_mask, RasterInfo).
 

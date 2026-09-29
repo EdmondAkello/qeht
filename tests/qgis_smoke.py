@@ -81,6 +81,21 @@ def main(in_qgis=False):
     r = processing.run("qeht:flowaccumulation", {"FDR": out("fdr.tif"), "QUANTITY": 0,
                        "OUTPUT": out("fac.tif")})
     check("flow accumulation", os.path.exists(r["OUTPUT"]))
+    for m, extra in ((1, {}),):
+        r = processing.run("qeht:flowdirection", dict({"DEM": out("fill.tif"), "RESOLVE_FLATS": True,
+                           "FLAT_METHOD": m, "OUTPUT": out(f"fdr_m{m}.tif")}, **extra))
+        from ..core.grid import decode_d8
+        from ..core.flow.accumulation import flow_accumulation as _fa
+        from ..core.raster import read_dem as _rd
+        _d8, _v, _ = _rd(r["OUTPUT"])
+        _, _st = _fa(decode_d8(_d8.astype(int)), _v)
+        check(f"flow direction ({['toward', 'Barnes'][m]}): no flow cycles",
+              _st["cells_in_cycles"] == 0, f"{_st['cells_in_cycles']} cells in cycles")
+    import numpy as _np
+    fdr_default = processing.run("qeht:flowdirection", {"DEM": out("fill.tif"),
+                                 "OUTPUT": out("fdr_default.tif")})
+    check("flow direction: Barnes is the default (0.13)",
+          _np.array_equal(_rd(fdr_default["OUTPUT"])[0], _rd(out("fdr_m1.tif"))[0]))
     r = processing.run("qeht:streamnetwork", {"FDR": out("fdr.tif"), "FAC": out("fac.tif"),
                        "MODE": 0, "THRESHOLD": 500, "STREAMS": out("str.tif"),
                        "ORDER": out("ord.tif")})
@@ -143,6 +158,21 @@ def main(in_qgis=False):
     ok = all(abs(f.geometry().area() - f["area_km2"] * 1e6) < 1e-3 * f["area_km2"] * 1e6
              for f in cl.getFeatures())
     check("characteristics: polygon area == area_km2 for every catchment", ok)
+    check("characteristics: flat-method check fields (0.13.1), areas consistent",
+          all(n in names for n in ("area_barnes_km2", "area_toward_km2", "flat_sensitivity_pct",
+                                   "flat_sensitive"))
+          and all(f["flat_sensitive"] in (0, 1) and f["area_barnes_km2"] > 0 for f in cl.getFeatures()),
+          ", ".join(f"{f['outlet_uid']} {f['area_barnes_km2']:.3f}/{f['area_toward_km2']:.3f}"
+                    for f in cl.getFeatures()))
+    r2 = processing.run("qeht:catchmentcharacteristics", {
+        "FDR": out("fdr.tif"), "DEM": out("fill.tif"), "FAC": out("fac.tif"), "POINTS": ptsfile,
+        "ID_FIELD": "culvert", "ID_PREFIX": "X", "FLAT_CHECK": False,
+        "CATCH_OUT": out("ch_c2.gpkg"), "PATH_OUT": out("ch_p2.gpkg")})
+    c2 = QgsVectorLayer(r2["CATCH_OUT"], "c", "ogr")
+    check("characteristics: ID prefix not added to IDs from a field; check can be switched off",
+          sorted(f["outlet_uid"] for f in c2.getFeatures()) == ["CV10", "CV11", "CV12"]
+          and "flat_sensitive" not in [f.name() for f in c2.fields()],
+          str(sorted(f["outlet_uid"] for f in c2.getFeatures())))
     check("characteristics: catchment and path uids match",
           sorted(f["outlet_uid"] for f in cl.getFeatures())
           == sorted(f["outlet_uid"] for f in pl.getFeatures()))

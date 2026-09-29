@@ -122,10 +122,11 @@ def test_accumulation_plane():
 
     check("no cycles in graph", astats["cells_in_cycles"] == 0)
     # The bottom row has no lower neighbour: these are genuine outlets
-    # draining off-grid, and MUST report as unrouted (standard D8 code 0).
-    check("exactly the bottom row is unrouted",
-          dstats["cells_still_unrouted"] == n,
-          f"unrouted={dstats['cells_still_unrouted']}, expected {n}")
+    # draining off-grid (standard D8 code 0). Since 0.13 they are reported
+    # as boundary outlets, not as unrouted cells.
+    check("exactly the bottom row is a boundary outlet",
+          dstats["boundary_outlets"] == n and dstats["cells_still_unrouted"] == 0,
+          f"outlets={dstats['boundary_outlets']}, unrouted={dstats['cells_still_unrouted']}, expected {n}/0")
     check("unrouted cells are all in the bottom row",
           np.all(direction[:-1, :] >= 0))
 

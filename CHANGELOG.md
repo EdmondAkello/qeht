@@ -3,6 +3,52 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.13.1] — unreleased (real-road review follow-ups)
+Found on Site C, a road project (old-tool outputs vs 0.13; report kept outside the repo).
+### Added
+- **DEM QA: nearest-neighbour resampling.** Fill and D8 flow direction warn when rows or columns exactly repeat their neighbour (`core.raster.resampling_stats` / `audit_resampling`, threshold 0.2 %). On the project DEM (FABDEM reprojected with nearest neighbour) 1.9 % of rows and 1.2 % of columns repeated and 14 % of cells were tied; one tied cell on a river moved ~176 km² between two culverts depending on the flat method.
+- **Flat-method check in Catchment characteristics** (on by default, tolerance 10 %): `area_barnes_km2`, `area_toward_km2`, `flat_sensitivity_pct`, `flat_sensitive`, plus a warning listing flagged outlets (`core/flow/sensitivity.py`). On the project it flagged exactly the four unstable crossings; none on a bilinear resample.
+- Tests: test_flats 36 checks (+5); smoke test 30 checks (+2).
+
+### Changed
+- **ID prefix applies to sequential IDs only.** With an ID attribute the default prefix "X" is no longer prepended (it turned NS1 into XNS1 in Catchment characteristics and Build HEAS exchange package). The core `assign_uids(scheme="attribute", prefix=...)` keeps an explicit prefix for scripted use.
+
+### Notes
+- An Earth Engine FABDEM export at 0.000269° (finer than the native 1″) repeats about one row and column in 33; every FABDEM benchmark clip in WP-G carries this (see BENCHMARK.md). ALOS clips were native.
+
+## [0.13.0] — unreleased (WP-G benchmark, QGIS 4)
+### Changed
+- **Barnes 2014 is the default flat method** (D8 flow direction and `core.flow.direction.d8_direction`). Decided on the WP-G benchmark: 80 stratified random 15 km areas across Kenya (flat, rolling, hilly, mountainous), each on ALOS AW3D30 and FABDEM, against TauDEM, RichDEM, MAS 1.2.1 and DDM HydroLogic 2.3. Toward-lower and Barnes are not interchangeable; Barnes agrees best with the independent TauDEM (mean stream F1 0.969 vs 0.948; 0.870 vs 0.733 on whole-metre flats). Design, tables and decision in `BENCHMARK.md`.
+- **Toward lower terrain** remains as an option (enum index unchanged, so saved models keep their method).
+- `cells_still_unrouted` no longer counts boundary outlets; new stat `boundary_outlets`.
+
+### Removed
+- **Hybrid flat method** (and the FLAT_WEIGHT / SMALL_FLATS parameters): it reproduced Barnes (stream F1 ≥ 0.99 in every stratum). `core/flow/flats.resolve_flats(w=…)` keeps w for research.
+
+### Fixed
+- **Flats touching the grid edge or NoData stayed unrouted** (all methods). Boundary cells without descent are now outlets and such flats drain to them, as in TauDEM and RichDEM — relevant for clips and coastlines.
+- **Barnes departed from the published algorithm at the flat's low edge**: a cell there could run along the rim before leaving; the neighbour scan order also differed. 0.12 Barnes agreed with RichDEM on 78 % of flat cells (one flat ALOS area); 0.13 matches RichDEM cell for cell on all 160 benchmark runs.
+
+### Added
+- `core/flow/_reference.reference_barnes_richdem`: per-cell port of RichDEM's Barnes code, the new test oracle (exact match on 80 random surfaces with NoData). Tests: edge/NoData drainage, Barnes default, hybrid refused (test_flats 31 checks; smoke 28).
+- `BENCHMARK.md`.
+
+### Compatibility
+- **QGIS 4.2.2** (Qt 6): all unit suites and the 28-check smoke test pass headless on the official Debian trixie packages; the plugin loads, registers 13 algorithms and unloads. Also tested on QGIS 3.34.4. `qgisMaximumVersion=4.99`.
+
+## [0.12.0] — unreleased (WP-E flats and performance)
+### Fixed
+- **Barnes flat resolution could create flow loops.** Its outlet rule for local-minimum flat cells accepted an equal-elevation neighbour assigned earlier in the same pass, which could point two cells at each other. The loops are small but sit on main channels and cut them off from their upstream area (on a 30 m flat coastal clip the largest accumulation was 40,117 cells; 794,103 with the fix). The exit now goes only to a lower neighbour or one routed before flat resolution. Toward-lower (the default) was not affected. The earlier Barnes-vs-reference comparison on coastal flats (stream IoU 0.19) used the faulty code and should be repeated.
+
+### Added
+- **Hybrid flat resolution**: `flat_mask = w·toward + (flat_height − away)`, w > 1 (w = 2 is Barnes), with an optional size switch (toward gradient only below N cells). New options on D8 flow direction. Loop-free for every w > 1 (tested); on broad real flats w changes little — tie rules among equally short paths matter more.
+- **Memory estimate** (`core/memory.py`) from measured per-step peaks, reported by every heavy tool before it runs, with a warning when it nears the free RAM.
+- `core/flow/_reference.py`: the v0.8.3 per-cell algorithms, kept verbatim as test oracles. `tests/test_flats.py` (24 checks).
+
+### Changed
+- **Vectorised core**: fill (frontier relaxation of the priority-flood solution, with and without min_slope), D8 flow direction (streamed over the 8 directions: ~176 → ~59 bytes per cell), toward-lower and Barnes flats, accumulation, Strahler, catchment delineation, longest flow path (FIFO order reproduced so equal-length ties choose the same branch) and nearest-stream snapping. Outputs identical to v0.8.3 (except the Barnes fix above; fractional-weight accumulation to 1e-12). Full chain on ~1-megapixel 30 m clips: 10.5 s → 2.9 s (steep), 25.9 s → 4.8 s (flat coastal).
+- Documentation corrected: the D8 tie rule is the fixed priority S, W, N, E, SE, SW, NW, NE (not lowest index).
+
 ## [0.11.0] — unreleased (WP-C soils)
 ### Added
 - **Soil parameters for catchments** (new "Soils and erosion" group) and an optional soil input on **Build HEAS exchange package**: a soil block on every catchment — topsoil sand, silt, clay, organic carbon, coarse fragments, bulk density, USDA texture, FAO drainage class, USLE K (Williams/EPIC, SI) and the Renard Dg-based K, CFRG, a texture/drainage hydrologic-group proxy, coverage %, dominant unit, TTR class, dataset and depth. Optional USLE K and soil-unit rasters.

@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.11.0
+**Version:** 0.12.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -74,6 +74,7 @@ qeht/
     test_interop.py      74 checks: outlet_uid, slopes, exchange, golden fixture
     test_crossings.py    43 checks: alignment, candidates, clusters, burn, relink
     test_soils.py        31 checks: USLE K, texture, HSG, SOTWIS loader, soil block
+    test_flats.py        36 checks: v0.8.3 oracles, Barnes == RichDEM port, edge drains, DEM QA
     fixtures/            golden_exchange.gpkg + .json (shared with HEAS)
     qgis_smoke.py        every Processing tool run inside QGIS
 ```
@@ -116,6 +117,10 @@ Conditioning is deliberately a standalone step producing only a conditioned elev
 
 **NoData auditing.** QEHT inspects the DEM for undeclared NoData — for example a large block of cells at exactly 0.0 while genuine terrain begins far above it, with no NoData value set in the header. Treated as valid terrain, such a block becomes a spurious flat sink that the whole catchment drains into. The audit warns; the Fill algorithm accepts a NoData override so the user can mask it. (This was not hypothetical: it was found on a real project DEM with 11.8% of cells at 0.0 and real terrain starting at 1574 m.)
 
+**Resampling audit (v0.13.1).** A DEM regridded or reprojected with nearest neighbour repeats whole source rows and columns wherever the output grid is finer than the source. The repeats are exact, so they create artificial flats and exactly tied neighbours, and flow routing across them is decided by the flat method rather than the terrain. Fill and D8 flow direction count rows and columns that repeat their neighbour over ≥ 99 % of their overlapping valid cells (constant rows excluded) and warn above 0.2 %. Calibration: nearest-neighbour reprojections showed 0.45–3 %; native and bilinear grids 0 %; whole-metre DEMs (ALOS) have many tied cells but no repeated rows and are not flagged. Note that a FABDEM export at a scale slightly finer than its native 1″ grid (e.g. an Earth Engine export at 0.000269°) repeats about one row and column in 33 — export in the native projection and scale, or resample bilinearly.
+
+**Flat-method sensitivity (v0.13.1).** Catchment characteristics routes the conditioned DEM with both flat methods and reports each outlet's contributing area under each (`area_barnes_km2`, `area_toward_km2`, `flat_sensitivity_pct`); `flat_sensitive = 1` above a tolerance (default 10 %). A flagged catchment is decided by flats or ties, not terrain, and needs checking against mapped drainage or on site. On Site C (a road project) the check flagged exactly the four crossings on the section built from a nearest-neighbour DEM (areas differing by 40–100 %) and none of the six stable ones; on a bilinear resample it flagged none.
+
 ### 4.2 D8 flow direction
 
 Flow direction selects the neighbour of steepest descent, weighted by distance:
@@ -140,20 +145,26 @@ with a relative tolerance of 1e-6 for treating gradients as tied. Applying this 
 
 ### 4.4 Flat resolution
 
-After steepest-descent routing, cells in filled flats have no downhill neighbour. QEHT provides two methods.
+After steepest-descent routing, cells in filled flats have no downhill neighbour. Since v0.13 QEHT provides two methods; Barnes is the default (WP-G benchmark, see `BENCHMARK.md`). Flats that touch the grid edge or NoData drain to it (boundary cells without descent are outlets), as in TauDEM and RichDEM.
 
-**Method A — toward-lower BFS (default).** Flat cells are seeded from their outlets and a breadth-first distance is propagated inward; each flat cell routes toward decreasing distance-to-outlet. This is the toward-lower component of the Garbrecht & Martz conceptual approach.
+**Method A — toward-lower BFS (option; default up to v0.12).** Flat cells are seeded from their outlets and a breadth-first distance is propagated inward; each flat cell routes toward decreasing distance-to-outlet. This is the toward-lower component of the Garbrecht & Martz conceptual approach.
 
-**Method B — Barnes 2014 convergent resolver (iterated).** A faithful reconstruction of RichDEM's two-gradient method: label each flat from its low edges; build a gradient *away* from high edges and a gradient *toward* low edges; combine them as `flat_mask = 2·toward + (flat_height − away)`; route each flat cell to the same-flat neighbour of lowest combined value. QEHT adds iteration to convergence — repeating the pass so nested flats drain in hierarchy order, since a flat whose outlet is itself a lower flat can only resolve once that lower flat has drained. The method passes synthetic saddle tests (interior converges to a single outlet, no false sinks, monotonic downstream accumulation) and resolves ~98% of flat cells in two iterations on real terrain.
+**Method B — Barnes 2014 convergent resolver (default since v0.13).** Barnes' two-gradient method, reproducing his own RichDEM implementation cell for cell (tested against a per-cell port of RichDEM's code and against RichDEM itself on 160 benchmark runs): label each flat from its low edges; build a gradient *away* from high edges and a gradient *toward* low edges; combine them as `flat_mask = 2·toward + (flat_height − away)`; route each flat cell to the same-flat neighbour of lowest combined value; cells on a flat's low edge leave the flat directly (in RichDEM the routed low-edge cells carry the lowest value of all); neighbours are scanned W, NW, N, NE, E, SE, S, SW with cardinal preferred on ties. QEHT adds iteration to convergence — repeating the pass so nested flats drain in hierarchy order, since a flat whose outlet is itself a lower flat can only resolve once that lower flat has drained. The method passes synthetic saddle tests (interior converges to a single outlet, no false sinks, monotonic downstream accumulation) and resolves ~98% of flat cells in two iterations on real terrain.
 
-**Why toward-lower is the default.** This is the central empirical finding of the project and is documented honestly rather than hidden. On a flat coastal DEM (34% of cells flat), the canonical Barnes result *disperses* flow and matches the reference toolset's accumulation **less** well than the simpler toward-lower method:
+**History: why toward-lower was the default up to v0.12.** On a flat coastal DEM (34% of cells flat), the canonical Barnes result *disperses* flow and matches the reference toolset's accumulation **less** well than the simpler toward-lower method:
 
 | Method | Stream IoU @1000 | p99 accum (reference 9,071) | cells > 1000 (reference 56,119) |
 |---|---|---|---|
 | Toward-lower | 0.63 | 6,324 | 51,974 |
 | Barnes iterated | 0.19 | 642 | 14,428 |
 
-Both are valid, cycle-free drainage solutions; they simply differ. The reference platform's actual flat behaviour — despite its documentation citing Garbrecht & Martz — empirically resembles the simpler method here. The remaining QEHT-vs-reference gap on flat terrain is therefore a genuine algorithmic difference, not an implementation defect. On steep terrain the two methods agree to within 0.1%.
+**Correction (v0.12).** The Barnes figures above were produced with the ≤ 0.11 code, whose outlet rule for local-minimum cells could point two cells at each other (it accepted neighbours assigned earlier in the same pass). The resulting two-cell loops sit on main channels and cut them off from their upstream area — consistent with the collapsed p99 accumulation (642 against 9,071). On a 30 m flat coastal clip the fix raised the largest accumulation from 40,117 to 794,103 cells. The comparison must be repeated with the fixed resolver before any conclusion about Barnes against the reference platform is drawn. Toward-lower was never affected.
+
+**Removed in v0.13 — hybrid.** The WP-G benchmark showed it reproduces Barnes (stream F1 ≥ 0.99 in every stratum); it is no longer offered. `core/flow/flats.resolve_flats(w=…)` keeps the parameter for research. Original description (v0.12): `flat_mask = w·toward + (flat_height − away)`, w > 1. w = 2 is Barnes; as w → ∞ the away term only breaks ties and every cell follows a shortest path to its outlet (tested). A cell only flows to a neighbour with strictly lower flat_mask, so no loop is possible for any w; for w > 1 every cell with toward distance t > 1 has a neighbour at t − 1 whose value is lower by at least w − 1, so only low-edge cells can be local minima, and those exit to lower or pre-routed neighbours. For w ≤ 1 interior false sinks are possible and the value is refused. On a broad coastal flat w changes little (stream IoU vs toward-lower 0.394–0.399 for w = 1.5 … 10⁶, ~44 % of flat cells routed differently from toward-lower at every w): among equally short paths, Barnes' tie rules (same flat, cardinal first) and toward-lower's (first in E, SE, S … order) differ, and that choice dominates on large flats. An optional size switch applies the toward gradient alone to flats below N cells (no seams, tested); with the vectorised code it saves no measurable time.
+
+**WP-G benchmark (v0.13).** 80 stratified random 15 km areas across Kenya (flat, rolling, hilly, mountainous; 20 each), each on ALOS AW3D30 and FABDEM, compared with TauDEM, RichDEM, MAS 1.2.1 and DDM HydroLogic 2.3. Toward-lower and Barnes are not interchangeable (their difference exceeds the TauDEM–RichDEM difference in every stratum); Barnes agrees best with the independent TauDEM (mean stream F1 0.969 vs 0.948; 0.870 vs 0.733 on whole-metre flats). Full design, tables and decision in `BENCHMARK.md`.
+
+**Implementation (v0.12).** The resolvers are vectorised: flat edges by neighbour shifts, flats labelled by union-find with pointer jumping over equal-elevation links, BFS by whole frontiers over a compact adjacency list, assignment in the same neighbour order and tie rules. Toward-lower reproduces v0.8.3 bit for bit; Barnes reproduces it everywhere except the corrected exit cells (tests on random surfaces with plateaus, terraces, filled noise and NoData).
 
 ### 4.5 Flow accumulation
 
@@ -258,10 +269,10 @@ The two datasets bound the expected accuracy: near-exact on moderate-to-steep te
 
 ## 7. Known limitations
 
-- **No tiling.** The whole grid is processed in memory; several working copies are held during routing. A ~41-megapixel DEM needs well over 8 GB at peak. Above ~25 megapixels the tools warn and recommend clipping to the catchment plus a buffer, which is standard practice and does not affect results within the clip.
-- **Flat terrain.** On very flat terrain QEHT reproduces the reference platform's output to a stream IoU of ~0.6, not near-unity. This is inherent to the algorithmic difference in Section 4.4, not a defect. For flat coastal catchments where the last increment matters, a reference-platform flow-direction grid can be ingested and QEHT's accumulation, catchment, and characteristics tools run on top of it.
-- **Flat routing is one-sided by default.** The Barnes convergent option exists but is not the default because it matches the reference toolset less well on the tested terrain.
-- **Single-threaded.** No parallelism; the algorithms are O(N) or O(N log N) but run on one core.
+- **No tiling.** The whole grid is processed in memory. Measured peaks for the v0.12 core (bytes per cell, plus ~24 resident): fill 44, flow direction 119 (toward) / 165 (Barnes), accumulation, Strahler, catchment and longest flow path ~82. Every tool reports its estimate before running and warns when it approaches the free RAM; clip to the catchment plus a buffer when it does — results inside the clip are unchanged.
+- **Flat terrain.** On very flat terrain QEHT's toward-lower option reproduced the commercial reference platform's output to a stream IoU of ~0.6 (Site B; to be repeated with the fixed Barnes default). This is inherent to the algorithmic difference in Section 4.4, not a defect. For flat coastal catchments where the last increment matters, a reference-platform flow-direction grid can be ingested and QEHT's accumulation, catchment, and characteristics tools run on top of it.
+- **Flat method depends on the DEM.** On whole-metre DEMs (ALOS) half the cells of flat terrain can be flat and the method changes the network; on floating-point DEMs (FABDEM) flats are ~1 % of cells and it matters little.
+- **Single-threaded.** No parallelism. Since v0.12 the core is vectorised NumPy (fill, direction, flats, accumulation, Strahler, delineation, longest flow path, snapping), 3.6–5.4× faster end to end on 1-megapixel clips.
 
 ---
 
@@ -312,7 +323,7 @@ The recommended sequencing is to establish the public GitHub repository now — 
 
 ## 10. Citation
 
-See `CITATION.cff`. In brief: QEHT: QGIS Engineering Hydrology Toolkit, v0.11.0, GPL-2.0-or-later.
+See `CITATION.cff`. In brief: QEHT: QGIS Engineering Hydrology Toolkit, v0.12.0, GPL-2.0-or-later.
 
 ## 11. Licence
 
