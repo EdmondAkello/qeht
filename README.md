@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.9.0
+# QEHT — QGIS Engineering Hydrology Toolkit v0.10.0
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -30,15 +30,19 @@ which are C++ libraries already loaded inside the QGIS process. There is no
         linking/ids.py       outlet_uid generation and uniqueness
         geometry/polygonize.py  cell mask -> polygon (pure NumPy)
         interop/             HEAS exchange: field dictionary, GeoPackage writer
+        network/             road alignment chainage, crossing candidates
+        conditioning/burn.py breach road embankments at crossings
       processing_provider/   ← the only place QGIS and core meet
       tests/test_core.py     ← runs on bare Python + NumPy
       tests/test_interop.py  ← outlet_uid, slopes, exchange package, golden fixture
+      tests/test_crossings.py ← crossing candidates, burn, renumber-and-relink
       tests/qgis_smoke.py    ← every Processing tool, run inside QGIS
 
 The core is importable without QGIS. That is what makes the hydrology testable:
 
     python -m qeht.tests.test_core        # 47 analytic checks
     python -m qeht.tests.test_interop     # 74 checks incl. the golden fixture
+    python -m qeht.tests.test_crossings   # 43 checks: road crossings, burn, relink
 
 Run these after any change to the core, and before trusting any output on a
 real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
@@ -56,6 +60,9 @@ real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
 | Longest flow path | a hydrology toolset's `Longest Flow Path` |
 | Catchment and flow path characteristics | a hydrology toolset's `Basin/Longest Flow Path` attributes |
 | Build HEAS exchange package | — (one self-describing GeoPackage for HEAS; see below) |
+| Renumber and relink exchange package | — (re-issue IDs after editing crossings) |
+| Road crossing candidates | — (road × drainage crossings with chainage, clustering) |
+| Burn crossings through embankments | a DEM-reconditioning "burn culverts" step |
 
 For Pairwise Intersect, use the built-in `native:intersection` — it is C++ and
 never spawns anything. There is no reason to wrap it.
@@ -163,6 +170,34 @@ standard library and checked against GDAL's GeoPackage validator in the tests;
 `tests/fixtures/golden_exchange.gpkg` is the shared fixture that HEAS imports
 in its own tests.
 
+## Road drainage workflow (v0.10)
+
+1. **Road crossing candidates** — every D8 flow link of the stream network
+   near the road is intersected with the centreline (the same segments QEHT's
+   stream polylines are made of, so no crossing is lost to a digitising gap).
+   Each candidate carries chainage, crossing angle (90 = square), contributing
+   area, Strahler order, reach id, the side the flow comes from, and
+   `status = candidate`. Streams that run alongside the road inside the
+   corridor half-width for at least the minimum parallel length cross the
+   centreline many times on a DEM: those candidates share a cluster and the
+   stream is written as a *parallel reach* (where a side drain must carry the
+   water). In each cluster the most downstream candidate (largest area) is
+   `recommended = 1`. Nothing is deleted; set `status` to accepted/rejected.
+2. **Burn crossings through embankments** (optional, for DSMs and survey DEMs
+   that show the embankment as a dam) — at each crossing, a short straight
+   breach across the road from the low point upstream to the low point
+   downstream, lowered to a straight grade (never raised). Every breach is
+   logged (cells, maximum cut, volume). Then fill, flow direction and
+   accumulation on the burned DEM.
+3. **Build HEAS exchange package** on the candidate layer — uses the accepted
+   candidates (or the recommended ones), keeps each outlet cell exactly (no
+   snapping), numbers `outlet_uid` along the chainage (decision D2), and stores
+   the full candidate layer and the road alignment in the package.
+4. **Renumber and relink** — after deleting, moving or adding crossings in the
+   package, re-sorts them, re-issues gapless IDs, recomputes every catchment
+   and flow path, and writes `renumber_log` (old → new, including deleted and
+   new, and how far a moved point moved) into a new package.
+
 ## Interoperability
 
 Flow direction is written and read in the standard D8 encoding
@@ -193,7 +228,7 @@ Stated explicitly because a drainage report needs them stated:
 
 ## Validation
 
-**Level 1 — synthetic analytic DEMs.** 47 checks, `tests/test_core.py`, plus 74 interop checks in `tests/test_interop.py`. PASS.
+**Level 1 — synthetic analytic DEMs.** 47 checks, `tests/test_core.py`, plus 74 interop checks in `tests/test_interop.py` and 43 road-crossing checks in `tests/test_crossings.py`. PASS. `tests/qgis_smoke.py` (23 checks) runs every tool inside QGIS.
 
 **Level 3 — reference hydrology toolset production output, Site A.** 718 x 775
 cells @ 30.92 m, EPSG:21037, 16 road-crossing pour points with reference

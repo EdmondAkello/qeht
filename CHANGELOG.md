@@ -3,6 +3,18 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.10.0] — unreleased (WP-A crossings, WP-D burn, D3 relink)
+### Added
+- **Road crossing candidates** (new "Road drainage" group): intersects every D8 flow link of the stream network near a road centreline with the alignment. Candidates carry chainage (from a start value, optionally reversed; multi-part roads chained in layer order), crossing angle, contributing area, Strahler order, reach id, flow side (L/R), road azimuth and `status = candidate`. Streams running alongside the road within the corridor for at least the minimum parallel length form one cluster and are exported as `parallel_reaches` (side-drain hints); an optional merge distance also clusters candidates by chainage. In each cluster the most downstream candidate is `recommended = 1` (D3). Nothing is deleted.
+- **Burn crossings through embankments**: a short straight breach across the road at each crossing, lowered to a straight grade between the upstream and downstream low points (never raised), with a per-crossing log (cells, maximum cut, volume). Takes a candidate layer (road direction stored on each candidate) or points plus the road.
+- **Renumber and relink exchange package** (D3): re-sorts edited crossings (by chainage, else downstream-first), re-issues gapless `outlet_uid`s, recomputes catchments and flow paths and writes a `renumber_log` table (old → new, unchanged / renumbered / new / deleted, distance moved) into a new package.
+- **Build HEAS exchange package** accepts a candidate layer: uses the accepted candidates (else the recommended ones), keeps each outlet cell (no snapping), fills `chainage_m`, numbers IDs along the chainage and stores `crossing_candidates` and `road_alignment` in the package. Optional road alignment gives chainages to hand-placed points. New metadata keys `crossing_source`, `chainage_start_m`, `relinked_from` (additive, still `qeht-heas-1`).
+- `core/network/alignment.py` (linear referencing, intersections), `core/network/crossings.py`, `core/conditioning/burn.py`, `core/linking/relink.py`.
+- Tests: `tests/test_crossings.py` (43 checks); `tests/qgis_smoke.py` extended to the road workflow (23 checks, QGIS 3.34.4).
+
+### Changed
+- "Sequential numbering order" in Build HEAS exchange package now defaults to *Automatic* (along the chainage when known, else downstream first).
+
 ## [0.9.0] — unreleased (WP-B, HEAS interoperability)
 ### Added
 - **Build HEAS exchange package** (new "Interoperability" group): one GeoPackage per run, schema `qeht-heas-1`, with `crossings`, `catchments` and `flowpaths` layers linked by `outlet_uid`, plus `qeht_run_metadata` (QEHT version, DEM path and SHA-256, CRS, cell size, thresholds, snapping, ID scheme, full parameters) and `qeht_field_dictionary` (meaning, unit, method and HEAS target of every field). Refuses a geographic CRS. Duplicate or empty IDs stop the run with a list. Optional CSV per layer.
