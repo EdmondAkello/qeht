@@ -39,7 +39,7 @@ which are C++ libraries already loaded inside the QGIS process. There is no
       tests/test_interop.py  ← outlet_uid, slopes, exchange package, golden fixture
       tests/test_crossings.py ← crossing candidates, burn, renumber-and-relink
       tests/test_soils.py    ← USLE K, texture, SOTWIS loader, soil block
-      tests/test_flats.py    ← vectorised core == v0.8.3 reference; hybrid flats
+      tests/test_flats.py    ← vectorised core == v0.8.3 reference; Barnes == RichDEM port
       tests/qgis_smoke.py    ← every Processing tool, run inside QGIS
 
 The core is importable without QGIS. That is what makes the hydrology testable:
@@ -48,7 +48,7 @@ The core is importable without QGIS. That is what makes the hydrology testable:
     python -m qeht.tests.test_interop     # 74 checks incl. the golden fixture
     python -m qeht.tests.test_crossings   # 43 checks: road crossings, burn, relink
     python -m qeht.tests.test_soils       # 31 checks: soils and USLE K
-    python -m qeht.tests.test_flats       # 24 checks: oracles, hybrid flats
+    python -m qeht.tests.test_flats       # 31 checks: oracles, Barnes == RichDEM, edge drains
 
 Run these after any change to the core, and before trusting any output on a
 real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
@@ -246,21 +246,18 @@ flow path) went from 10.5 s to 2.9 s on steep terrain and from 25.9 s to 4.8 s
 on a flat coastal clip; D8 peak memory fell from ~176 to ~59 bytes per cell.
 
 **Barnes resolver fixed.** Up to 0.11 the Barnes option could route two flat
-cells into each other (its outlet rule accepted a neighbour assigned earlier
-in the same pass). The loops are small but sit on main channels: on the flat
-coastal clip the largest accumulation was 40,117 cells with the old code and
-794,103 with the fix. Toward-lower (the default) was never affected. The
-earlier comparison in which Barnes matched a reference platform poorly on
-coastal flats (stream IoU 0.19 against 0.63 for toward-lower) used the old
-code and should be repeated.
+cells into each other; fixed in 0.12.
 
-**Hybrid.** `flat_mask = w·toward + (flat_height − away)`: w = 2 is Barnes,
-large w follows shortest paths to the outlet, 1 < w < 2 pushes flow off high
-edges harder; any w > 1 is loop-free (tested for w = 1.01 … 100). On a broad
-coastal flat w changed little (stream IoU vs toward-lower 0.394–0.399 for w
-from 1.5 to 10⁶): how ties between equally short paths are broken decides the
-network more than w does. An optional size switch uses the toward gradient
-alone on small flats; with the vectorised code it saves no measurable time.
+### 0.13: Barnes is the default flat method (WP-G benchmark)
+
+80 random 15 km areas across Kenya (20 each flat, rolling, hilly,
+mountainous), each on ALOS AW3D30 and FABDEM, were routed with QEHT and with
+TauDEM, RichDEM, MAS and DDM HydroLogic. Barnes agreed best with the
+independent TauDEM (stream F1 0.969 vs 0.948 for toward-lower; 0.870 vs 0.733
+on whole-metre flats), and QEHT's Barnes now matches Barnes' own
+implementation (RichDEM) cell for cell. The hybrid reproduced Barnes and was
+removed; toward-lower stays as an option. The benchmark also fixed flats that
+touch the clip edge or NoData, which now drain to it. Details: `BENCHMARK.md`.
 
 ## Interoperability
 
@@ -276,11 +273,11 @@ result.
 
 Stated explicitly because a drainage report needs them stated:
 
-1. **Flat resolution.** The default routes flats toward lower terrain (the
-   toward component of Garbrecht & Martz 1997). Barnes 2014 (both gradients)
-   and a one-parameter hybrid are options (see "Flats and performance").
-   Drainage across wide flats can converge into fewer channels than commercial
-   reference toolsets produce. Filling with a small minimum slope (1e-4)
+1. **Flat resolution.** The default (since 0.13) is Barnes 2014, both
+   gradients, identical to Barnes' RichDEM implementation; routing toward
+   lower terrain only is an option (see `BENCHMARK.md`). On wide flats the
+   two give different networks, and commercial reference toolsets may differ
+   from both. Filling with a small minimum slope (1e-4)
    largely removes flats before routing.
 2. **Tie-breaking.** Where neighbours give identical drop/distance, the fixed
    priority S, W, N, E, SE, SW, NW, NE applies - recovered empirically from a
@@ -292,7 +289,7 @@ Stated explicitly because a drainage report needs them stated:
 
 ## Validation
 
-**Level 1 — synthetic analytic DEMs.** 47 checks, `tests/test_core.py`, plus 74 interop checks in `tests/test_interop.py`, 43 road-crossing checks in `tests/test_crossings.py` 31 soil checks in `tests/test_soils.py` and 24 checks in `tests/test_flats.py` (vectorised core vs the v0.8.3 reference; hybrid flats). PASS. `tests/qgis_smoke.py` (28 checks) runs every tool inside QGIS.
+**Level 1 — synthetic analytic DEMs.** 47 checks, `tests/test_core.py`, plus 74 interop checks in `tests/test_interop.py`, 43 road-crossing checks in `tests/test_crossings.py` 31 soil checks in `tests/test_soils.py` and 31 checks in `tests/test_flats.py` (vectorised core vs the v0.8.3 reference; Barnes vs a port of RichDEM; edge drainage). PASS. `tests/qgis_smoke.py` (28 checks) runs every tool inside QGIS.
 
 **Level 3 — reference hydrology toolset production output, Site A.** 718 x 775
 cells @ 30.92 m, EPSG:21037, 16 road-crossing pour points with reference

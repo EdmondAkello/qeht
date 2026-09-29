@@ -10,7 +10,7 @@ from collections import deque
 
 import numpy as np
 
-from ..core.conditioning.fill import fill_depressions
+from ..core.conditioning.fill import fill_depressions, valid_boundary_mask
 from ..core.flow.direction import d8_direction, _resolve_flats_toward
 from ..core.flow.flats import resolve_flats
 from ..core.flow.accumulation import flow_accumulation, strahler_order
@@ -92,19 +92,12 @@ def test_oracles():
         R.reference_resolve_flats_toward(work, v, a); _resolve_flats_toward(work, v, b)
         bad["toward"] += not np.array_equal(a, b)
         a, b = d1.copy(), d1.copy()
-        R.reference_resolve_flats_barnes(f, v, a); resolve_flats(f, v, b, w=2.0)
-        # v0.12 fixes the v0.8.3 exit rule (it could form 2-cell cycles):
-        # outputs must match except at exit cells, which must now leave the
-        # flat to a lower or pre-routed neighbour.
-        diff = np.argwhere(a != b)
-        for r, c in diff:
-            k = b[r, c]
-            nr, nc = r + DROW[k], c + DCOL[k]
-            ok = (d1[r, c] < 0 and k >= 0 and (f[nr, nc] < f[r, c] - 1e-9 or
-                  (d1[nr, nc] >= 0 and abs(f[nr, nc] - f[r, c]) <= 1e-9)))
-            if not ok:
-                bad["barnes"] += 1
-                break
+        # v0.13: the oracle is a per-cell port of Barnes' own implementation
+        # (RichDEM); edge cells without descent drain off the grid, as there.
+        drain = v & (d1 < 0) & valid_boundary_mask(v)
+        R.reference_barnes_richdem(f, v, a, drain); resolve_flats(f, v, b, w=2.0, drain=drain)
+        bad["barnes"] += not np.array_equal(a, b)
+        a = d1.copy(); R.reference_resolve_flats_barnes(f, v, a)   # v0.8.3, for the cycle count
         bad["barnes_cycles"] += has_cycle(b)
         n_ref_cycles[0] += has_cycle(a)
         d = b
@@ -133,7 +126,7 @@ def test_oracles():
         rad = int(rng.integers(0, 6))
         bad["snap"] += snap_pour_point(r0, c0, acc, v, rad, st) != \
             R.reference_snap_to_stream(r0, c0, acc, v, rad, st)
-    labels = {"barnes": "barnes: identical to v0.8.3 except corrected exit cells",
+    labels = {"barnes": "barnes: identical to Barnes' reference implementation (RichDEM port)",
               "barnes_cycles": "barnes: no flow cycles (v0.8.3 had cycles on "
                                f"{n_ref_cycles[0]} of {N_RANDOM} surfaces)"}
     for k, n in bad.items():
@@ -196,10 +189,16 @@ def test_hybrid_family():
     except ValueError:
         refused = True
     check("w <= 1 refused (false sinks possible)", refused)
-    same = all(np.array_equal(d8_direction(f, v, 1, 1, flat_method="hybrid", flat_weight=2.0)[0],
+    same = all(np.array_equal(d8_direction(f, v, 1, 1)[0],
                               d8_direction(f, v, 1, 1, flat_method="barnes")[0])
                for f, _, v in surfaces[:15])
-    check("d8_direction: hybrid w=2 == barnes", same)
+    check("d8_direction: Barnes is the default (0.13)", same)
+    try:
+        d8_direction(surfaces[0][0], surfaces[0][2], 1, 1, flat_method="hybrid")
+        gone = False
+    except ValueError:
+        gone = True
+    check("d8_direction: 'hybrid' no longer accepted (removed in 0.13)", gone)
 
 
 def test_size_switch():
@@ -221,8 +220,31 @@ def test_size_switch():
     check("mixed threshold: no cycles, no unresolved seams", seams == 0)
 
 
+def test_edge_drains():
+    print("\n4. Flats that touch the grid edge or NoData drain to it (v0.13)")
+    # A plateau whose only outlet is the grid edge: north edge and a NoData
+    # hole in the middle; everything else is walled in by higher ground.
+    n = 21
+    z = np.full((n, n), 10.0)
+    z[:, 0] = z[:, -1] = z[-1, :] = 20.0          # walls W, E, S
+    v = np.ones((n, n), dtype=bool)
+    v[12:14, 9:11] = False                         # NoData hole
+    for method in ("toward", "barnes"):
+        d, st = d8_direction(z, v, 30.0, 30.0, flat_method=method)
+        interior = v & ~valid_boundary_mask(v)
+        check(f"{method}: every interior plateau cell routed, none unrouted",
+              bool(np.all(d[interior & (z == 10.0)] >= 0)) and st["cells_still_unrouted"] == 0,
+              f"unrouted {st['cells_still_unrouted']}, boundary outlets {st['boundary_outlets']}")
+        check(f"{method}: no cycles", not has_cycle(d))
+        acc, _ = flow_accumulation(d, v)
+        ends = v & (d < 0)
+        check(f"{method}: all flow ends at the north edge or the NoData hole",
+              bool(np.all(valid_boundary_mask(v)[ends])) and
+              abs(acc[ends].sum() + ends.sum() - v.sum()) < 1e-6, f"{int(ends.sum())} outlets")
+
+
 def test_memory_estimate():
-    print("\n4. Memory estimate")
+    print("\n5. Memory estimate")
     e = estimate_peak_memory(5000, 5000)
     check("per-step estimate reported, peak is the maximum", e["peak_gb"] == max(e["steps_gb"].values())
           and 1.0 < e["peak_gb"] < 10.0, f"{e['peak_gb']:.1f} GB for 25 Mcells")
@@ -235,6 +257,7 @@ def main(argv=None):
     test_oracles()
     test_hybrid_family()
     test_size_switch()
+    test_edge_drains()
     test_memory_estimate()
     print("\n" + "=" * 62)
     if FAILURES:
