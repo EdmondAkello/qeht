@@ -78,6 +78,12 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "length) and lfp_slope_1085 (10-85 along the LFP, measured from the "
             "OUTLET; lfp_L10_m, lfp_L85_m, lfp_z10_m, lfp_z85_m let you check it "
             "by hand).\n\n"
+            "<b>Soils (optional):</b> give soil map polygons (with the SOTWIS SQLite "
+            "database for the full unit composition, or polygons carrying SOTWIS or "
+            "plain sand/silt/clay/oc fields) to add the soil block to every catchment: "
+            "texture, organic carbon, coarse fragments, USLE K (Williams/EPIC), a "
+            "texture-based hydrologic-group PROXY and the share of the catchment "
+            "covered. Default depth 0-20 cm.\n\n"
             "Supply the RAW DEM for reported elevations and slopes; routing uses "
             "the flow-direction grid. Everything runs in-process.")
 
@@ -121,6 +127,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         self.addParameter(QgsProcessingParameterString(
             FLAT_METHOD, "Flat resolution used for flow direction (recorded, e.g. 'toward')",
             optional=True))
+        self.add_soil_parameters("SOIL", optional=True)
         self.addParameter(QgsProcessingParameterBoolean(
             CSV, "Also write one CSV per layer (for spreadsheets)", defaultValue=False))
         self.addParameter(QgsProcessingParameterFileDestination(
@@ -227,13 +234,14 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         feedback.pushInfo(f"{len(points)} pour points; "
                           f"{'local' if local else 'full upstream'} catchments; "
                           f"IDs {'from ' + id_field if id_field else 'sequential ' + (prefix or '') + '001...'}")
+        soil = self.load_soil(parameters, context, info, feedback, "SOIL")
         try:
             crossings, catchments, flowpaths, issues, id_info = build_exchange_records(
                 direction, valid, accum, elevation, info.geotransform, points,
                 snap_radius_cells=snap_radius, stream_mask=stream_mask, local=local,
                 stream_order=stream_order,
                 id_scheme="attribute" if id_field else "sequential",
-                id_prefix=prefix, id_order=order,
+                id_prefix=prefix, id_order=order, soil=soil,
                 progress=self.make_progress(feedback, weight=0.9))
         except ExchangeError as e:
             raise QgsProcessingException(str(e))
@@ -258,6 +266,8 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                               "nearest_stream" if stream_mask is not None else "max_accumulation"),
             "catchment_mode": "local" if local else "full",
             "id_attribute": id_field or "",
+            "soil_dataset": soil[3]["soil_dataset"] if soil else "",
+            "soil_depth_cm": soil[3]["soil_depth_cm"] if soil else "",
             "crossing_source": ("crossing candidates" if candidate_mode else "pour points"),
             "chainage_start_m": (f"{alignment.start_chainage:g}" if alignment is not None else ""),
             "parameters_json": {k: str(v) for k, v in parameters.items()},

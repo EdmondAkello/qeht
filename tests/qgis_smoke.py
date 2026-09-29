@@ -61,10 +61,10 @@ def main(in_qgis=False):
         reg.addProvider(QehtProvider())
     algs = sorted(a.id() for a in reg.providerById("qeht").algorithms())
     print("QEHT algorithms:", ", ".join(algs))
-    check("provider loads with 12 algorithms incl. exchange, crossings, burn, relink",
-          len(algs) == 12 and all(a in algs for a in (
+    check("provider loads with 13 algorithms incl. exchange, crossings, burn, relink, soils",
+          len(algs) == 13 and all(a in algs for a in (
               "qeht:buildheasexchange", "qeht:crossingcandidates", "qeht:burncrossings",
-              "qeht:renumberrelink")))
+              "qeht:renumberrelink", "qeht:soilparameters")))
 
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     dem = os.path.join(here, "examples", "example_dem.tif")
@@ -251,6 +251,46 @@ def main(in_qgis=False):
           and new_ids == [f"X{k + 1:03d}" for k in range(len(new_ids))]
           and any(x["old_uid"] == del_uid and x["change"] == "deleted" for x in log),
           f"{changes}")
+
+    # ---- v0.11: soils --------------------------------------------------
+    gt = info.geotransform
+    xmid = gt[0] + gt[1] * info.cols * 0.5
+    xa, xb = gt[0] - 100, gt[0] + gt[1] * info.cols + 100
+    ya, yb = gt[3] + gt[5] * info.rows - 100, gt[3] + 100
+    soil = QgsVectorLayer(f"Polygon?crs={QgsRasterLayer(dem).crs().authid()}"
+                          "&field=sand:double&field=silt:double&field=clay:double"
+                          "&field=oc:double&field=drain:string", "soil", "memory")
+    sf = []
+    for (x0, x1), vals in (((xa, xmid), [35.0, 30.0, 35.0, 1.8, "W"]),
+                           ((xmid, xb), [60.0, 20.0, 20.0, 0.9, "M"])):
+        f = QgsFeature(soil.fields())
+        f.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(x0, ya), QgsPointXY(x1, ya),
+                                                  QgsPointXY(x1, yb), QgsPointXY(x0, yb)]]))
+        f.setAttributes(vals); sf.append(f)
+    soil.dataProvider().addFeatures(sf)
+    QgsVectorFileWriter.writeAsVectorFormatV3(soil, out("soil.gpkg"),
+                                              QgsCoordinateTransformContext(), opts)
+    r = processing.run("qeht:soilparameters", {
+        "CATCHMENTS": out("ch_c.gpkg"), "REF": out("fdr.tif"), "SOIL_POLYGONS": out("soil.gpkg"),
+        "SOIL_TOP": 0.0, "SOIL_BOTTOM": 20.0, "OUTPUT": out("ch_soil.gpkg"),
+        "K_RASTER": out("k.tif")})
+    sl = QgsVectorLayer(r["OUTPUT"], "s", "ogr")
+    fl = list(sl.getFeatures())
+    check("soil parameters: every catchment gets K, texture, full coverage; K raster written",
+          len(fl) == 3 and all(f["usle_k"] and 0.005 < f["usle_k"] < 0.07 and f["soil_texture"]
+                               and abs(f["soil_coverage_pct"] - 100) < 1e-6 for f in fl)
+          and os.path.exists(r["K_RASTER"]) and "outlet_uid" in sl.fields().names(),
+          ", ".join(f"{f['outlet_uid']} K={f['usle_k']:.4f} {f['soil_texture']}" for f in fl))
+    r = processing.run("qeht:buildheasexchange", {
+        "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "POINTS": ptsfile,
+        "ID_FIELD": "culvert", "SNAP": 5, "SNAP_THRESHOLD": 200,
+        "SOIL_POLYGONS": out("soil.gpkg"), "OUTPUT": out("soil_exchange.gpkg")})
+    ca = gpkg.read_table(r["OUTPUT"], "catchments", with_geometry=False)
+    md = {row["key"]: row["value"] for row in gpkg.read_table(r["OUTPUT"], "qeht_run_metadata")}
+    errors, _ = validate_exchange(r["OUTPUT"])
+    check("exchange with soils: soil block on catchments, dataset in metadata, validates",
+          not errors and all(c["usle_k"] and c["soil_hsg_proxy"] for c in ca)
+          and md["soil_depth_cm"] and md["soil_dataset"])
 
     print("\n" + ("ALL QGIS SMOKE CHECKS PASSED" if not FAILURES
                   else f"{len(FAILURES)} FAILURE(S): " + "; ".join(FAILURES)))
