@@ -129,6 +129,10 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             FLAT_METHOD, "Flat resolution used for flow direction (recorded, e.g. 'barnes')",
             optional=True))
         self.add_soil_parameters("SOIL", optional=True)
+        from qgis.core import QgsProcessingParameterFile as _PF
+        self.addParameter(_PF(
+            "EROSION", "Erosion output folder (optional; adds the ero_* erosion block)",
+            behavior=_PF.Behavior.Folder, optional=True))
         self.addParameter(QgsProcessingParameterBoolean(
             CSV, "Also write one CSV per layer (for spreadsheets)", defaultValue=False))
         self.addParameter(QgsProcessingParameterFileDestination(
@@ -238,13 +242,22 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                           f"{'local' if local else 'full upstream'} catchments; "
                           f"IDs {'from ' + id_field if id_field else 'sequential ' + (prefix or '') + '001...'}")
         soil = self.load_soil(parameters, context, info, feedback, "SOIL")
+        erosion, erosion_run = None, None
+        ero_folder = self.parameterAsFile(parameters, "EROSION", context) if "EROSION" in parameters else ""
+        if ero_folder:
+            from ..core.erosion.io import load_erosion_inputs
+            try:
+                erosion, erosion_run = load_erosion_inputs(ero_folder, info, read_dem)
+            except (ValueError, FileNotFoundError) as e:
+                raise QgsProcessingException(str(e))
+            feedback.pushInfo(f"Erosion block from {ero_folder} ({erosion.mode}).")
         try:
             crossings, catchments, flowpaths, issues, id_info = build_exchange_records(
                 direction, valid, accum, elevation, info.geotransform, points,
                 snap_radius_cells=snap_radius, stream_mask=stream_mask, local=local,
                 stream_order=stream_order,
                 id_scheme="attribute" if id_field else "sequential",
-                id_prefix=prefix, id_order=order, soil=soil,
+                id_prefix=prefix, id_order=order, soil=soil, erosion=erosion,
                 progress=self.make_progress(feedback, weight=0.9))
         except ExchangeError as e:
             raise QgsProcessingException(str(e))
@@ -274,6 +287,9 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "crossing_source": ("crossing candidates" if candidate_mode else "pour points"),
             "chainage_start_m": (f"{alignment.start_chainage:g}" if alignment is not None else ""),
             "parameters_json": {k: str(v) for k, v in parameters.items()},
+            "erosion_json": ({k: erosion_run.get(k) for k in (
+                "mode", "factors", "indices", "schemes", "mcdma_weights", "bulk_density_kgm3",
+                "sdr_model", "channel_threshold_cells")} if erosion_run else ""),
         })
         try:
             write_exchange(out_path, crossings, catchments, flowpaths, md,
