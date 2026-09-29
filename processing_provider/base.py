@@ -79,8 +79,45 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
                 "results within the clipped area.")
         return megapixels
 
+    def read_alignment(self, parameters, name, context, info, feedback,
+                       start_chainage=0.0, reverse=False):
+        """Road line layer -> core Alignment in the DEM CRS (None if absent).
+
+        Features are chained in layer order; a multi-part feature contributes
+        its parts in order. Reverse flips the direction of chainage.
+        """
+        from qgis.core import (QgsCoordinateReferenceSystem,
+                               QgsCoordinateTransform, QgsProject)
+        from ..core.network.alignment import Alignment
+        source = self.parameterAsSource(parameters, name, context)
+        if source is None:
+            return None
+        dem_crs = QgsCoordinateReferenceSystem()
+        dem_crs.createFromWkt(info.projection_wkt)
+        transform = None
+        if dem_crs.isValid() and source.sourceCrs() != dem_crs:
+            transform = QgsCoordinateTransform(source.sourceCrs(), dem_crs,
+                                               QgsProject.instance())
+        parts = []
+        for feature in source.getFeatures():
+            geom = feature.geometry()
+            if geom is None or geom.isEmpty():
+                continue
+            if transform is not None:
+                geom.transform(transform)
+            lines = geom.asMultiPolyline() if geom.isMultipart() else [geom.asPolyline()]
+            for line in lines:
+                if len(line) >= 2:
+                    parts.append([(p.x(), p.y()) for p in line])
+        if not parts:
+            raise QgsProcessingException("The road layer has no line geometry.")
+        al = Alignment(parts, start_chainage=start_chainage, reverse=reverse)
+        feedback.pushInfo(f"Alignment: {len(al.parts)} part(s), {al.length:,.1f} m, "
+                          f"chainage {al.start_chainage:,.1f} -> {al.end_chainage:,.1f}")
+        return al
+
     def read_pour_points(self, parameters, name, context, info, feedback,
-                         id_field=None):
+                         id_field=None, extra_fields=()):
         """Pour points -> list of dicts {x, y, fid, source_id} in the DEM CRS.
 
         Shared by every tool that takes pour points, so reprojection,
@@ -118,8 +155,13 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
             if id_field:
                 v = feature[id_field]
                 sid = None if v is None or str(v) == "NULL" else v
-            points.append({"x": pt.x(), "y": pt.y(), "fid": int(feature.id()),
-                           "source_id": sid})
+            rec = {"x": pt.x(), "y": pt.y(), "fid": int(feature.id()), "source_id": sid}
+            names = feature.fields().names()
+            for f in extra_fields:
+                if f in names:
+                    v = feature[f]
+                    rec["attr_" + f] = None if v is None or str(v) == "NULL" else v
+            points.append(rec)
         if not points:
             raise QgsProcessingException("No usable pour points.")
         return points
@@ -155,6 +197,54 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
         except OutletIdError as e:
             raise QgsProcessingException(str(e))
         return uids
+
+    @staticmethod
+    def write_vector(path, layer_name, projection_wkt, geom_kind, fields, rows):
+        """Write (geometry, attrs) rows to a GeoPackage layer with OGR.
+
+        geom_kind: 'point' ((x, y)), 'line' ([(x, y), ...]) or
+        'multipolygon' (core polygonize output). fields: [(name, type)] with
+        type text/int/real (or float). None/NaN are written as NULL.
+        """
+        import math
+        import os
+        from osgeo import ogr, osr
+        from ..core.interop.gpkg import wkb_point, wkb_linestring, wkb_multipolygon
+        to_wkb = {"point": lambda g: wkb_point(*g), "line": wkb_linestring,
+                  "multipolygon": wkb_multipolygon}[geom_kind]
+        gtype = {"point": ogr.wkbPoint, "line": ogr.wkbLineString,
+                 "multipolygon": ogr.wkbMultiPolygon}[geom_kind]
+        otype = {"int": ogr.OFTInteger, "real": ogr.OFTReal, "float": ogr.OFTReal,
+                 "text": ogr.OFTString}
+        srs = None
+        if projection_wkt:
+            srs = osr.SpatialReference(); srs.ImportFromWkt(projection_wkt)
+        drv = ogr.GetDriverByName("GPKG")
+        if os.path.exists(path):
+            drv.DeleteDataSource(path)
+        ds = drv.CreateDataSource(path)
+        layer = ds.CreateLayer(layer_name, srs=srs, geom_type=gtype)
+        for fname, ftype in fields:
+            layer.CreateField(ogr.FieldDefn(fname, otype[ftype]))
+        defn = layer.GetLayerDefn()
+        for geom, attrs in rows:
+            feat = ogr.Feature(defn)
+            for fname, ftype in fields:
+                val = attrs.get(fname)
+                if val is None or (ftype in ("int", "real", "float")
+                                   and not math.isfinite(float(val))):
+                    feat.SetFieldNull(fname)
+                elif ftype == "int":
+                    feat.SetField(fname, int(val))
+                elif ftype in ("real", "float"):
+                    feat.SetField(fname, float(val))
+                else:
+                    feat.SetField(fname, str(val))
+            feat.SetGeometry(ogr.CreateGeometryFromWkb(to_wkb(geom)))
+            layer.CreateFeature(feat)
+            feat = None
+        ds = None
+        return path
 
     def report_stats(self, feedback, title, stats):
         """Print a stats block. Handles str/int/float without assuming type -

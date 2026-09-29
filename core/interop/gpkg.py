@@ -259,7 +259,8 @@ CREATE TABLE gpkg_geometry_columns (
             cols += ", last_change"
             vals.append(self.timestamp)
         marks = ",".join("?" * len(vals))
-        sql = f"INSERT INTO gpkg_contents ({cols}) VALUES ({marks})"  # nosec B608 - names from _ident(), values bound
+        # SQL identifiers come from _ident() (validated); values are bound.
+        sql = f"INSERT INTO gpkg_contents ({cols}) VALUES ({marks})"  # nosec B608
         self.con.execute(sql, vals)
 
     @staticmethod
@@ -281,7 +282,8 @@ CREATE TABLE gpkg_geometry_columns (
         names = [n for n, _ in fields]
         colnames = ", ".join([_ident(geom_column)] + [_ident(n) for n in names])
         marks = ",".join("?" * (len(names) + 1))
-        sql = f"INSERT INTO {_ident(table)} ({colnames}) VALUES ({marks})"  # nosec B608 - names from _ident(), values bound
+        # SQL identifiers come from _ident() (validated); values are bound.
+        sql = f"INSERT INTO {_ident(table)} ({colnames}) VALUES ({marks})"  # nosec B608
         for geom, attrs in rows:
             if geom is not None:
                 if geom_type == "POINT":
@@ -306,7 +308,8 @@ CREATE TABLE gpkg_geometry_columns (
         names = [n for n, _ in fields]
         colnames = ", ".join(_ident(n) for n in names)
         marks = ",".join("?" * len(names))
-        sql = f"INSERT INTO {_ident(table)} ({colnames}) VALUES ({marks})"  # nosec B608 - names from _ident(), values bound
+        # SQL identifiers come from _ident() (validated); values are bound.
+        sql = f"INSERT INTO {_ident(table)} ({colnames}) VALUES ({marks})"  # nosec B608
         for attrs in rows:
             self.con.execute(sql, [_clean(attrs.get(n), t) for n, t in fields])
         self._contents(table, "attributes", description)
@@ -330,7 +333,8 @@ def read_table(path, table, with_geometry=True):
             "SELECT column_name FROM gpkg_geometry_columns WHERE table_name=?",
             (table,)).fetchone()
         rows = []
-        query = f"SELECT * FROM {_ident(table)} ORDER BY fid"  # nosec B608 - name from _ident()
+        # SQL identifiers come from _ident() (validated); values are bound.
+        query = f"SELECT * FROM {_ident(table)} ORDER BY fid"  # nosec B608
         for r in con.execute(query):
             d = dict(r)
             if geom_col is not None:
