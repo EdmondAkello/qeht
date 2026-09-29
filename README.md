@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.8.3
+# QEHT — QGIS Engineering Hydrology Toolkit v0.9.0
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -26,15 +26,22 @@ which are C++ libraries already loaded inside the QGIS process. There is no
         flow/direction.py    D8 steepest descent, distance-weighted
         flow/accumulation.py topological accumulation + Strahler
         watershed/delineate.py  streams, snapping, catchments, longest path
+        watershed/statistics.py morphometry, the four slope domains, 10-85 slope
+        linking/ids.py       outlet_uid generation and uniqueness
+        geometry/polygonize.py  cell mask -> polygon (pure NumPy)
+        interop/             HEAS exchange: field dictionary, GeoPackage writer
       processing_provider/   ← the only place QGIS and core meet
       tests/test_core.py     ← runs on bare Python + NumPy
+      tests/test_interop.py  ← outlet_uid, slopes, exchange package, golden fixture
+      tests/qgis_smoke.py    ← every Processing tool, run inside QGIS
 
 The core is importable without QGIS. That is what makes the hydrology testable:
 
-    python -m qeht.tests.test_core
+    python -m qeht.tests.test_core        # 47 analytic checks
+    python -m qeht.tests.test_interop     # 74 checks incl. the golden fixture
 
-39 analytic checks against synthetic DEMs with known answers. Run this after
-any change to the core, and before trusting any output on a real project.
+Run these after any change to the core, and before trusting any output on a
+real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
 
 ## Tools
 
@@ -48,6 +55,7 @@ any change to the core, and before trusting any output on a real project.
 | Stream network to polylines | a hydrology toolset's `Drainage Line Processing` |
 | Longest flow path | a hydrology toolset's `Longest Flow Path` |
 | Catchment and flow path characteristics | a hydrology toolset's `Basin/Longest Flow Path` attributes |
+| Build HEAS exchange package | — (one self-describing GeoPackage for HEAS; see below) |
 
 For Pairwise Intersect, use the built-in `native:intersection` — it is C++ and
 never spawns anything. There is no reason to wrap it.
@@ -58,34 +66,52 @@ The "Catchment and flow path characteristics" tool delineates each catchment and
 its longest flow path, and writes the morphometry a design flood calculation
 needs.
 
+Every catchment and its flow path carry **`outlet_uid`**, a text identifier
+assigned once per run: taken from a pour-point attribute you choose (e.g.
+existing culvert numbers), or sequential with your prefix (`X001`, `X002` ...,
+`001` = most downstream). `outlet_id` (the pour-point feature id) is still
+written but is not stable — it changes when the layer is edited or re-saved —
+so never join on it.
+
 **Catchment polygon fields**
 
 | Field | Meaning |
 |---|---|
+| `outlet_uid` | stable identifier shared with the flow path |
 | `area_km2` | contributing area |
 | `elev_max_m` / `elev_min_m` | highest and lowest ground in the catchment |
 | `relief_m` | elev_max - elev_min |
-| `slope_mean` | mean terrain gradient, Horn 3x3 (a standard slope algorithm) |
-| `slope_relief_ratio` | relief / longest flow path length |
+| `catch_slope_horn` | mean terrain gradient, Horn 3x3 (a standard slope algorithm) |
+| `catch_relief_ratio` | relief / longest flow path length |
 | `lfp_length_km` | longest flow path length |
+| `slope_mean`, `slope_relief_ratio` | v0.8 names of the two slopes above, kept as aliases for this release |
 
 **Flow path line fields**
 
 | Field | Meaning |
 |---|---|
+| `outlet_uid` | stable identifier shared with the catchment |
 | `lfp_length_km` | planimetric length |
 | `lfp_elev_max_m` / `lfp_elev_min_m` | elevation at the divide and the outlet |
 | `lfp_drop_m` | drop along the path |
 | `lfp_slope` | drop / length over the whole path |
-| `lfp_slope_1085` | slope between the 10% and 85% points |
+| `lfp_slope_1085` | slope between the points at 10% and 85% of the length, measured from the outlet |
+| `lfp_L10_m`, `lfp_L85_m`, `lfp_z10_m`, `lfp_z85_m` | where those points are and their elevations, for a hand check |
+
+### Four slope domains, never merged
+
+QEHT reports four slopes under four names, and none substitutes for another:
+`catch_slope_horn` (mean terrain gradient), `catch_relief_ratio` (relief ÷ LFP
+length), `lfp_slope` (drop ÷ length along the LFP) and `lfp_slope_1085` (10–85
+along the LFP).
 
 ### Two catchment slopes, deliberately
 
-`slope_mean` and `slope_relief_ratio` are both commonly called "catchment
+`catch_slope_horn` and `catch_relief_ratio` are both commonly called "catchment
 slope" and they are not interchangeable. On the Site A catchments they differ
 by a factor of 1.2 to 4.5:
 
-| Outlet | slope_mean | slope_relief_ratio | ratio |
+| Outlet | catch_slope_horn | catch_relief_ratio | ratio |
 |---|---|---|---|
 | 22528 | 0.1769 | 0.0438 | 4.0x |
 | 23238 | 0.0506 | 0.0387 | 1.3x |
@@ -95,16 +121,47 @@ Runoff coefficient and curve number tables generally assume the mean terrain
 gradient. Kirpich and most road drainage manuals want the relief ratio. Picking
 the wrong one changes a design discharge substantially. **State which you used.**
 
-`lfp_slope_1085` excludes the top 10% and bottom 15% of the path, removing the
-steep headwater and the flat outlet reach. It is required by several UK and TRRL
-methods and is usually the more defensible design figure - note it runs 10-25%
-below the whole-path slope on the larger Site A catchments.
+`lfp_slope_1085` = (z85 − z10) / (L85 − L10), where L10 and L85 are 10% and
+85% of the path length **measured from the outlet upstream**. It excludes the
+flat bottom 10% and the steep top 15% of the path. Elevations are interpolated
+linearly along the path at exactly those distances. It is required by several
+UK and TRRL methods and is usually the more defensible design figure.
+
+**Changed in 0.9.** QEHT 0.8.3 and earlier measured the 10% and 85% points from
+the divide (i.e. 90% and 15% from the outlet) and took the next cell's elevation.
+On concave profiles the conventional definition gives a lower slope: over 40
+longest flow paths on a steep 30 m test area the 0.9 value was a
+median 6% lower (range −20% to +5%) than the 0.8.3 value. Re-run QEHT before
+reusing 10–85 slopes from ≤ 0.8.3 outputs.
 
 ### Supply the raw DEM for elevations
 
 Routing uses the conditioned DEM; reported elevations should come from the raw
 one, or heights inside filled depressions read as fill surface rather than
 ground. The tool takes both and warns if the raw DEM is omitted.
+
+## HEAS exchange package
+
+**Build HEAS exchange package** writes one GeoPackage per run (schema
+`qeht-heas-1`) that HEAS imports with no field mapping:
+
+| Table | Content |
+|---|---|
+| `crossings` | snapped outlet points with `outlet_uid`, input and snapped coordinates, snap distance, contributing area, Strahler order |
+| `catchments` | one polygon per crossing, with all catchment fields |
+| `flowpaths` | longest flow path per crossing, with all flow-path fields |
+| `qeht_run_metadata` | QEHT version, DEM path and SHA-256, CRS, cell size, thresholds, snapping, ID scheme, full parameters |
+| `qeht_field_dictionary` | meaning, unit, method and HEAS target of every field |
+
+The three layers share `outlet_uid`, so HEAS links them by key rather than by
+row order or by position. Rules: a projected, metric CRS is required (a DEM in
+degrees is refused); duplicate or empty IDs stop the run with a list; missing
+values are written as NULL, never 0; schema changes are additive only (a
+rename or removal would be `qeht-heas-2`). An optional CSV per layer carries
+`outlet_uid` for spreadsheet users. The GeoPackage is written with the Python
+standard library and checked against GDAL's GeoPackage validator in the tests;
+`tests/fixtures/golden_exchange.gpkg` is the shared fixture that HEAS imports
+in its own tests.
 
 ## Interoperability
 
@@ -136,7 +193,7 @@ Stated explicitly because a drainage report needs them stated:
 
 ## Validation
 
-**Level 1 — synthetic analytic DEMs.** 39 checks, `tests/test_core.py`. PASS.
+**Level 1 — synthetic analytic DEMs.** 47 checks, `tests/test_core.py`, plus 74 interop checks in `tests/test_interop.py`. PASS.
 
 **Level 3 — reference hydrology toolset production output, Site A.** 718 x 775
 cells @ 30.92 m, EPSG:21037, 16 road-crossing pour points with reference

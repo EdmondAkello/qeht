@@ -27,6 +27,8 @@ FAC = "FAC"
 POINTS = "POINTS"
 SNAP = "SNAP"
 SNAP_THRESHOLD = "SNAP_THRESHOLD"
+ID_FIELD = "ID_FIELD"
+ID_PREFIX = "ID_PREFIX"
 RASTER_OUT = "RASTER_OUT"
 POLY_OUT = "POLY_OUT"
 
@@ -74,6 +76,12 @@ class DelineateCatchmentAlgorithm(QehtAlgorithm):
         self.addParameter(QgsProcessingParameterNumber(
             SNAP_THRESHOLD, "Snap-to-stream threshold (cells; 0 = snap to max accumulation)",
             QgsProcessingParameterNumber.Type.Double, defaultValue=200.0, minValue=0.0))
+        from qgis.core import QgsProcessingParameterField, QgsProcessingParameterString
+        self.addParameter(QgsProcessingParameterField(
+            ID_FIELD, "ID attribute for outlet_uid (optional; blank = sequential)",
+            parentLayerParameterName=POINTS, optional=True))
+        self.addParameter(QgsProcessingParameterString(
+            ID_PREFIX, "ID prefix", defaultValue="X", optional=True))
         self.addParameter(QgsProcessingParameterRasterDestination(
             RASTER_OUT, "Catchment raster"))
         self.addParameter(QgsProcessingParameterVectorDestination(
@@ -81,7 +89,6 @@ class DelineateCatchmentAlgorithm(QehtAlgorithm):
 
     def processAlgorithm(self, parameters, context, feedback):
         fdr_path = self.raster_path(parameters, FDR, context)
-        source = self.parameterAsSource(parameters, POINTS, context)
         snap_radius = self.parameterAsInt(parameters, SNAP, context)
         snap_threshold = self.parameterAsDouble(parameters, SNAP_THRESHOLD, context)
         raster_out = self.parameterAsOutputLayer(parameters, RASTER_OUT, context)
@@ -101,16 +108,6 @@ class DelineateCatchmentAlgorithm(QehtAlgorithm):
             else:
                 accum, _, _ = read_dem(self.raster_path(parameters, FAC, context))
 
-        # Transform pour points into the DEM CRS.
-        dem_crs = QgsCoordinateReferenceSystem()
-        dem_crs.createFromWkt(info.projection_wkt)
-        transform = None
-        if dem_crs.isValid() and source.sourceCrs() != dem_crs:
-            transform = QgsCoordinateTransform(source.sourceCrs(), dem_crs,
-                                               QgsProject.instance())
-            feedback.pushInfo(f"Reprojecting pour points "
-                              f"{source.sourceCrs().authid()} -> {dem_crs.authid()}")
-
         stream_mask = None
         if accum is not None and snap_threshold > 0:
             stream_mask = extract_streams(accum, valid, threshold_cells=snap_threshold)
@@ -122,25 +119,22 @@ class DelineateCatchmentAlgorithm(QehtAlgorithm):
                 "too high a threshold snaps it onto the trunk stream and inflates "
                 "the catchment.")
 
+        id_field = self.field_parameter(parameters, ID_FIELD, context)
+        prefix = (self.parameterAsString(parameters, ID_PREFIX, context) or "").strip()
+        points = self.read_pour_points(parameters, POINTS, context, info, feedback,
+                                       id_field=id_field)
         outlets = []
-        for feature in source.getFeatures():
-            geom = feature.geometry()
-            if transform is not None:
-                geom.transform(transform)
-            pt = geom.asPoint()
-            row, col = info.xy_to_rowcol(pt.x(), pt.y())
-            if not (0 <= row < info.rows and 0 <= col < info.cols):
-                feedback.pushWarning(f"Pour point {pt.x():.1f}, {pt.y():.1f} "
-                                     "falls outside the DEM. Skipped.")
-                continue
+        for p in points:
+            row, col = info.xy_to_rowcol(p["x"], p["y"])
             if snap_radius > 0 and accum is not None:
                 row, col, moved, acc_at = snap_pour_point(
                     row, col, accum, valid, search_radius_cells=snap_radius,
                     stream_mask=stream_mask)
                 feedback.pushInfo(
-                    f"  point -> cell ({row}, {col}), snapped {moved} cells, "
+                    f"  point fid {p['fid']} -> cell ({row}, {col}), snapped {moved} cells, "
                     f"accumulation {acc_at:,.0f}")
             outlets.append((row, col))
+        uids = self.outlet_uids(points, outlets, accum, id_field, prefix)
 
         if not outlets:
             raise QgsProcessingException("No usable pour points.")
@@ -151,7 +145,7 @@ class DelineateCatchmentAlgorithm(QehtAlgorithm):
         areas = {}
         for idx in range(1, len(outlets) + 1):
             n_cells = int((labels == idx).sum())
-            areas[f"catchment {idx} area (map units squared)"] = n_cells * info.cell_area
+            areas[f"{uids[idx - 1]} area (map units squared)"] = n_cells * info.cell_area
         self.report_stats(feedback, "Catchments", areas)
 
         write_raster(raster_out, labels, info, dtype="int32", nodata=-1)
@@ -161,4 +155,18 @@ class DelineateCatchmentAlgorithm(QehtAlgorithm):
                             field_name="DN", ignore_value=0, dissolve=True)
         feedback.pushInfo(f"Polygonized in-process: {result['features_raw']} raw parts "
                           f"-> {result['features']} dissolved catchment(s)")
+
+        # outlet_uid on the polygons (DN = position in the pour-point list)
+        from osgeo import ogr
+        ds = ogr.Open(poly_out, 1)
+        if ds is not None:
+            layer = ds.GetLayer(0)
+            layer.CreateField(ogr.FieldDefn("outlet_uid", ogr.OFTString))
+            layer.ResetReading()
+            for feat in layer:
+                dn = feat.GetField("DN")
+                if dn is not None and 1 <= int(dn) <= len(uids):
+                    feat.SetField("outlet_uid", uids[int(dn) - 1])
+                    layer.SetFeature(feat)
+            ds = None
         return {RASTER_OUT: raster_out, POLY_OUT: poly_out}

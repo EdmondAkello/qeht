@@ -3,6 +3,24 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.9.0] — unreleased (WP-B, HEAS interoperability)
+### Added
+- **Build HEAS exchange package** (new "Interoperability" group): one GeoPackage per run, schema `qeht-heas-1`, with `crossings`, `catchments` and `flowpaths` layers linked by `outlet_uid`, plus `qeht_run_metadata` (QEHT version, DEM path and SHA-256, CRS, cell size, thresholds, snapping, ID scheme, full parameters) and `qeht_field_dictionary` (meaning, unit, method and HEAS target of every field). Refuses a geographic CRS. Duplicate or empty IDs stop the run with a list. Optional CSV per layer.
+- **`outlet_uid`**: a stable text identifier assigned once per run: from a chosen pour-point attribute, or sequential with a prefix (`X001` ...; downstream-first by default, or in pour-point order). Written by the characteristics, longest-flow-path and delineation tools as well. `outlet_id` (feature id) is still written but documented as not stable.
+- Flow-path fields `lfp_L10_m`, `lfp_L85_m`, `lfp_z10_m`, `lfp_z85_m` so the 10–85 slope can be checked by hand.
+- Catchment fields `catch_slope_horn` and `catch_relief_ratio` (the four slope domains are now `catch_slope_horn`, `catch_relief_ratio`, `lfp_slope`, `lfp_slope_1085`). `slope_mean` and `slope_relief_ratio` are still written as aliases for this release.
+- `core/geometry/polygonize.py`: pure-NumPy mask-to-polygon tracer (OGC-valid output, identical to `gdal.Polygonize` + union in the tests). `core/interop/gpkg.py`: standard-library GeoPackage 1.2 writer/reader.
+- Tests: `tests/test_interop.py` (74 checks, bare Python), golden exchange fixture in `tests/fixtures/`, and `tests/qgis_smoke.py` running every Processing tool inside QGIS (passes on QGIS 3.34.4).
+
+### Changed
+- **`lfp_slope_1085` now uses the conventional outlet-referenced definition**: points at 10% and 85% of the path length measured from the outlet, elevations interpolated linearly along the path. **Values from 0.8.3 and earlier are divide-referenced** (points at 10% and 85% from the divide, next-cell elevation). On concave profiles the new value is lower: across 40 longest flow paths on steep 30 m terrain it was a median 6% lower (range −20% to +5%). Re-run before reusing old 10–85 slopes. The old computation is kept as `path_slope_10_85_v083()` for comparison only.
+- "Non-overlapping (local) catchments" in the characteristics tool are now computed upstream-first (ascending contributing area), so the result no longer depends on the order of the pour-point layer.
+- Missing values (NaN) are written as NULL in the characteristics outputs instead of 0.
+
+### Fixed
+- **Catchment polygons with overlapping catchments** (characteristics tool, default full-upstream mode): catchments were burned into one label grid first-come-first-served, so a downstream catchment listed after an upstream one lost the upstream cells from its polygon, and a crossing listed after a downstream catchment that contained it got no polygon at all. The attribute values were correct. Each catchment is now traced from its own mask.
+- NoData cells of the raw DEM could enter the elevation statistics as a real height (e.g. −9999 as the catchment minimum). They are now excluded.
+
 ## [0.8.3]
 ### Changed
 - **QGIS 4 / PyQt6 compatibility: fixed all "QT6 Check" enum-scoping findings** reported by the plugin repository's `pyqgis4-checker` across `alg_watershed.py`, `alg_longest_flowpath.py`, `alg_fill.py`, `alg_characteristics.py`, `alg_streams.py`, and `alg_streamlines.py`. PyQt6 requires fully-scoped enum access (e.g. `QgsProcessing.SourceType.TypeVectorPoint`, `QgsProcessingParameterNumber.Type.Integer`, `QgsProcessingParameterNumber.Type.Double`) where PyQt5 accepted the legacy unscoped form; this check is informational rather than blocking for repository approval, but fixed anyway so the plugin loads cleanly under QGIS 4 without relying on PyQt6's temporary backward-compatibility shims.
