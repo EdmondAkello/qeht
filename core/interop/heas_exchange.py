@@ -138,7 +138,11 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
     elevation : the DEM for reported elevations/slopes (use the RAW DEM)
     geotransform : GDAL-style 6-tuple, north-up
     outlets : list of dicts {x, y, fid, source_id} in DEM CRS; `source_id`
-        is the value of the user's ID attribute (or None)
+        is the value of the user's ID attribute (or None). Optional keys:
+        `outlet_x`, `outlet_y` - a fixed outlet location (e.g. from the
+        crossing-candidate tool): used as-is, never snapped; `chainage` -
+        chainage of the crossing (written to chainage_m, and used when
+        id_order="chainage")
     stream_mask : bool grid for nearest-stream snapping (None -> snap to
         maximum accumulation, not recommended; see snap_pour_point)
     local : False = full upstream catchments (overlapping, the default for
@@ -160,12 +164,16 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
     # 1. snap
     snapped = []
     for k, o in enumerate(outlets):
-        col = int(math.floor((o["x"] - gt[0]) / gt[1]))
-        row = int(math.floor((o["y"] - gt[3]) / gt[5]))
+        fixed = o.get("outlet_x") is not None and o.get("outlet_y") is not None
+        px, py = (o["outlet_x"], o["outlet_y"]) if fixed else (o["x"], o["y"])
+        col = int(math.floor((px - gt[0]) / gt[1]))
+        row = int(math.floor((py - gt[3]) / gt[5]))
         if not (0 <= row < rows and 0 <= col < cols):
             issues.append(f"Pour point {k + 1} (fid {o.get('fid')}) lies outside the DEM; skipped.")
             continue
-        if snap_radius_cells and snap_radius_cells > 0:
+        if fixed:
+            r, c = row, col
+        elif snap_radius_cells and snap_radius_cells > 0:
             r, c, _, _ = snap_pour_point(row, col, accumulation, valid,
                                          search_radius_cells=int(snap_radius_cells),
                                          stream_mask=stream_mask)
@@ -177,7 +185,7 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
         ox, oy = _cell_centre(gt, r, c)
         snapped.append(dict(o, row=r, col=c, outlet_x=ox, outlet_y=oy,
                             snap_dist_m=float(math.hypot(ox - o["x"], oy - o["y"])),
-                            acc_cells=float(accumulation[r, c])))
+                            acc_cells=float(accumulation[r, c]), snapped_fixed=fixed))
     if not snapped:
         raise ExchangeError("No usable pour points. " + " ".join(issues))
 
@@ -198,6 +206,8 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
             len(snapped), scheme=id_scheme, prefix=id_prefix, width=id_width,
             start=id_start, order=id_order,
             accumulation=[s["acc_cells"] for s in snapped],
+            chainage=([s.get("chainage") for s in snapped]
+                      if all(s.get("chainage") is not None for s in snapped) else None),
             attribute_values=[s.get("source_id") for s in snapped])
     except OutletIdError as e:
         raise ExchangeError(str(e))
@@ -230,7 +240,7 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
             source_id=s.get("source_id"), input_x=s["x"], input_y=s["y"],
             outlet_x=s["outlet_x"], outlet_y=s["outlet_y"], snap_dist_m=s["snap_dist_m"],
             acc_at_outlet_km2=(s["acc_cells"] + 1.0) * cell_area / 1.0e6,
-            stream_order=so, chainage_m=None)))
+            stream_order=so, chainage_m=s.get("chainage"))))
 
         lfp = longest_flow_path(direction, valid, (s["row"], s["col"]),
                                 elevation=elevation, cell_width=cw, cell_height=ch,
@@ -277,13 +287,18 @@ def _check_links(crossings, catchments, flowpaths):
 
 
 def write_exchange(path, crossings, catchments, flowpaths, metadata, crs_wkt,
-                   crs_epsg=None, crs_name="", timestamp=None, csv_dir=None):
+                   crs_epsg=None, crs_name="", timestamp=None, csv_dir=None,
+                   extra_layers=None, extra_tables=None):
     """Write the exchange GeoPackage (and optional per-layer CSVs).
 
     `metadata` is a dict of run-metadata values (see field_dictionary.
     METADATA_KEYS); schema_version, qeht_version, run_utc, crs_epsg and
     n_crossings are filled in here. `timestamp` fixes run_utc and the
     GeoPackage last_change (reproducible fixtures); default = now.
+    `extra_layers`: optional list of (name, geom_type, fields, rows, desc),
+    e.g. crossing_candidates / road_alignment / parallel_reaches.
+    `extra_tables`: optional list of (name, fields, rows, desc), e.g.
+    renumber_log. Both are additive under qeht-heas-1.
     Returns the path.
     """
     ok, epsg_from_wkt, msg = crs_check(crs_wkt)
@@ -317,6 +332,10 @@ def write_exchange(path, crossings, catchments, flowpaths, metadata, crs_wkt,
             gtype, fields, desc = fd.LAYERS[table]
             w.add_feature_table(table, gtype, srs_id,
                                 [(f[0], f[1]) for f in fields], data, description=desc)
+        for name, gtype, fields, rows, desc in (extra_layers or []):
+            w.add_feature_table(name, gtype, srs_id, fields, rows, description=desc)
+        for name, fields, rows, desc in (extra_tables or []):
+            w.add_attribute_table(name, fields, rows, description=desc)
         w.add_attribute_table(
             "qeht_run_metadata", [("key", "text"), ("value", "text")],
             [{"key": k, "value": str(md.get(k, ""))} for k, _ in fd.METADATA_KEYS]

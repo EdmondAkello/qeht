@@ -61,8 +61,10 @@ def main(in_qgis=False):
         reg.addProvider(QehtProvider())
     algs = sorted(a.id() for a in reg.providerById("qeht").algorithms())
     print("QEHT algorithms:", ", ".join(algs))
-    check("provider loads with 9 algorithms incl. the exchange tool",
-          len(algs) == 9 and "qeht:buildheasexchange" in algs)
+    check("provider loads with 12 algorithms incl. exchange, crossings, burn, relink",
+          len(algs) == 12 and all(a in algs for a in (
+              "qeht:buildheasexchange", "qeht:crossingcandidates", "qeht:burncrossings",
+              "qeht:renumberrelink")))
 
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     dem = os.path.join(here, "examples", "example_dem.tif")
@@ -173,6 +175,82 @@ def main(in_qgis=False):
     except QgsProcessingException as e:
         refused = "geographic" in str(e).lower()
     check("exchange: geographic DEM refused with a clear message", refused)
+
+    # ---- v0.10: road crossings workflow --------------------------------
+    import shutil
+    from osgeo import ogr
+    # a road across the middle of the DEM, from west to east
+    y_mid = info.geotransform[3] + info.geotransform[5] * info.rows * 0.5 + 7.0
+    x0 = info.geotransform[0] + 5 * info.geotransform[1]
+    x1 = info.geotransform[0] + (info.cols - 5) * info.geotransform[1]
+    road = QgsVectorLayer(f"LineString?crs={QgsRasterLayer(dem).crs().authid()}", "road", "memory")
+    rf = QgsFeature(); rf.setGeometry(QgsGeometry.fromPolylineXY([QgsPointXY(x0, y_mid),
+                                                                  QgsPointXY(x1, y_mid)]))
+    road.dataProvider().addFeatures([rf])
+    QgsVectorFileWriter.writeAsVectorFormatV3(road, out("road.gpkg"),
+                                              QgsCoordinateTransformContext(), opts)
+    r = processing.run("qeht:crossingcandidates", {
+        "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "STREAMS": out("str.tif"),
+        "ORDER": out("ord.tif"), "ROAD": out("road.gpkg"), "START": 1000.0, "REVERSE": False,
+        "MIN_AREA": 0.05, "HALFWIDTH": 30.0, "MIN_PARALLEL": 100.0, "MERGE": 0.0,
+        "PREFIX": "C", "CANDIDATES": out("cand.gpkg"), "PARALLEL": out("par.gpkg")})
+    cl = QgsVectorLayer(r["CANDIDATES"], "cand", "ogr")
+    feats = list(cl.getFeatures())
+    rec = [f for f in feats if f["recommended"] == 1]
+    chs = [f["chainage_m"] for f in feats]
+    check("crossing candidates: found, chainage from 1000 m, sorted, >= 1 recommended",
+          len(feats) >= 1 and len(rec) >= 1 and min(chs) >= 1000.0 and chs == sorted(chs),
+          f"{len(feats)} candidates, {len(rec)} recommended")
+    check("crossing candidates: status 'candidate', angle and area filled",
+          all(f["status"] == "candidate" and 0 <= f["crossing_angle_deg"] <= 90
+              and f["acc_km2"] >= 0.05 for f in feats))
+
+    r = processing.run("qeht:buildheasexchange", {
+        "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "ORDER": out("ord.tif"),
+        "POINTS": out("cand.gpkg"), "ROAD": out("road.gpkg"), "START": 1000.0,
+        "ID_PREFIX": "X", "ID_ORDER": 0, "SNAP": 5, "SNAP_THRESHOLD": 200, "LOCAL": False,
+        "OUTPUT": out("cand_exchange.gpkg")})
+    xp2 = r["OUTPUT"]
+    errors, warnings = validate_exchange(xp2)
+    tabs = dict(gpkg.list_tables(xp2))
+    cr = gpkg.read_table(xp2, "crossings")
+    check("exchange from candidates: validates, carries candidates + road layers",
+          not errors and "crossing_candidates" in tabs and "road_alignment" in tabs,
+          "; ".join(errors))
+    check("exchange from candidates: recommended crossings, numbered along chainage",
+          len(cr) == len(rec) and [c["outlet_uid"] for c in sorted(cr, key=lambda c: c["chainage_m"])]
+          == [f"X{k + 1:03d}" for k in range(len(cr))] and all(c["snap_dist_m"] < 45 for c in cr))
+
+    r = processing.run("qeht:burncrossings", {
+        "DEM": dem, "CROSSINGS": out("cand.gpkg"), "HALF": 30.0, "SEARCH": 2,
+        "OUTPUT": out("burned.tif"), "LOG": out("breach.gpkg")})
+    bl = QgsVectorLayer(r["LOG"], "b", "ogr")
+    check("burn crossings: burned DEM + one breach per recommended crossing",
+          os.path.exists(r["OUTPUT"]) and bl.featureCount() == len(rec),
+          f"{bl.featureCount()} breaches")
+
+    # edit the package: delete the first crossing, add one on a stream elsewhere
+    edited = out("edited.gpkg"); shutil.copy(xp2, edited)
+    ds = ogr.Open(edited, 1); L = ds.GetLayerByName("crossings")
+    first = L.GetNextFeature(); del_uid = first.GetField("outlet_uid"); L.DeleteFeature(first.GetFID())
+    rr, cc = [int(v) for v in pick[0]]
+    nx, ny = info.rowcol_to_xy(rr, cc)
+    nf = ogr.Feature(L.GetLayerDefn()); g = ogr.Geometry(ogr.wkbPoint); g.AddPoint_2D(nx + 10, ny)
+    nf.SetGeometry(g); L.CreateFeature(nf); ds = None
+    r = processing.run("qeht:renumberrelink", {
+        "PACKAGE": edited, "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem,
+        "ROAD": out("road.gpkg"), "START": 1000.0, "PREFIX": "", "SNAP": 5,
+        "SNAP_THRESHOLD": 200, "OUTPUT": out("relinked.gpkg")})
+    rel = r["OUTPUT"]
+    errors, _ = validate_exchange(rel)
+    log = gpkg.read_table(rel, "renumber_log")
+    changes = sorted(x["change"] for x in log)
+    new_ids = sorted(x["new_uid"] for x in log if x["new_uid"])
+    check("renumber and relink: validates, logs deleted + new, gapless ids",
+          not errors and "deleted" in changes and "new" in changes
+          and new_ids == [f"X{k + 1:03d}" for k in range(len(new_ids))]
+          and any(x["old_uid"] == del_uid and x["change"] == "deleted" for x in log),
+          f"{changes}")
 
     print("\n" + ("ALL QGIS SMOKE CHECKS PASSED" if not FAILURES
                   else f"{len(FAILURES)} FAILURE(S): " + "; ".join(FAILURES)))
