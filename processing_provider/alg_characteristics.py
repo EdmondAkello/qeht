@@ -6,22 +6,22 @@ from qgis.core import (
     QgsProcessingParameterRasterLayer, QgsProcessingParameterFeatureSource,
     QgsProcessingParameterNumber, QgsProcessingParameterBoolean,
     QgsProcessingParameterVectorDestination, QgsProcessing,
-    QgsProcessingException, QgsCoordinateTransform, QgsProject,
+    QgsProcessingException,
     QgsCoordinateReferenceSystem,
 )
 import numpy as np
 
 from .base import QehtAlgorithm
-from ..core.raster import read_dem, polygonize
+from ..core.raster import read_dem
 from ..core.grid import decode_d8
-from ..core.watershed.delineate import (delineate_catchment, snap_pour_point,
-                                        longest_flow_path, extract_streams)
-from ..core.watershed.statistics import (catchment_characteristics, horn_slope,
-                                         CATCHMENT_FIELDS, FLOWPATH_FIELDS)
+from ..core.watershed.delineate import extract_streams
+from ..core.watershed.statistics import CATCHMENT_FIELDS, FLOWPATH_FIELDS
+from ..core.interop.heas_exchange import build_exchange_records, ExchangeError
+from ..core.interop.gpkg import wkb_multipolygon, wkb_linestring
 
 FDR="FDR"; DEM="DEM"; RAW_DEM="RAW_DEM"; FAC="FAC"; POINTS="POINTS"
 SNAP="SNAP"; SNAP_THRESHOLD="SNAP_THRESHOLD"; NESTED="NESTED"
-CATCH_OUT="CATCH_OUT"; PATH_OUT="PATH_OUT"
+CATCH_OUT="CATCH_OUT"; PATH_OUT="PATH_OUT"; ID_FIELD="ID_FIELD"; ID_PREFIX="ID_PREFIX"
 
 
 class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
@@ -40,22 +40,33 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
             "<b>Flow path lines carry:</b> length (km), highest and lowest "
             "elevation (m), drop, slope and the 10-85 slope.\n\n"
             "<b>Two different catchment slopes are reported, deliberately.</b> "
-            "<i>slope_mean</i> is the average ground gradient over every cell, "
+            "<i>catch_slope_horn</i> is the average ground gradient over every cell, "
             "by Horn's 3x3 method - a standard slope algorithm used by most "
             "GIS raster toolsets - and is what runoff coefficient and curve number tables "
-            "assume. <i>slope_relief_ratio</i> is relief divided by longest "
-            "flow path length, which is the 'catchment slope' of most road "
-            "drainage manuals and the term that goes into Kirpich. They are "
-            "not interchangeable; state which you used.\n\n"
+            "assume. <i>catch_relief_ratio</i> is relief divided by longest "
+            "flow path length (the relief ratio). They are not interchangeable; "
+            "state which you used. The v0.8 names slope_mean and "
+            "slope_relief_ratio are still written as aliases for this release.\n\n"
+            "<b>outlet_uid</b> is the stable identifier shared by a catchment and "
+            "its flow path: from the ID attribute you choose, or sequential with "
+            "your prefix (X001 = most downstream). <i>outlet_id</i> is the "
+            "pour-point feature id and is NOT stable.\n\n"
             "<b>Supply the RAW DEM for elevations.</b> Reported heights should "
             "be real ground, not the fill surface. Routing still uses the "
             "conditioned DEM. If you leave the raw DEM blank the conditioned "
             "one is used for both, and elevations inside filled depressions "
             "will read high.\n\n"
-            "<i>lfp_slope_1085</i> excludes the top 10% and bottom 15% of the "
-            "path, removing the steep headwater and flat outlet reach that "
-            "distort a whole-path average. It is required by several UK and "
-            "TRRL methods and is usually the more defensible design figure."
+            "<i>lfp_slope_1085</i> is the slope between the points at 10% and 85% "
+            "of the path length measured from the OUTLET (the conventional "
+            "definition), so it excludes the flat bottom 10% and the steep top "
+            "15%. Elevations are interpolated along the path; lfp_L10_m, "
+            "lfp_L85_m, lfp_z10_m and lfp_z85_m are written so it can be checked "
+            "by hand. QEHT 0.8.3 and earlier measured from the divide instead.\n\n"
+            "Every polygon holds its catchment's full area, also where "
+            "catchments overlap (fixed in 0.9: earlier versions could clip or "
+            "drop the polygon of a crossing listed after a downstream one).\n\n"
+            "For HEAS, use 'Build HEAS exchange package', which writes the same "
+            "values into one self-describing GeoPackage."
         )
 
     def initAlgorithm(self, config=None):
@@ -74,6 +85,12 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
             QgsProcessingParameterNumber.Type.Double,defaultValue=200.0,minValue=0.0))
         self.addParameter(QgsProcessingParameterBoolean(
             NESTED,"Non-overlapping (local) catchments",defaultValue=False))
+        from qgis.core import QgsProcessingParameterField, QgsProcessingParameterString
+        self.addParameter(QgsProcessingParameterField(
+            ID_FIELD,"ID attribute for outlet_uid (optional; blank = sequential)",
+            parentLayerParameterName=POINTS,optional=True))
+        self.addParameter(QgsProcessingParameterString(
+            ID_PREFIX,"ID prefix",defaultValue="X",optional=True))
         self.addParameter(QgsProcessingParameterVectorDestination(
             CATCH_OUT,"Catchments with characteristics"))
         self.addParameter(QgsProcessingParameterVectorDestination(
@@ -84,133 +101,85 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
         import os
 
         fdr_path=self.raster_path(parameters,FDR,context)
-        dem_path=self.raster_path(parameters,DEM,context)
         fac_path=self.raster_path(parameters,FAC,context)
-        source=self.parameterAsSource(parameters,POINTS,context)
         snap_radius=self.parameterAsInt(parameters,SNAP,context)
         snap_threshold=self.parameterAsDouble(parameters,SNAP_THRESHOLD,context)
         nested=self.parameterAsBool(parameters,NESTED,context)
         catch_out=self.parameterAsOutputLayer(parameters,CATCH_OUT,context)
         path_out=self.parameterAsOutputLayer(parameters,PATH_OUT,context)
+        id_field = self.field_parameter(parameters, ID_FIELD, context)
+        prefix=(self.parameterAsString(parameters,ID_PREFIX,context) or "").strip()
 
         d8,valid,info=read_dem(fdr_path)
-        conditioned,_,_=read_dem(dem_path)
         accum,_,_=read_dem(fac_path)
         direction=decode_d8(d8.astype(np.int32))
 
         if self.parameterAsRasterLayer(parameters,RAW_DEM,context) is not None:
-            elevation,_,_=read_dem(self.raster_path(parameters,RAW_DEM,context))
+            elevation,ev,_=read_dem(self.raster_path(parameters,RAW_DEM,context))
             feedback.pushInfo("Reporting elevations from the raw DEM.")
         else:
-            elevation=conditioned
+            elevation,ev,_=read_dem(self.raster_path(parameters,DEM,context))
             feedback.pushWarning(
                 "No raw DEM supplied - elevations are taken from the conditioned "
                 "DEM and will read high inside filled depressions.")
+        elevation=np.where(ev,elevation,np.nan)   # NoData never becomes a height
 
-        feedback.setProgressText("Computing terrain slope (Horn 3x3)")
-        slope_raster=horn_slope(elevation,valid,info.cell_width,info.cell_height)
+        dem_crs=QgsCoordinateReferenceSystem(); dem_crs.createFromWkt(info.projection_wkt)
+        if dem_crs.isValid() and dem_crs.isGeographic():
+            feedback.pushWarning(
+                "The DEM is in a geographic CRS: areas, lengths and slopes will be "
+                "in degree units and are not meaningful. Reproject to a projected CRS.")
 
         stream_mask=None
         if snap_threshold>0:
             stream_mask=extract_streams(accum,valid,threshold_cells=snap_threshold)
+        points=self.read_pour_points(parameters,POINTS,context,info,feedback,id_field=id_field)
 
-        dem_crs=QgsCoordinateReferenceSystem(); dem_crs.createFromWkt(info.projection_wkt)
-        transform=None
-        if dem_crs.isValid() and source.sourceCrs()!=dem_crs:
-            transform=QgsCoordinateTransform(source.sourceCrs(),dem_crs,QgsProject.instance())
-
-        outlets,fids=[],[]
-        for feature in source.getFeatures():
-            geom=feature.geometry()
-            if transform is not None: geom.transform(transform)
-            pt=geom.asMultiPoint()[0] if geom.isMultipart() else geom.asPoint()
-            row,col=info.xy_to_rowcol(pt.x(),pt.y())
-            if not (0<=row<info.rows and 0<=col<info.cols):
-                feedback.pushWarning("A pour point falls outside the DEM. Skipped."); continue
-            if snap_radius>0:
-                row,col,_,_=snap_pour_point(row,col,accum,valid,
-                                            search_radius_cells=snap_radius,
-                                            stream_mask=stream_mask)
-            outlets.append((row,col)); fids.append(feature.id())
-        if not outlets:
-            raise QgsProcessingException("No usable pour points.")
-
-        labels=delineate_catchment(direction,valid,outlets) if nested else None
+        try:
+            crossings,catchments,flowpaths,issues,_=build_exchange_records(
+                direction,valid,accum,elevation,info.geotransform,points,
+                snap_radius_cells=snap_radius,stream_mask=stream_mask,local=nested,
+                id_scheme="attribute" if id_field else "sequential",id_prefix=prefix,
+                progress=self.make_progress(feedback,weight=0.9))
+        except ExchangeError as e:
+            raise QgsProcessingException(str(e))
+        for msg in issues: feedback.pushWarning(msg)
 
         srs=None
         if info.projection_wkt:
             srs=osr.SpatialReference(); srs.ImportFromWkt(info.projection_wkt)
         drv=ogr.GetDriverByName("GPKG")
-        for p in (catch_out,path_out):
-            if os.path.exists(p): drv.DeleteDataSource(p)
-        cds=drv.CreateDataSource(catch_out)
-        clayer=cds.CreateLayer("catchments",srs=srs,geom_type=ogr.wkbPolygon)
-        pds=drv.CreateDataSource(path_out)
-        player=pds.CreateLayer("longest_flow_paths",srs=srs,geom_type=ogr.wkbLineString)
-        for layer,fields in ((clayer,CATCHMENT_FIELDS),(player,FLOWPATH_FIELDS)):
+        otype={"int":ogr.OFTInteger,"float":ogr.OFTReal,"text":ogr.OFTString}
+
+        def write(path,lname,gtype,fields,rows,to_wkb):
+            if os.path.exists(path): drv.DeleteDataSource(path)
+            ds=drv.CreateDataSource(path)
+            layer=ds.CreateLayer(lname,srs=srs,geom_type=gtype)
             for fname,ftype in fields:
-                layer.CreateField(ogr.FieldDefn(
-                    fname, ogr.OFTInteger if ftype=="int" else ogr.OFTReal))
+                layer.CreateField(ogr.FieldDefn(fname,otype[ftype]))
+            defn=layer.GetLayerDefn()
+            for geom,attrs in rows:
+                feat=ogr.Feature(defn)
+                for fname,ftype in fields:
+                    val=attrs.get(fname)
+                    if val is None or (ftype!="text" and not np.isfinite(float(val))):
+                        feat.SetFieldNull(fname)       # never write NaN as 0
+                    elif ftype=="int": feat.SetField(fname,int(val))
+                    elif ftype=="float": feat.SetField(fname,float(val))
+                    else: feat.SetField(fname,str(val))
+                feat.SetGeometry(ogr.CreateGeometryFromWkb(to_wkb(geom)))
+                layer.CreateFeature(feat); feat=None
+            ds=None
 
-        label_grid=np.zeros(direction.shape,dtype=np.int32)
-        stats_rows=[]
-        for i,((row,col),fid) in enumerate(zip(outlets,fids)):
-            feedback.setProgress(int(100.0*i/len(outlets)))
-            mask=(labels==(i+1)) if nested else (delineate_catchment(direction,valid,[(row,col)])>0)
-            if not mask.any():
-                feedback.pushWarning(f"Outlet {fid}: empty catchment. Skipped."); continue
+        write(catch_out,"catchments",ogr.wkbMultiPolygon,CATCHMENT_FIELDS,catchments,wkb_multipolygon)
+        write(path_out,"longest_flow_paths",ogr.wkbLineString,FLOWPATH_FIELDS,flowpaths,wkb_linestring)
 
-            lfp=longest_flow_path(direction,valid,(row,col),elevation=elevation,
-                                  cell_width=info.cell_width,cell_height=info.cell_height,
-                                  catchment_mask=mask)
-            ch=catchment_characteristics(mask,elevation,valid,info.cell_width,
-                                         info.cell_height,flow_path=lfp,
-                                         slope_raster=slope_raster)
-            if not ch: continue
-            ch["outlet_id"]=int(fid)
-            stats_rows.append(ch)
-            label_grid[mask & (label_grid==0)]=i+1
-
-            if len(lfp["cells"])>=2:
-                line=ogr.Geometry(ogr.wkbLineString)
-                for r,c in lfp["cells"]:
-                    x,y=info.rowcol_to_xy(r,c); line.AddPoint_2D(x,y)
-                feat=ogr.Feature(player.GetLayerDefn())
-                for fname,ftype in FLOWPATH_FIELDS:
-                    val=ch.get(fname,0)
-                    feat.SetField(fname, int(val) if ftype=="int"
-                                  else (float(val) if np.isfinite(val) else 0.0))
-                feat.SetGeometry(line); player.CreateFeature(feat); feat=None
-
+        for _,ch in catchments:
             feedback.pushInfo(
-                f"  outlet {fid}: A={ch['area_km2']:.4f} km2  "
+                f"  {ch['outlet_uid']} (fid {ch['outlet_id']}): A={ch['area_km2']:.4f} km2  "
                 f"Hmax={ch['elev_max_m']:.1f}  Hmin={ch['elev_min_m']:.1f}  "
-                f"Smean={ch['slope_mean']:.5f}  Srelief={ch.get('slope_relief_ratio',0):.5f}  "
-                f"L={ch.get('lfp_length_km',0):.3f} km  Slfp={ch.get('lfp_slope',0):.5f}")
-        pds=None
-
-        # Polygonize the label grid, then join the statistics back on.
-        tmp_poly=catch_out+".tmp.gpkg"
-        polygonize(label_grid,info,tmp_poly,layer_name="catchments",
-                   field_name="DN",ignore_value=0,dissolve=True)
-        src_ds=ogr.Open(tmp_poly)
-        src_layer=src_ds.GetLayer(0)
-        by_index={i+1:s for i,s in enumerate(stats_rows)}
-        defn=clayer.GetLayerDefn()
-        for feat_in in src_layer:
-            dn=feat_in.GetField("DN")
-            ch=by_index.get(dn)
-            if ch is None: continue
-            feat=ogr.Feature(defn)
-            for fname,ftype in CATCHMENT_FIELDS:
-                val=ch.get(fname,0)
-                feat.SetField(fname, int(val) if ftype=="int"
-                              else (float(val) if np.isfinite(val) else 0.0))
-            feat.SetGeometry(feat_in.GetGeometryRef().Clone())
-            clayer.CreateFeature(feat); feat=None
-        src_ds=None; cds=None
-        try: os.remove(tmp_poly)
-        except OSError: pass
-
-        feedback.pushInfo(f"Wrote {len(stats_rows)} catchments and their flow paths.")
+                f"Shorn={ch['catch_slope_horn']:.5f}  RR={ch.get('catch_relief_ratio',float('nan')):.5f}  "
+                f"L={ch.get('lfp_length_km',float('nan')):.3f} km  "
+                f"S1085={ch.get('lfp_slope_1085',float('nan')):.5f}")
+        feedback.pushInfo(f"Wrote {len(catchments)} catchments and {len(flowpaths)} flow paths.")
         return {CATCH_OUT:catch_out, PATH_OUT:path_out}

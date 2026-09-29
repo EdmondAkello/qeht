@@ -29,6 +29,8 @@ POINTS = "POINTS"
 SNAP = "SNAP"
 SNAP_THRESHOLD = "SNAP_THRESHOLD"
 NESTED = "NESTED"
+ID_FIELD = "ID_FIELD"
+ID_PREFIX = "ID_PREFIX"
 OUTPUT = "OUTPUT"
 
 
@@ -76,13 +78,18 @@ class LongestFlowPathAlgorithm(QehtAlgorithm):
         from qgis.core import QgsProcessingParameterBoolean
         self.addParameter(QgsProcessingParameterBoolean(
             NESTED, "Non-overlapping (local) catchments", defaultValue=False))
+        from qgis.core import QgsProcessingParameterField, QgsProcessingParameterString
+        self.addParameter(QgsProcessingParameterField(
+            ID_FIELD, "ID attribute for outlet_uid (optional; blank = sequential)",
+            parentLayerParameterName=POINTS, optional=True))
+        self.addParameter(QgsProcessingParameterString(
+            ID_PREFIX, "ID prefix", defaultValue="X", optional=True))
         self.addParameter(QgsProcessingParameterVectorDestination(
             OUTPUT, "Longest flow paths"))
 
     def processAlgorithm(self, parameters, context, feedback):
         fdr_path = self.raster_path(parameters, FDR, context)
         dem_path = self.raster_path(parameters, DEM, context)
-        source = self.parameterAsSource(parameters, POINTS, context)
         snap_radius = self.parameterAsInt(parameters, SNAP, context)
         out_path = self.parameterAsOutputLayer(parameters, OUTPUT, context)
 
@@ -101,35 +108,20 @@ class LongestFlowPathAlgorithm(QehtAlgorithm):
         if accum is not None and snap_threshold > 0:
             stream_mask = extract_streams(accum, valid, threshold_cells=snap_threshold)
 
-        dem_crs = QgsCoordinateReferenceSystem()
-        dem_crs.createFromWkt(info.projection_wkt)
-        transform = None
-        if dem_crs.isValid() and source.sourceCrs() != dem_crs:
-            transform = QgsCoordinateTransform(source.sourceCrs(), dem_crs,
-                                               QgsProject.instance())
-
+        id_field = self.field_parameter(parameters, ID_FIELD, context)
+        prefix = (self.parameterAsString(parameters, ID_PREFIX, context) or "").strip()
+        points = self.read_pour_points(parameters, POINTS, context, info, feedback,
+                                       id_field=id_field)
         outlets, attrs = [], []
-        for feature in source.getFeatures():
-            geom = feature.geometry()
-            if transform is not None:
-                geom.transform(transform)
-            if geom.isMultipart():
-                pt = geom.asMultiPoint()[0]
-            else:
-                pt = geom.asPoint()
-            row, col = info.xy_to_rowcol(pt.x(), pt.y())
-            if not (0 <= row < info.rows and 0 <= col < info.cols):
-                feedback.pushWarning("A pour point falls outside the DEM. Skipped.")
-                continue
+        for p in points:
+            row, col = info.xy_to_rowcol(p["x"], p["y"])
             if accum is not None:
                 row, col, moved, _ = snap_pour_point(
                     row, col, accum, valid, search_radius_cells=snap_radius,
                     stream_mask=stream_mask)
             outlets.append((row, col))
-            attrs.append(feature.id())
-
-        if not outlets:
-            raise QgsProcessingException("No usable pour points.")
+            attrs.append(p["fid"])
+        uids = self.outlet_uids(points, outlets, accum, id_field, prefix)
 
         feedback.pushInfo(f"Tracing {len(outlets)} longest flow paths"
                           f"{' (local catchments)' if nested else ' (full upstream areas)'}")
@@ -149,22 +141,24 @@ class LongestFlowPathAlgorithm(QehtAlgorithm):
         vds = drv.CreateDataSource(out_path)
         layer = vds.CreateLayer("longest_flow_paths", srs=srs,
                                 geom_type=ogr.wkbLineString)
-        for fname, ftype in [("outlet_id", ogr.OFTInteger), ("length", ogr.OFTReal),
+        for fname, ftype in [("outlet_uid", ogr.OFTString),
+                             ("outlet_id", ogr.OFTInteger), ("length", ogr.OFTReal),
                              ("drop", ogr.OFTReal), ("slope", ogr.OFTReal),
                              ("area", ogr.OFTReal)]:
             layer.CreateField(ogr.FieldDefn(fname, ftype))
         defn = layer.GetLayerDefn()
 
         written = 0
-        for lfp, fid in zip(paths, attrs):
+        for lfp, fid, uid in zip(paths, attrs, uids):
             if len(lfp["cells"]) < 2:
-                feedback.pushWarning(f"Outlet {fid}: no upstream path. Skipped.")
+                feedback.pushWarning(f"{uid} (fid {fid}): no upstream path. Skipped.")
                 continue
             line = ogr.Geometry(ogr.wkbLineString)
             for row, col in lfp["cells"]:
                 x, y = info.rowcol_to_xy(row, col)
                 line.AddPoint_2D(x, y)
             feat = ogr.Feature(defn)
+            feat.SetField("outlet_uid", uid)
             feat.SetField("outlet_id", int(fid))
             feat.SetField("length", float(lfp["length"]))
             feat.SetField("drop", float(lfp.get("drop", 0.0)))
@@ -174,7 +168,7 @@ class LongestFlowPathAlgorithm(QehtAlgorithm):
             layer.CreateFeature(feat); feat = None
             written += 1
             feedback.pushInfo(
-                f"  outlet {fid}: L={lfp['length']:,.1f} m  "
+                f"  {uid} (fid {fid}): L={lfp['length']:,.1f} m  "
                 f"S={lfp.get('slope', 0):.5f}  A={lfp.get('catchment_area', 0)/1e6:,.3f} km2")
         vds = None
         feedback.pushInfo(f"Wrote {written} longest flow paths.")
