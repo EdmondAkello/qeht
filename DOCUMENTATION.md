@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.10.0
+**Version:** 0.11.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -50,6 +50,12 @@ qeht/
       relink.py          renumber_log for renumber-and-relink (D3)
     geometry/
       polygonize.py      cell mask -> OGC-valid (multi)polygon, pure NumPy
+    soils/
+      usle_k.py          Williams/EPIC and Dg-based K, CFRG, USDA texture, HSG proxy
+      sotwis.py          SOTWIS SQLite loader, generic attribute loader
+      catchment.py       per-catchment soil block
+    geometry/
+      rasterize.py       polygons -> grid, cell-centre rule
     network/
       alignment.py       linear referencing: chainage, signed offset, intersections
       crossings.py       road x drainage candidates, parallel reaches, clusters
@@ -59,7 +65,7 @@ qeht/
       heas_exchange.py   pipeline, writer, validator, CSV export
 
   processing_provider/   the only QGIS-aware code
-    provider.py          registers the twelve algorithms
+    provider.py          registers the thirteen algorithms
     base.py              shared base class and helpers (pour points, IDs)
     alg_*.py             one file per algorithm
 
@@ -67,6 +73,7 @@ qeht/
     test_core.py         47 analytic checks, runnable without QGIS
     test_interop.py      74 checks: outlet_uid, slopes, exchange, golden fixture
     test_crossings.py    43 checks: alignment, candidates, clusters, burn, relink
+    test_soils.py        31 checks: USLE K, texture, HSG, SOTWIS loader, soil block
     fixtures/            golden_exchange.gpkg + .json (shared with HEAS)
     qgis_smoke.py        every Processing tool run inside QGIS
 ```
@@ -77,7 +84,7 @@ The dependency direction is strict and one-way: `processing_provider` imports `c
 
 ## 3. Processing algorithms
 
-QEHT registers twelve algorithms under the "Engineering Hydrology" provider.
+QEHT registers thirteen algorithms under the "Engineering Hydrology" provider.
 
 | Algorithm | Commercial reference analogue |
 |---|---|
@@ -93,6 +100,7 @@ QEHT registers twelve algorithms under the "Engineering Hydrology" provider.
 | Renumber and relink exchange package | none — gapless re-issue of IDs after edits (Section 5.2) |
 | Road crossing candidates | none — road × drainage crossings (Section 4.11) |
 | Burn crossings through embankments | DEM reconditioning at culverts (Section 4.12) |
+| Soil parameters for catchments | zonal soil statistics and USLE K (Section 4.13) |
 
 Each is a `QgsProcessingAlgorithm` registered through a `QgsProcessingProvider`. Exposing the tools this way — rather than as bespoke dialogs — means they gain input validation, batch mode, the Graphical Modeler, the history log, and `processing.run()` scriptability at no additional cost. Chaining tools in the Modeler is much of a commercial hydrology extension's practical value, and this design reproduces it.
 
@@ -193,6 +201,18 @@ For each catchment the tool reports area, highest/lowest/mean elevation, relief,
 
 At each crossing the breach runs perpendicular to the road between two points `half_length` either side of the centreline. Each end moves to the lowest valid cell within the search radius **on its own side of the centreline**; the higher end is upstream. Cells on the 8-connected line between the ends are lowered to z = min(z, grade), where the grade falls linearly from the upstream to the downstream end elevation (at least `min_grade` = 1e-4 so the breach drains). Nothing is raised and nothing outside the breach changes. A crossing where no ground stands above the grade (no embankment in the DEM) is reported with 0 cells. On a synthetic valley dammed by a 5 m embankment, burning removes the pond completely and the flow passes through the culvert cell.
 
+### 4.13 Soil parameters and USLE K
+
+**Data.** SOTWIS: `SOTERunitComposition` (NEWSUID → up to ten profiles PRID with shares), `SOTERparameterEstimates` (per profile and depth layer: sand SDTO, silt STPC, clay CLPC %, organic carbon TOTC g/kg, bulk density, coarse fragments vol %, FAO drainage), read with the standard-library `sqlite3`. Per profile, properties are depth-weighted by the overlap of each layer with the chosen interval (default 0–20 cm, decision D6); shallow first layers (e.g. 0–10 cm) are used as they are. SOTWIS missing values (−1) are excluded and component shares renormalised; `share_with_data` records the loss.
+
+**K.** Williams/EPIC per component: K = f_csand · f_cl-si · f_orgc · f_hisand with f_csand = 0.2 + 0.3 exp[−0.0256 SAN (1 − SIL/100)], f_cl-si = (SIL/(CLA+SIL))^0.3, f_orgc = 1 − 0.25C/(C + exp(3.72 − 2.95C)), f_hisand = 1 − 0.7SN1/(SN1 + exp(−5.51 + 22.9SN1)), SN1 = 1 − SAN/100, C = organic carbon %. SI K = 0.1317 × US K. Because the equation is non-linear, K is computed per component and then weighted — not computed from weighted texture. Alternative: Renard et al. (1997) K from the geometric-mean particle diameter. CFRG = exp(−0.053 × rock %) is reported separately.
+
+**Proxies.** USDA texture from the weighted fractions. Hydrologic soil group proxy: A (sand, loamy sand), B (sandy loam, loam, silt loam, silt), C (sandy clay loam), D (clay loams, clays); poorly/very poorly drained → D, imperfectly drained moves A/B to C. It is labelled a proxy wherever it appears.
+
+**Aggregation.** The soil polygons are rasterised on the DEM grid by cell centre (even-odd rule — the default of `gdal.RasterizeLayer`, reproduced exactly on 1.44 million test cells), and each catchment value is the cell-weighted mean over units with data. `soil_coverage_pct` gives the covered share; the values describe that share only.
+
+**Kenya check.** All 397 SOTWIS units give a K (median 0.029, range 0.009–0.051). Over the country's cells the median is 16–20 % above the ESDAC global K rasters with correlation 0.24–0.40; on six steep Rift-valley catchments, 0.026–0.038 against 0.027–0.028 (ESDAC Wischmeier-based). The two products are independent estimates at very different resolutions (1:1 M soil map vs 1 km model); report which one was used.
+
 ---
 
 ## 5. Data handling and interoperability
@@ -223,6 +243,8 @@ QEHT is validated at three levels.
 **Level 1 — synthetic analytic DEMs.** 47 checks in `tests/test_core.py`, runnable on bare Python + NumPy, covering encoding round-trips, distance weighting, fill spill levels, accumulation on analytic surfaces, catchment areas, longest-flow-path geometry, snapping, Strahler rules, and the Barnes saddle convergence test. A further 74 checks in `tests/test_interop.py` cover the 10–85 conventions on an analytic profile, the slope domains, `outlet_uid` rules, the polygon tracer, the GeoPackage writer, the CRS rule and the exchange package against the golden fixture. All pass. (Earlier documentation quoted 48 core checks; the suite has 47.)
 
 **Road crossings.** 43 checks in `tests/test_crossings.py`: linear referencing (chainage, signed offset, multi-part, reverse); a square crossing (exact chainage, 90°, side); a 45° road (45° exactly); a stream weaving across the centreline for ~600 m (11 raw intersections → one cluster, the exit recommended, a 748 m parallel reach); two tributaries 100 m apart (merge 50 m → two clusters, 150 m → one); candidate selection rules; candidates → exchange (numbered along chainage, outlets not snapped); an embanked valley (pond removed, breach confined to the culvert line, flow through the culvert); renumber-log rules.
+
+**Soils.** 31 checks in `tests/test_soils.py`: hand-computed Williams factors, the 0.0256 coefficient, K monotonic in organic carbon and texture, Dg-K bounds, CFRG, 12 USDA classes, HSG rules, the SOTWIS loader on a synthetic database with the SOTWIS schema (component and depth weighting, shallow layers, −1 values, TTR), exact cell weights and partial coverage on a three-unit map, no-overlap case, and the soil block on exchange catchments.
 
 **QGIS level.** `tests/qgis_smoke.py` runs every Processing tool through `processing.run()` inside QGIS on the example DEM and checks outputs, `outlet_uid` consistency and the exchange package. Passes on QGIS 3.34.4 (headless).
 
@@ -290,7 +312,7 @@ The recommended sequencing is to establish the public GitHub repository now — 
 
 ## 10. Citation
 
-See `CITATION.cff`. In brief: QEHT: QGIS Engineering Hydrology Toolkit, v0.10.0, GPL-2.0-or-later.
+See `CITATION.cff`. In brief: QEHT: QGIS Engineering Hydrology Toolkit, v0.11.0, GPL-2.0-or-later.
 
 ## 11. Licence
 
