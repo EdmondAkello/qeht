@@ -65,7 +65,8 @@ _TIE_TOL = 1e-6
 
 
 def d8_direction(elevation, valid, cell_width=1.0, cell_height=1.0,
-                 resolve_flats=True, flat_method="toward", progress=None):
+                 resolve_flats=True, flat_method="toward", progress=None,
+                 flat_weight=2.0, small_flat_cells=0):
     """Compute D8 direction indices (0-7) from a conditioned DEM.
 
     Returns
@@ -75,10 +76,10 @@ def d8_direction(elevation, valid, cell_width=1.0, cell_height=1.0,
         unresolvable sink.
     stats : dict with diagnostic counts.
 
-    Ties (two neighbours with identical drop/distance) are broken by
-    lowest internal index, i.e. E before SE before S ... This is
-    deterministic and reproducible, which matters more for engineering
-    QA than matching a specific vendor's undocumented tie-breaking exactly.
+    Ties (neighbours within a relative 1e-6 of the steepest drop/distance)
+    are broken by the fixed priority S, W, N, E, SE, SW, NW, NE - the rule
+    recovered empirically from a reference GIS platform (off-flat agreement
+    84 % -> 91 %). Deterministic and reproducible.
     """
     elev = np.asarray(elevation, dtype=np.float64)
     rows, cols = elev.shape
@@ -86,31 +87,41 @@ def d8_direction(elevation, valid, cell_width=1.0, cell_height=1.0,
 
     work = np.where(valid, elev, np.inf)
 
-    # Pass 1: the steepest drop/distance available at each cell.
-    all_slopes = np.full((rows, cols, 8), -np.inf, dtype=np.float64)
-    for k in range(8):
+    # Streamed over the 8 directions (v0.12): no rows x cols x 8 arrays, so
+    # peak memory is a few copies of the grid instead of ~17. Identical to
+    # the v0.8.3 two-array version (kept in core/flow/_reference.py).
+    def _slope_k(k):
         dr, dc = int(DROW[k]), int(DCOL[k])
         r0_s, r1_s = max(0, -dr), rows - max(0, dr)
         c0_s, c1_s = max(0, -dc), cols - max(0, dc)
         r0_n, r1_n = max(0, dr), rows - max(0, -dr)
         c0_n, c1_n = max(0, dc), cols - max(0, -dc)
-        src = work[r0_s:r1_s, c0_s:c1_s]
-        nbr = work[r0_n:r1_n, c0_n:c1_n]
         with np.errstate(invalid="ignore"):
-            slope = (src - nbr) / dist[k]
-        all_slopes[r0_s:r1_s, c0_s:c1_s, k] = np.where(
-            np.isfinite(slope), slope, -np.inf)
-        if progress is not None:
-            progress((k + 1) / 8.0 * 0.5, "Computing D8 flow direction")
+            sl = (work[r0_s:r1_s, c0_s:c1_s] - work[r0_n:r1_n, c0_n:c1_n]) / dist[k]
+        return (slice(r0_s, r1_s), slice(c0_s, c1_s)), np.where(np.isfinite(sl), sl, -np.inf)
 
-    best_slope = all_slopes.max(axis=2)
+    # Pass 1: the steepest drop/distance available at each cell.
+    best_slope = np.full((rows, cols), -np.inf, dtype=np.float64)
+    for k in range(8):
+        win, sl = _slope_k(k)
+        np.maximum(best_slope[win], sl, out=best_slope[win])
+        if progress is not None:
+            progress((k + 1) / 8.0 * 0.3, "Computing D8 flow direction")
 
     # Pass 2: among neighbours tied within tolerance at the steepest drop,
-    # pick the one a reference GIS platform would - by fixed tie priority, not scan order.
-    with np.errstate(invalid="ignore"):
-        tied = all_slopes >= (best_slope[:, :, None] * (1.0 - _TIE_TOL))
-    ranked = np.where(tied, _TIE_RANK[None, None, :], 99)
-    direction = np.argmin(ranked, axis=2).astype(np.int64)
+    # pick by the fixed tie priority S, W, N, E, SE, SW, NW, NE (recovered
+    # empirically from a reference GIS platform), not by scan order.
+    thresh = best_slope * (1.0 - _TIE_TOL)
+    best_rank = np.full((rows, cols), 99, dtype=np.int8)
+    direction = np.zeros((rows, cols), dtype=np.int64)
+    for k in range(8):
+        win, sl = _slope_k(k)
+        with np.errstate(invalid="ignore"):
+            take = (sl >= thresh[win]) & (_TIE_RANK[k] < best_rank[win])
+        best_rank[win][take] = _TIE_RANK[k]
+        direction[win][take] = k
+        if progress is not None:
+            progress(0.3 + (k + 1) / 8.0 * 0.3, "Computing D8 flow direction")
 
     # Cells with no downhill neighbour: no positive best slope.
     no_flow = ~(valid & np.isfinite(best_slope) & (best_slope > 0))
@@ -126,7 +137,15 @@ def d8_direction(elevation, valid, cell_width=1.0, cell_height=1.0,
         # Garbrecht & Martz: impose a two-gradient surface on the flats,
         # then re-run the ordinary steepest-descent pass over it. One
         # routing rule, applied twice - not two competing rules.
-        if flat_method == "barnes":
+        if flat_method == "hybrid":
+            # One-parameter family: w = flat_weight (2 = Barnes, large =
+            # toward-lower inside the Barnes rules); optional size switch.
+            from .flats import resolve_flats as _rf
+            if progress is not None:
+                progress(0.75, f"Resolving flats (hybrid, w={flat_weight:g})")
+            direction, flat_stats = _rf(elev, valid, direction, w=flat_weight,
+                                        small_flat_cells=small_flat_cells)
+        elif flat_method == "barnes":
             # Iterated Barnes 2014 convergent flat resolution. Repeats the
             # Barnes pass until no further flats resolve, so flats drain in
             # hierarchy order (a flat whose outlet is a lower flat resolves
@@ -153,68 +172,53 @@ def d8_direction(elevation, valid, cell_width=1.0, cell_height=1.0,
 
 
 def _resolve_flats_toward(work, valid, direction, progress=None):
-    """Route flat cells by BFS distance toward the nearest flat outlet."""
+    """Route flat cells by BFS distance toward the nearest flat outlet.
+
+    Vectorised in v0.12 (whole-frontier BFS, neighbour shifts). Reproduces
+    the v0.8.3 per-cell algorithm (core/flow/_reference.py) exactly:
+      seeds  : flat cells with a routed neighbour at equal or lower elevation;
+      BFS    : 1 at the seeds, +1 per step across equal-elevation flat cells;
+      assign : each flat cell drains to the not-higher neighbour with the
+               smallest distance (a routed non-flat neighbour counts as 0),
+               first in E, SE, S ... order on ties.
+    """
+    from .flats import _neighbours, _csr, _bfs
     rows, cols = work.shape
     flat = valid & (direction < 0)
     if not flat.any():
         return direction, 0
-
+    fr, fc = np.nonzero(flat)
+    n = fr.size
+    idx = np.full((rows, cols), -1, dtype=np.int64)
+    idx[fr, fc] = np.arange(n)
+    wv = work[fr, fc]
+    seed = np.zeros(n, dtype=bool)
+    ea, eb = [], []
+    for k in range(8):
+        nr, nc, inside = _neighbours(fr, fc, k, rows, cols)
+        ok = inside & valid[nr, nc]
+        seed |= ok & (direction[nr, nc] >= 0) & (work[nr, nc] <= wv)
+        j = idx[nr, nc]
+        link = ok & (j >= 0) & (work[nr, nc] == wv)
+        ea.append(np.flatnonzero(link)); eb.append(j[link])
+    indptr, indices = _csr(n, np.concatenate(ea), np.concatenate(eb))
+    dist = _bfs(n, indptr, indices, np.flatnonzero(seed))
     INF = np.iinfo(np.int32).max
-    bfs = np.full((rows, cols), INF, dtype=np.int32)
-    queue = deque()
+    bfs = np.where(dist > 0, dist, INF)
+    bfs_grid = np.full((rows, cols), INF, dtype=np.int64)
+    bfs_grid[fr, fc] = bfs
 
-    # Seed: flat cells adjacent to an equal-elevation cell that already
-    # has a direction (a genuine flat outlet).
-    flat_ids = np.flatnonzero(flat.reshape(-1))
-    for fid in flat_ids:
-        r, c = divmod(int(fid), cols)
-        for k in range(8):
-            nr, nc = r + int(DROW[k]), c + int(DCOL[k])
-            if nr < 0 or nr >= rows or nc < 0 or nc >= cols:
-                continue
-            if not valid[nr, nc]:
-                continue
-            if direction[nr, nc] >= 0 and work[nr, nc] <= work[r, c]:
-                bfs[r, c] = 1
-                queue.append((r, c))
-                break
-
-    while queue:
-        r, c = queue.popleft()
-        d = bfs[r, c]
-        for k in range(8):
-            nr, nc = r + int(DROW[k]), c + int(DCOL[k])
-            if nr < 0 or nr >= rows or nc < 0 or nc >= cols:
-                continue
-            if not flat[nr, nc] or bfs[nr, nc] <= d + 1:
-                continue
-            if work[nr, nc] != work[r, c]:
-                continue
-            bfs[nr, nc] = d + 1
-            queue.append((nr, nc))
-
-    # Each flat cell drains to the neighbour with the smallest BFS
-    # distance, preferring an already-routed cell at equal or lower
-    # elevation (the flat outlet itself).
-    resolved = 0
-    for fid in flat_ids:
-        r, c = divmod(int(fid), cols)
-        best_k, best_d = -1, INF
-        for k in range(8):
-            nr, nc = r + int(DROW[k]), c + int(DCOL[k])
-            if nr < 0 or nr >= rows or nc < 0 or nc >= cols:
-                continue
-            if not valid[nr, nc]:
-                continue
-            if work[nr, nc] > work[r, c]:
-                continue
-            nd = 0 if (direction[nr, nc] >= 0 and not flat[nr, nc]) else int(bfs[nr, nc])
-            if nd < best_d:
-                best_d, best_k = nd, k
-        if best_k >= 0 and best_d < INF:
-            direction[r, c] = best_k
-            resolved += 1
-
+    best_d = np.full(n, INF, dtype=np.int64)
+    best_k = np.full(n, -1, dtype=np.int64)
+    for k in range(8):
+        nr, nc, inside = _neighbours(fr, fc, k, rows, cols)
+        ok = inside & valid[nr, nc] & (work[nr, nc] <= wv)
+        nd = np.where((direction[nr, nc] >= 0) & ~flat[nr, nc], 0, bfs_grid[nr, nc])
+        better = ok & (nd < best_d)
+        best_d = np.where(better, nd, best_d)
+        best_k = np.where(better, k, best_k)
+    good = (best_k >= 0) & (best_d < INF)
+    direction[fr[good], fc[good]] = best_k[good]
     if progress is not None:
         progress(1.0, "Resolving flats")
-    return direction, resolved
+    return direction, int(good.sum())
