@@ -78,7 +78,37 @@ CATCHMENTS = [
      "later release)", "", "alias"),
     ("slope_relief_ratio", "real", "m/m", "LEGACY alias of catch_relief_ratio "
      "(removed in a later release)", "", "alias"),
-] + _LINK
+] + _LINK + [
+    # soil block (v0.11, WP-C) - empty when no soil dataset was supplied
+    ("soil_sand_pct", "real", "%", "topsoil sand", "area-weighted over soil units; "
+     "component-weighted within a unit; depth-weighted over soil_depth_cm", "sediment/CN input"),
+    ("soil_silt_pct", "real", "%", "topsoil silt", "as soil_sand_pct", "sediment/CN input"),
+    ("soil_clay_pct", "real", "%", "topsoil clay", "as soil_sand_pct", "sediment/CN input"),
+    ("soil_oc_pct", "real", "%", "topsoil organic carbon", "as soil_sand_pct (SOTWIS TOTC g/kg / 10)",
+     "sediment input"),
+    ("soil_cfrag_pct", "real", "vol %", "coarse fragments", "as soil_sand_pct", "MUSLE CFRG input"),
+    ("soil_bulk_gcm3", "real", "g/cm3", "bulk density", "as soil_sand_pct", "info"),
+    ("soil_texture", "text", "-", "USDA texture class of the weighted texture", "USDA triangle",
+     "info"),
+    ("soil_drain_class", "text", "-", "FAO drainage class with the largest share "
+     "(E, S, W, M, I, P, V)", "", "info"),
+    ("soil_hsg_proxy", "text", "-", "hydrologic soil group PROXY (A-D) from texture and "
+     "drainage - not a measured infiltration class", "see core/soils/usle_k.py", "CN input (proxy)"),
+    ("usle_k", "real", "t.ha.h/(ha.MJ.mm)", "USLE/RUSLE K (SI)", "Williams/EPIC per component "
+     "(f_csand coefficient 0.0256) x 0.1317, then weighted", "MUSLE K"),
+    ("usle_k_dg", "real", "t.ha.h/(ha.MJ.mm)", "alternative K from geometric mean particle "
+     "diameter", "Renard et al. 1997", "alternative K"),
+    ("usle_cfrg", "real", "-", "coarse-fragment factor", "exp(-0.053 x soil_cfrag_pct)", "MUSLE CFRG"),
+    ("soil_coverage_pct", "real", "%", "share of the catchment covered by soil units with data",
+     "", "QA"),
+    ("soil_dominant_unit", "text", "-", "soil unit covering the largest share", "", "provenance"),
+    ("soil_units", "int", "-", "number of soil units with data in the catchment", "", "QA"),
+    ("soil_ttr_main", "text", "-", "taxotransfer rule class of the dominant unit's main "
+     "profile (SOTWIS TTRmain; confidence indicator)", "", "QA"),
+    ("soil_dataset", "text", "-", "soil dataset and version", "", "provenance"),
+    ("soil_depth_cm", "text", "cm", "depth interval the soil values describe (default 0-20, D6)",
+     "", "provenance"),
+]
 
 FLOWPATHS = [
     ("outlet_uid", "text", "-", "link key (see crossings)", "", "link key"),
@@ -148,6 +178,8 @@ METADATA_KEYS = [
     ("crossing_source", "pour points | crossing candidates | relinked package"),
     ("chainage_start_m", "start chainage of the road alignment, if one was used"),
     ("relinked_from", "package this one was renumbered/relinked from (D3)"),
+    ("soil_dataset", "soil dataset used for the soil block (empty = none)"),
+    ("soil_depth_cm", "topsoil depth interval of the soil block"),
     ("n_crossings", "number of crossings written"),
     ("parameters_json", "full parameter dictionary of the run"),
 ]
