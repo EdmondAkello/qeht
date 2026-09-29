@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.9.0
+**Version:** 0.10.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -47,21 +47,26 @@ qeht/
       statistics.py      catchment and flow-path morphometry, 10-85 slope
     linking/
       ids.py             outlet_uid generation and uniqueness
+      relink.py          renumber_log for renumber-and-relink (D3)
     geometry/
       polygonize.py      cell mask -> OGC-valid (multi)polygon, pure NumPy
+    network/
+      alignment.py       linear referencing: chainage, signed offset, intersections
+      crossings.py       road x drainage candidates, parallel reaches, clusters
     interop/
       field_dictionary.py  the qeht-heas-1 contract (every exchange field)
       gpkg.py            standard-library GeoPackage 1.2 writer/reader
       heas_exchange.py   pipeline, writer, validator, CSV export
 
   processing_provider/   the only QGIS-aware code
-    provider.py          registers the nine algorithms
+    provider.py          registers the twelve algorithms
     base.py              shared base class and helpers (pour points, IDs)
     alg_*.py             one file per algorithm
 
   tests/
     test_core.py         47 analytic checks, runnable without QGIS
     test_interop.py      74 checks: outlet_uid, slopes, exchange, golden fixture
+    test_crossings.py    43 checks: alignment, candidates, clusters, burn, relink
     fixtures/            golden_exchange.gpkg + .json (shared with HEAS)
     qgis_smoke.py        every Processing tool run inside QGIS
 ```
@@ -72,7 +77,7 @@ The dependency direction is strict and one-way: `processing_provider` imports `c
 
 ## 3. Processing algorithms
 
-QEHT registers nine algorithms under the "Engineering Hydrology" provider.
+QEHT registers twelve algorithms under the "Engineering Hydrology" provider.
 
 | Algorithm | Commercial reference analogue |
 |---|---|
@@ -85,6 +90,9 @@ QEHT registers nine algorithms under the "Engineering Hydrology" provider.
 | Longest flow path | a reference hydrology toolset's `Longest Flow Path` |
 | Catchment and flow path characteristics | a reference hydrology toolset's basin/LFP attribute tools |
 | Build HEAS exchange package | none — one self-describing GeoPackage for HEAS (Section 5.1) |
+| Renumber and relink exchange package | none — gapless re-issue of IDs after edits (Section 5.2) |
+| Road crossing candidates | none — road × drainage crossings (Section 4.11) |
+| Burn crossings through embankments | DEM reconditioning at culverts (Section 4.12) |
 
 Each is a `QgsProcessingAlgorithm` registered through a `QgsProcessingProvider`. Exposing the tools this way — rather than as bespoke dialogs — means they gain input validation, batch mode, the Graphical Modeler, the history log, and `processing.run()` scriptability at no additional cost. Chaining tools in the Modeler is much of a commercial hydrology extension's practical value, and this design reproduces it.
 
@@ -173,6 +181,18 @@ For each catchment the tool reports area, highest/lowest/mean elevation, relief,
 
 **Polygons.** Each catchment is traced from its own cell mask (`core/geometry/polygonize.py`), so overlapping full-upstream catchments each keep their full area. The tracer's output is OGC-valid and identical to `gdal.Polygonize` followed by a union (checked on ~3,000 random masks and on real 30 m catchments).
 
+### 4.11 Road crossing candidates
+
+**Alignment.** The road centreline is linearly referenced: chainage = start chainage + planimetric distance along the parts in layer order (gaps between parts not counted; optional reverse). Offsets are signed, positive to the left of increasing chainage.
+
+**Intersections.** For every stream cell within the corridor, the D8 link from its centre to its receiver's centre is intersected with the alignment segments (parameter conventions make a link through a shared vertex count once). The D8 network is continuous, so this finds every crossing that intersecting QEHT's stream polylines would find, with no near-miss problem. Per candidate: crossing point and chainage; `crossing_angle_deg` = the acute angle between the flow link and the road (90 = square); `acc_km2` = (accumulation + 1) × cell area at the upstream cell of the link, which is also the outlet cell used later; Strahler order; reach id; `side_in`/`side_out` (L/R of the chainage direction); road azimuth.
+
+**Parallel flow and clusters.** Stream cells with |offset| ≤ corridor half-width are traced downstream into runs (a run stops where it leaves the corridor or joins an earlier run). A connected set of runs with at least one run ≥ the minimum parallel length is a parallel system: its runs are exported as `parallel_reaches`, and every candidate touching it joins one cluster. Candidates closer than the merge distance in chainage are also joined (union-find). In each cluster the candidate with the largest contributing area is `recommended = 1` (decision D3: most downstream).
+
+### 4.12 Burning crossings through embankments
+
+At each crossing the breach runs perpendicular to the road between two points `half_length` either side of the centreline. Each end moves to the lowest valid cell within the search radius **on its own side of the centreline**; the higher end is upstream. Cells on the 8-connected line between the ends are lowered to z = min(z, grade), where the grade falls linearly from the upstream to the downstream end elevation (at least `min_grade` = 1e-4 so the breach drains). Nothing is raised and nothing outside the breach changes. A crossing where no ground stands above the grade (no embankment in the DEM) is reported with 0 cells. On a synthetic valley dammed by a 5 m embankment, burning removes the pond completely and the flow passes through the culvert cell.
+
 ---
 
 ## 5. Data handling and interoperability
@@ -189,7 +209,9 @@ For each catchment the tool reports area, highest/lowest/mean elevation, relief,
 - **Linking.** Every feature carries `outlet_uid`, identical across the three layers for one crossing, plus `crossing_id`/`catchment_id`/`flowpath_id` (default = `outlet_uid`), `link_method` (`pour_point`), `link_confidence` (1.0) and `link_note`. IDs come from a chosen pour-point attribute or are sequential with a prefix, numbered downstream-first (largest contributing area = 001) or in layer order. Empty or duplicate IDs, and two pour points snapping to the same cell, stop the run with a list. `outlet_id` (feature id) is kept for backward compatibility and is not stable.
 - **CRS.** A projected, metric CRS is required; a geographic DEM is refused before any computation.
 - **Values.** Missing values are NULL, never 0. `acc_at_outlet_km2` is read from the accumulation raster ((accumulation + 1) × cell area) and equals `area_km2` for full catchments — a built-in QA check.
+- **Renumber and relink (5.2).** After crossings are deleted, moved or added in a package, "Renumber and relink exchange package" writes a new package: unmoved crossings keep their outlet cell, moved/added ones are snapped; crossings are ordered by chainage (recomputed from the road for moved/added points) or downstream-first; IDs are re-issued gaplessly with the package's prefix; catchments and flow paths are recomputed; `renumber_log` lists old → new (`unchanged`, `renumbered`, `new`, `deleted`, and `moved_m`). IDs are only re-issued when this tool is run.
 - **Evolution.** New fields may be added under `qeht-heas-1`; renaming or removing a field requires `qeht-heas-2`. The validator (also used by the tool after writing) rejects unknown major versions and checks that every catchment and flow path refers to an existing crossing.
+- **Road layers.** When built from a candidate layer, the package also holds `crossing_candidates` (every candidate, the audit trail) and, when a road is given, `road_alignment`. The crossings keep each candidate's outlet cell (no snapping), carry `chainage_m`, and are numbered along the chainage. Metadata records `crossing_source` and `chainage_start_m`.
 - **Implementation.** The file is written with the Python standard library (`sqlite3`, `struct`), so it is identical on every platform and testable without GDAL; the test suite validates it with GDAL's GeoPackage validator. `tests/fixtures/golden_exchange.gpkg` (synthetic DEM, three crossings: two nested on one valley, one on a tributary) is the shared contract fixture: QEHT asserts it reproduces the same attributes, HEAS asserts it imports with no field mapping.
 
 ---
@@ -199,6 +221,8 @@ For each catchment the tool reports area, highest/lowest/mean elevation, relief,
 QEHT is validated at three levels.
 
 **Level 1 — synthetic analytic DEMs.** 47 checks in `tests/test_core.py`, runnable on bare Python + NumPy, covering encoding round-trips, distance weighting, fill spill levels, accumulation on analytic surfaces, catchment areas, longest-flow-path geometry, snapping, Strahler rules, and the Barnes saddle convergence test. A further 74 checks in `tests/test_interop.py` cover the 10–85 conventions on an analytic profile, the slope domains, `outlet_uid` rules, the polygon tracer, the GeoPackage writer, the CRS rule and the exchange package against the golden fixture. All pass. (Earlier documentation quoted 48 core checks; the suite has 47.)
+
+**Road crossings.** 43 checks in `tests/test_crossings.py`: linear referencing (chainage, signed offset, multi-part, reverse); a square crossing (exact chainage, 90°, side); a 45° road (45° exactly); a stream weaving across the centreline for ~600 m (11 raw intersections → one cluster, the exit recommended, a 748 m parallel reach); two tributaries 100 m apart (merge 50 m → two clusters, 150 m → one); candidate selection rules; candidates → exchange (numbered along chainage, outlets not snapped); an embanked valley (pond removed, breach confined to the culvert line, flow through the culvert); renumber-log rules.
 
 **QGIS level.** `tests/qgis_smoke.py` runs every Processing tool through `processing.run()` inside QGIS on the example DEM and checks outputs, `outlet_uid` consistency and the exchange package. Passes on QGIS 3.34.4 (headless).
 
@@ -266,7 +290,7 @@ The recommended sequencing is to establish the public GitHub repository now — 
 
 ## 10. Citation
 
-See `CITATION.cff`. In brief: QEHT: QGIS Engineering Hydrology Toolkit, v0.9.0, GPL-2.0-or-later.
+See `CITATION.cff`. In brief: QEHT: QGIS Engineering Hydrology Toolkit, v0.10.0, GPL-2.0-or-later.
 
 ## 11. Licence
 
