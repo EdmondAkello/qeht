@@ -52,7 +52,29 @@ CROSSINGS = [
     ("chainage_m", "real", "m", "position along the road alignment (from the crossing-"
      "candidate tool; empty for hand-placed pour points)", "linear referencing",
      "crossing chainage"),
-] + _LINK
+] + _LINK + [
+    # erosion block at the crossing (v0.14, WP-F)
+    ("ero_lnspi_max3x3", "real", "ln(m)", "highest ln(SPI) in the 3x3 cells at the outlet", "",
+     "gully potential"),
+    ("ero_lnspi_app_p50", "real", "ln(m)", "median ln(SPI) on the approach channel",
+     "channel cells up to 10 D8 steps upstream", "gully potential"),
+    ("ero_lnspi_app_p90", "real", "ln(m)", "90th percentile ln(SPI) on the approach channel", "",
+     "gully potential"),
+    ("ero_slope_pct", "real", "%", "local slope, 3x3 mean", "Horn, raw DEM", "info"),
+    ("ero_ls_local", "real", "-", "local LS, 3x3 mean", "", "info"),
+    ("ero_twi_local", "real", "ln(m)", "local TWI, 3x3 mean", "", "info"),
+    ("ero_spi_class", "text", "-", "SPI class of ero_lnspi_max3x3", "erosion metadata scheme",
+     "erosion"),
+    ("ero_spi_score", "int", "1-5", "severity score of ero_spi_class", "", "MCDMA"),
+    ("ero_worst_score_3x3", "int", "1-5", "worst combined severity score in the 3x3 window", "",
+     "erosion"),
+    ("ero_composite", "real", "1-5", "hydrodynamic impact score",
+     "0.4 SPI + 0.3 RUSLE + 0.3 sediment score (Akello & Omosa 2025; weights in metadata)",
+     "MCDMA"),
+    ("ero_impact", "text", "-", "impact level", "<= 2.0 Low, <= 3.0 Moderate, <= 4.0 High, "
+     "else Severe", "MCDMA"),
+    ("ero_mitigation", "text", "-", "indicative mitigation for the impact level", "", "MCDMA"),
+]
 
 CATCHMENTS = [
     ("outlet_uid", "text", "-", "link key (see crossings)", "", "link key"),
@@ -108,6 +130,44 @@ CATCHMENTS = [
     ("soil_dataset", "text", "-", "soil dataset and version", "", "provenance"),
     ("soil_depth_cm", "text", "cm", "depth interval the soil values describe (default 0-20, D6)",
      "", "provenance"),
+] + [
+    # erosion block (v0.14, WP-F) - empty when no erosion inputs were supplied
+    ("ero_mode", "text", "-", "RUSLE, or LS-only when R, K or C was not supplied",
+     "no factor is ever invented", "erosion provenance"),
+    ("ero_a_mean_tha", "real", "t/ha/yr", "mean RUSLE soil loss over the catchment",
+     "A = R K LS C P", "MUSLE / sediment"),
+    ("ero_a_p90_tha", "real", "t/ha/yr", "90th percentile of RUSLE soil loss", "", "erosion"),
+    ("ero_ls_mean", "real", "-", "mean LS factor", "Moore & Burch or Desmet & Govers "
+     "(ero metadata)", "MUSLE LS"),
+    ("ero_ls_p90", "real", "-", "90th percentile LS", "", "erosion"),
+    ("ero_lnspi_ch_p90", "real", "ln(m)", "90th percentile ln(SPI) on channel cells",
+     "SPI = A_s tan(beta)", "gully potential"),
+    ("ero_k_mean", "real", "t ha h/(ha MJ mm)", "area-weighted K", "mean over catchment cells",
+     "MUSLE K"),
+    ("ero_c_mean", "real", "-", "area-weighted C", "see erosion metadata for proxy flags",
+     "MUSLE C"),
+    ("ero_p_mean", "real", "-", "area-weighted P", "", "MUSLE P"),
+    ("ero_pct_s1", "real", "%", "share of cells with combined severity score 1 (lowest)",
+     "D7 matrix on SPI and RUSLE (or LS) scores", "erosion"),
+    ("ero_pct_s2", "real", "%", "share with combined score 2", "", "erosion"),
+    ("ero_pct_s3", "real", "%", "share with combined score 3", "", "erosion"),
+    ("ero_pct_s4", "real", "%", "share with combined score 4", "", "erosion"),
+    ("ero_pct_s5", "real", "%", "share with combined score 5 (most severe)", "", "erosion"),
+    ("ero_rusle_class", "text", "-", "RUSLE class of the mean soil loss", "erosion metadata "
+     "scheme", "erosion"),
+    ("ero_rusle_score", "int", "1-5", "severity score of ero_rusle_class", "", "MCDMA"),
+    ("ero_gross_t_yr", "real", "t/yr", "gross soil loss", "ero_a_mean_tha x area (ha)",
+     "sediment"),
+    ("ero_sdr", "real", "-", "sediment delivery ratio", "0.565 A_km2^-0.125, capped at 1 (FAO)",
+     "sediment"),
+    ("ero_sy_t_yr", "real", "t/yr", "sediment yield to the crossing", "gross x SDR", "sediment"),
+    ("ero_sy_m3_yr", "real", "m3/yr", "sediment volume to the crossing",
+     "yield x 1000 / bulk density", "sediment"),
+    ("ero_bulk_kgm3", "real", "kg/m3", "bulk density used for the volume",
+     "soil block when present, else the tool value", "sediment"),
+    ("ero_sy_class", "text", "-", "sediment volume impact class", "<1,000 / 5,000 / 15,000 m3/yr",
+     "MCDMA"),
+    ("ero_sy_score", "int", "1-5", "severity score of ero_sy_class", "", "MCDMA"),
 ]
 
 FLOWPATHS = [
@@ -180,6 +240,8 @@ METADATA_KEYS = [
     ("relinked_from", "package this one was renumbered/relinked from (D3)"),
     ("soil_dataset", "soil dataset used for the soil block (empty = none)"),
     ("soil_depth_cm", "topsoil depth interval of the soil block"),
+    ("erosion_json", "erosion inputs: mode, factor provenance (source, proxy flags), LS method, "
+     "class schemes, MCDMA weights, SDR model (empty = no erosion block)"),
     ("n_crossings", "number of crossings written"),
     ("parameters_json", "full parameter dictionary of the run"),
 ]
