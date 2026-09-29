@@ -3,6 +3,19 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.12.0] — unreleased (WP-E flats and performance)
+### Fixed
+- **Barnes flat resolution could create flow loops.** Its outlet rule for local-minimum flat cells accepted an equal-elevation neighbour assigned earlier in the same pass, which could point two cells at each other. The loops are small but sit on main channels and cut them off from their upstream area (on a 30 m flat coastal clip the largest accumulation was 40,117 cells; 794,103 with the fix). The exit now goes only to a lower neighbour or one routed before flat resolution. Toward-lower (the default) was not affected. The earlier Barnes-vs-reference comparison on coastal flats (stream IoU 0.19) used the faulty code and should be repeated.
+
+### Added
+- **Hybrid flat resolution**: `flat_mask = w·toward + (flat_height − away)`, w > 1 (w = 2 is Barnes), with an optional size switch (toward gradient only below N cells). New options on D8 flow direction. Loop-free for every w > 1 (tested); on broad real flats w changes little — tie rules among equally short paths matter more.
+- **Memory estimate** (`core/memory.py`) from measured per-step peaks, reported by every heavy tool before it runs, with a warning when it nears the free RAM.
+- `core/flow/_reference.py`: the v0.8.3 per-cell algorithms, kept verbatim as test oracles. `tests/test_flats.py` (24 checks).
+
+### Changed
+- **Vectorised core**: fill (frontier relaxation of the priority-flood solution, with and without min_slope), D8 flow direction (streamed over the 8 directions: ~176 → ~59 bytes per cell), toward-lower and Barnes flats, accumulation, Strahler, catchment delineation, longest flow path (FIFO order reproduced so equal-length ties choose the same branch) and nearest-stream snapping. Outputs identical to v0.8.3 (except the Barnes fix above; fractional-weight accumulation to 1e-12). Full chain on ~1-megapixel 30 m clips: 10.5 s → 2.9 s (steep), 25.9 s → 4.8 s (flat coastal).
+- Documentation corrected: the D8 tie rule is the fixed priority S, W, N, E, SE, SW, NW, NE (not lowest index).
+
 ## [0.11.0] — unreleased (WP-C soils)
 ### Added
 - **Soil parameters for catchments** (new "Soils and erosion" group) and an optional soil input on **Build HEAS exchange package**: a soil block on every catchment — topsoil sand, silt, clay, organic carbon, coarse fragments, bulk density, USDA texture, FAO drainage class, USLE K (Williams/EPIC, SI) and the Renard Dg-based K, CFRG, a texture/drainage hydrologic-group proxy, coverage %, dominant unit, TTR class, dataset and depth. Optional USLE K and soil-unit rasters.

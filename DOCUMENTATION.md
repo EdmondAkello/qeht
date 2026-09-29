@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.11.0
+**Version:** 0.12.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -74,6 +74,7 @@ qeht/
     test_interop.py      74 checks: outlet_uid, slopes, exchange, golden fixture
     test_crossings.py    43 checks: alignment, candidates, clusters, burn, relink
     test_soils.py        31 checks: USLE K, texture, HSG, SOTWIS loader, soil block
+    test_flats.py        24 checks: vectorised core == v0.8.3 reference, hybrid flats
     fixtures/            golden_exchange.gpkg + .json (shared with HEAS)
     qgis_smoke.py        every Processing tool run inside QGIS
 ```
@@ -140,7 +141,7 @@ with a relative tolerance of 1e-6 for treating gradients as tied. Applying this 
 
 ### 4.4 Flat resolution
 
-After steepest-descent routing, cells in filled flats have no downhill neighbour. QEHT provides two methods.
+After steepest-descent routing, cells in filled flats have no downhill neighbour. QEHT provides three methods.
 
 **Method A — toward-lower BFS (default).** Flat cells are seeded from their outlets and a breadth-first distance is propagated inward; each flat cell routes toward decreasing distance-to-outlet. This is the toward-lower component of the Garbrecht & Martz conceptual approach.
 
@@ -153,7 +154,11 @@ After steepest-descent routing, cells in filled flats have no downhill neighbour
 | Toward-lower | 0.63 | 6,324 | 51,974 |
 | Barnes iterated | 0.19 | 642 | 14,428 |
 
-Both are valid, cycle-free drainage solutions; they simply differ. The reference platform's actual flat behaviour — despite its documentation citing Garbrecht & Martz — empirically resembles the simpler method here. The remaining QEHT-vs-reference gap on flat terrain is therefore a genuine algorithmic difference, not an implementation defect. On steep terrain the two methods agree to within 0.1%.
+**Correction (v0.12).** The Barnes figures above were produced with the ≤ 0.11 code, whose outlet rule for local-minimum cells could point two cells at each other (it accepted neighbours assigned earlier in the same pass). The resulting two-cell loops sit on main channels and cut them off from their upstream area — consistent with the collapsed p99 accumulation (642 against 9,071). On a 30 m flat coastal clip the fix raised the largest accumulation from 40,117 to 794,103 cells. The comparison must be repeated with the fixed resolver before any conclusion about Barnes against the reference platform is drawn. Toward-lower was never affected.
+
+**Method C — hybrid (v0.12).** `flat_mask = w·toward + (flat_height − away)`, w > 1. w = 2 is Barnes; as w → ∞ the away term only breaks ties and every cell follows a shortest path to its outlet (tested). A cell only flows to a neighbour with strictly lower flat_mask, so no loop is possible for any w; for w > 1 every cell with toward distance t > 1 has a neighbour at t − 1 whose value is lower by at least w − 1, so only low-edge cells can be local minima, and those exit to lower or pre-routed neighbours. For w ≤ 1 interior false sinks are possible and the value is refused. On a broad coastal flat w changes little (stream IoU vs toward-lower 0.394–0.399 for w = 1.5 … 10⁶, ~44 % of flat cells routed differently from toward-lower at every w): among equally short paths, Barnes' tie rules (same flat, cardinal first) and toward-lower's (first in E, SE, S … order) differ, and that choice dominates on large flats. An optional size switch applies the toward gradient alone to flats below N cells (no seams, tested); with the vectorised code it saves no measurable time.
+
+**Implementation (v0.12).** All three resolvers are vectorised: flat edges by neighbour shifts, flats labelled by union-find with pointer jumping over equal-elevation links, BFS by whole frontiers over a compact adjacency list, assignment in the same neighbour order and tie rules. Toward-lower reproduces v0.8.3 bit for bit; Barnes reproduces it everywhere except the corrected exit cells (tests on random surfaces with plateaus, terraces, filled noise and NoData).
 
 ### 4.5 Flow accumulation
 
@@ -258,10 +263,10 @@ The two datasets bound the expected accuracy: near-exact on moderate-to-steep te
 
 ## 7. Known limitations
 
-- **No tiling.** The whole grid is processed in memory; several working copies are held during routing. A ~41-megapixel DEM needs well over 8 GB at peak. Above ~25 megapixels the tools warn and recommend clipping to the catchment plus a buffer, which is standard practice and does not affect results within the clip.
+- **No tiling.** The whole grid is processed in memory. Measured peaks for the v0.12 core (bytes per cell, plus ~24 resident): fill 44, flow direction 119 (toward) / 165 (Barnes, hybrid), accumulation, Strahler, catchment and longest flow path ~82. Every tool reports its estimate before running and warns when it approaches the free RAM; clip to the catchment plus a buffer when it does — results inside the clip are unchanged.
 - **Flat terrain.** On very flat terrain QEHT reproduces the reference platform's output to a stream IoU of ~0.6, not near-unity. This is inherent to the algorithmic difference in Section 4.4, not a defect. For flat coastal catchments where the last increment matters, a reference-platform flow-direction grid can be ingested and QEHT's accumulation, catchment, and characteristics tools run on top of it.
-- **Flat routing is one-sided by default.** The Barnes convergent option exists but is not the default because it matches the reference toolset less well on the tested terrain.
-- **Single-threaded.** No parallelism; the algorithms are O(N) or O(N log N) but run on one core.
+- **Flat routing is one-sided by default.** Barnes and the hybrid are options; the default stays toward-lower (decision D4) until the benchmark (WP-G) shows otherwise.
+- **Single-threaded.** No parallelism. Since v0.12 the core is vectorised NumPy (fill, direction, flats, accumulation, Strahler, delineation, longest flow path, snapping), 3.6–5.4× faster end to end on 1-megapixel clips.
 
 ---
 
@@ -312,7 +317,7 @@ The recommended sequencing is to establish the public GitHub repository now — 
 
 ## 10. Citation
 
-See `CITATION.cff`. In brief: QEHT: QGIS Engineering Hydrology Toolkit, v0.11.0, GPL-2.0-or-later.
+See `CITATION.cff`. In brief: QEHT: QGIS Engineering Hydrology Toolkit, v0.12.0, GPL-2.0-or-later.
 
 ## 11. Licence
 

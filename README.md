@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.11.0
+# QEHT — QGIS Engineering Hydrology Toolkit v0.12.0
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -39,6 +39,7 @@ which are C++ libraries already loaded inside the QGIS process. There is no
       tests/test_interop.py  ← outlet_uid, slopes, exchange package, golden fixture
       tests/test_crossings.py ← crossing candidates, burn, renumber-and-relink
       tests/test_soils.py    ← USLE K, texture, SOTWIS loader, soil block
+      tests/test_flats.py    ← vectorised core == v0.8.3 reference; hybrid flats
       tests/qgis_smoke.py    ← every Processing tool, run inside QGIS
 
 The core is importable without QGIS. That is what makes the hydrology testable:
@@ -47,6 +48,7 @@ The core is importable without QGIS. That is what makes the hydrology testable:
     python -m qeht.tests.test_interop     # 74 checks incl. the golden fixture
     python -m qeht.tests.test_crossings   # 43 checks: road crossings, burn, relink
     python -m qeht.tests.test_soils       # 31 checks: soils and USLE K
+    python -m qeht.tests.test_flats       # 24 checks: oracles, hybrid flats
 
 Run these after any change to the core, and before trusting any output on a
 real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
@@ -231,6 +233,35 @@ share of the catchment covered by soil data.
   six steep Rift-valley test catchments it was 0.026–0.038 against 0.027–0.028
   (ESDAC Wischmeier-based K). Treat K as an estimate with that spread.
 
+## Flats and performance (v0.12)
+
+**Vectorised core.** Fill, D8 flow direction, both flat resolvers,
+accumulation, Strahler order, catchment delineation, longest flow path and
+pour-point snapping were per-cell Python loops; they are now whole-array NumPy
+operations. The v0.8.3 implementations are kept in `core/flow/_reference.py`
+and the tests require identical output (bit for bit; fractional-weight
+accumulation to 1e-12). Measured on 30 m clips of about one million cells, the
+full chain (fill, flow direction, accumulation, Strahler, catchment, longest
+flow path) went from 10.5 s to 2.9 s on steep terrain and from 25.9 s to 4.8 s
+on a flat coastal clip; D8 peak memory fell from ~176 to ~59 bytes per cell.
+
+**Barnes resolver fixed.** Up to 0.11 the Barnes option could route two flat
+cells into each other (its outlet rule accepted a neighbour assigned earlier
+in the same pass). The loops are small but sit on main channels: on the flat
+coastal clip the largest accumulation was 40,117 cells with the old code and
+794,103 with the fix. Toward-lower (the default) was never affected. The
+earlier comparison in which Barnes matched a reference platform poorly on
+coastal flats (stream IoU 0.19 against 0.63 for toward-lower) used the old
+code and should be repeated.
+
+**Hybrid.** `flat_mask = w·toward + (flat_height − away)`: w = 2 is Barnes,
+large w follows shortest paths to the outlet, 1 < w < 2 pushes flow off high
+edges harder; any w > 1 is loop-free (tested for w = 1.01 … 100). On a broad
+coastal flat w changed little (stream IoU vs toward-lower 0.394–0.399 for w
+from 1.5 to 10⁶): how ties between equally short paths are broken decides the
+network more than w does. An optional size switch uses the toward gradient
+alone on small flats; with the vectorised code it saves no measurable time.
+
 ## Interoperability
 
 Flow direction is written and read in the standard D8 encoding
@@ -245,23 +276,23 @@ result.
 
 Stated explicitly because a drainage report needs them stated:
 
-1. **Flat resolution is one-sided.** We implement the gradient-toward-lower-
-   terrain component of Garbrecht & Martz (1997), not the gradient-away-from-
-   higher-terrain component. Drainage across wide flats converges into fewer
-   channels than commercial reference toolsets typically produce. Mitigate by
-   filling with a small minimum slope (1e-4), which largely removes flats
-   before routing.
-2. **Tie-breaking.** Where two neighbours give identical drop/distance, we take
-   the lowest internal index (E before SE before S...). Commercial toolsets'
-   exact tie handling is generally undocumented. Ours is deterministic and
-   reproducible, which matters more.
-3. **No tiling.** DEMs are processed whole in memory. Beyond roughly
-   5000 x 5000 cells, clip to your catchment plus a buffer first — which is
-   normal practice anyway.
+1. **Flat resolution.** The default routes flats toward lower terrain (the
+   toward component of Garbrecht & Martz 1997). Barnes 2014 (both gradients)
+   and a one-parameter hybrid are options (see "Flats and performance").
+   Drainage across wide flats can converge into fewer channels than commercial
+   reference toolsets produce. Filling with a small minimum slope (1e-4)
+   largely removes flats before routing.
+2. **Tie-breaking.** Where neighbours give identical drop/distance, the fixed
+   priority S, W, N, E, SE, SW, NW, NE applies - recovered empirically from a
+   reference platform (off-flat agreement 84 % → 91 %). Deterministic.
+3. **No tiling.** DEMs are processed whole in memory. Every tool reports an
+   estimated peak memory before it runs (measured per-step figures) and warns
+   when it approaches the free RAM; clip to your catchment plus a buffer when
+   it does — normal practice anyway.
 
 ## Validation
 
-**Level 1 — synthetic analytic DEMs.** 47 checks, `tests/test_core.py`, plus 74 interop checks in `tests/test_interop.py`, 43 road-crossing checks in `tests/test_crossings.py` and 31 soil checks in `tests/test_soils.py`. PASS. `tests/qgis_smoke.py` (26 checks) runs every tool inside QGIS.
+**Level 1 — synthetic analytic DEMs.** 47 checks, `tests/test_core.py`, plus 74 interop checks in `tests/test_interop.py`, 43 road-crossing checks in `tests/test_crossings.py` 31 soil checks in `tests/test_soils.py` and 24 checks in `tests/test_flats.py` (vectorised core vs the v0.8.3 reference; hybrid flats). PASS. `tests/qgis_smoke.py` (28 checks) runs every tool inside QGIS.
 
 **Level 3 — reference hydrology toolset production output, Site A.** 718 x 775
 cells @ 30.92 m, EPSG:21037, 16 road-crossing pour points with reference
