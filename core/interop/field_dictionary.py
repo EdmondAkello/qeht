@@ -49,8 +49,9 @@ CROSSINGS = [
      "QA"),
     ("stream_order", "int", "-", "Strahler order at the outlet (if a stream-order "
      "raster was supplied)", "Strahler", "info"),
-    ("chainage_m", "real", "m", "position along the road alignment (empty until the "
-     "crossing-candidate tool supplies it)", "linear referencing", "crossing chainage"),
+    ("chainage_m", "real", "m", "position along the road alignment (from the crossing-"
+     "candidate tool; empty for hand-placed pour points)", "linear referencing",
+     "crossing chainage"),
 ] + _LINK
 
 CATCHMENTS = [
@@ -144,6 +145,9 @@ METADATA_KEYS = [
     ("id_order", "numbering order for sequential ids"),
     ("id_attribute", "pour-point attribute used for ids (attribute scheme)"),
     ("lfp_1085_reference", "outlet (v0.9+) | divide (<= 0.8.3)"),
+    ("crossing_source", "pour points | crossing candidates | relinked package"),
+    ("chainage_start_m", "start chainage of the road alignment, if one was used"),
+    ("relinked_from", "package this one was renumbered/relinked from (D3)"),
     ("n_crossings", "number of crossings written"),
     ("parameters_json", "full parameter dictionary of the run"),
 ]

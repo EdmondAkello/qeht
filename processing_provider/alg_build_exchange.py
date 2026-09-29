@@ -19,20 +19,23 @@ from .base import QehtAlgorithm
 from ..core.raster import read_dem
 from ..core.grid import decode_d8
 from ..core.watershed.delineate import extract_streams
+from ..core.network.crossings import select_crossings, CANDIDATE_FIELDS
 from ..core.interop.heas_exchange import (build_exchange_records, write_exchange,
                                           validate_exchange, crs_check,
                                           file_fingerprint, plugin_version,
                                           ExchangeError, SCHEMA_VERSION)
 
 FDR = "FDR"; DEM = "DEM"; RAW_DEM = "RAW_DEM"; FAC = "FAC"; ORDER = "ORDER"
+ROAD = "ROAD"; START = "START"; REVERSE = "REVERSE"
 POINTS = "POINTS"; ID_FIELD = "ID_FIELD"; ID_PREFIX = "ID_PREFIX"; ID_ORDER = "ID_ORDER"
 SNAP = "SNAP"; SNAP_THRESHOLD = "SNAP_THRESHOLD"; LOCAL = "LOCAL"
 DEM_SOURCE = "DEM_SOURCE"; CONDITIONING = "CONDITIONING"; FLAT_METHOD = "FLAT_METHOD"
 CSV = "CSV"; OUTPUT = "OUTPUT"; SUMMARY = "SUMMARY"
 
-ORDER_OPTIONS = ["Downstream first (largest contributing area = 001)",
+ORDER_OPTIONS = ["Automatic: along the chainage when known, else downstream first",
+                 "Downstream first (largest contributing area = 001)",
                  "Pour-point layer order"]
-ORDER_KEYS = ["downstream", "input"]
+ORDER_KEYS = ["auto", "downstream", "input"]
 
 
 class BuildHeasExchangeAlgorithm(QehtAlgorithm):
@@ -59,6 +62,13 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "written but is NOT stable - do not link on it.\n\n"
             "<b>A projected, metric CRS is required.</b> A DEM in degrees is "
             "refused; reproject it (e.g. to UTM) first.\n\n"
+            "<b>Crossing candidates:</b> give the layer from 'Road crossing "
+            "candidates' as the crossings. The accepted candidates are used (or the "
+            "recommended ones if none is accepted); each keeps its outlet cell "
+            "(no snapping) and its chainage, IDs are numbered along the chainage, "
+            "and the full candidate layer is stored in the package as "
+            "crossing_candidates. With hand-placed points, give the road alignment "
+            "to get chainages.\n\n"
             "<b>Catchments:</b> full upstream area per crossing by default "
             "(overlapping - what a culvert design flow needs). 'Local' gives "
             "non-overlapping areas, computed upstream-first so the result does "
@@ -80,6 +90,14 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             ORDER, "Stream order raster (optional, for crossing attributes)", optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
             POINTS, "Crossings / pour points", [QgsProcessing.SourceType.TypeVectorPoint]))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            ROAD, "Road alignment (optional; chainage for hand-placed points)",
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            START, "Start chainage (m)", QgsProcessingParameterNumber.Type.Double,
+            defaultValue=0.0))
+        self.addParameter(QgsProcessingParameterBoolean(
+            REVERSE, "Reverse chainage direction", defaultValue=False))
         self.addParameter(QgsProcessingParameterField(
             ID_FIELD, "ID attribute (optional; blank = sequential IDs)",
             parentLayerParameterName=POINTS, optional=True))
@@ -157,7 +175,51 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         local = self.parameterAsBool(parameters, LOCAL, context)
 
         points = self.read_pour_points(parameters, POINTS, context, info, feedback,
-                                       id_field=id_field)
+                                       id_field=id_field,
+                                       extra_fields=[f for f, _ in CANDIDATE_FIELDS])
+        extra_layers = []
+        candidate_mode = any("attr_status" in p and "attr_outlet_x" in p for p in points)
+        if candidate_mode:
+            extra_layers.append(("crossing_candidates", "POINT", CANDIDATE_FIELDS,
+                                 [((p["x"], p["y"]), {f: p.get("attr_" + f)
+                                                      for f, _ in CANDIDATE_FIELDS})
+                                  for p in points],
+                                 "All crossing candidates (audit trail)"))
+            idx, rule = select_crossings([{"status": p.get("attr_status"),
+                                           "recommended": p.get("attr_recommended")}
+                                          for p in points])
+            points = [points[k] for k in idx]
+            if not points:
+                raise QgsProcessingException(
+                    "No candidate is accepted or recommended - nothing to export.")
+            for p in points:
+                p["outlet_x"], p["outlet_y"] = p.get("attr_outlet_x"), p.get("attr_outlet_y")
+                p["chainage"] = p.get("attr_chainage_m")
+            feedback.pushInfo(f"Candidate layer: {len(points)} crossing(s) selected ({rule}).")
+
+        alignment = self.read_alignment(
+            parameters, ROAD, context, info, feedback,
+            start_chainage=self.parameterAsDouble(parameters, START, context),
+            reverse=self.parameterAsBool(parameters, REVERSE, context))
+        if alignment is not None:
+            missing = [p for p in points if p.get("chainage") is None]
+            if missing:
+                ch, off, _ = alignment.locate([p["x"] for p in missing], [p["y"] for p in missing])
+                for p, c in zip(missing, ch):
+                    p["chainage"] = float(c)
+            extra_layers.append((
+                "road_alignment", "LINESTRING",
+                [("part", "int"), ("chainage_from_m", "real"), ("chainage_to_m", "real")],
+                [([tuple(v) for v in part], {"part": k + 1,
+                  "chainage_from_m": float(alignment.ch0[alignment.part == k].min()),
+                  "chainage_to_m": float((alignment.ch0 + alignment.seg_len)[alignment.part == k].max())})
+                 for k, part in enumerate(alignment.parts)],
+                "Road alignment used for chainage"))
+        if order == "auto":
+            order = ("chainage" if all(p.get("chainage") is not None for p in points)
+                     else "downstream")
+        elif order == "chainage" and not all(p.get("chainage") is not None for p in points):
+            raise QgsProcessingException("Chainage numbering needs a candidate layer or a road alignment.")
         stream_mask = None
         if snap_radius > 0 and snap_threshold > 0:
             stream_mask = extract_streams(accum, valid, threshold_cells=snap_threshold)
@@ -196,6 +258,8 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                               "nearest_stream" if stream_mask is not None else "max_accumulation"),
             "catchment_mode": "local" if local else "full",
             "id_attribute": id_field or "",
+            "crossing_source": ("crossing candidates" if candidate_mode else "pour points"),
+            "chainage_start_m": (f"{alignment.start_chainage:g}" if alignment is not None else ""),
             "parameters_json": {k: str(v) for k, v in parameters.items()},
         })
         try:
@@ -203,7 +267,8 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                            info.projection_wkt, crs_epsg=epsg,
                            crs_name=dem_crs.description() if dem_crs.isValid() else "",
                            csv_dir=(os.path.splitext(out_path)[0] + "_csv")
-                           if self.parameterAsBool(parameters, CSV, context) else None)
+                           if self.parameterAsBool(parameters, CSV, context) else None,
+                           extra_layers=extra_layers)
         except ExchangeError as e:
             raise QgsProcessingException(str(e))
 

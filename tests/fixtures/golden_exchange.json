@@ -194,7 +194,9 @@
  "metadata": {
   "catchment_mode": "full",
   "cell_size_m": "10 x 10",
+  "chainage_start_m": "",
   "conditioning": "priority-flood fill, min_slope 0",
+  "crossing_source": "",
   "crs_epsg": "32737",
   "crs_name": "WGS 84 / UTM zone 37S",
   "dem_path": "synthetic",
@@ -212,6 +214,7 @@
   "parameters_json": "{\"cols\": 50, \"fixture\": \"golden\", \"rows\": 60}",
   "qeht_version": "golden",
   "raw_dem_path": "synthetic",
+  "relinked_from": "",
   "run_utc": "2026-09-29T00:00:00Z",
   "schema_version": "qeht-heas-1",
   "snap_radius_cells": "3",

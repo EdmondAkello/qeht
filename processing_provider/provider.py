@@ -24,6 +24,9 @@ from .alg_longest_flowpath import LongestFlowPathAlgorithm
 from .alg_streamlines import StreamLinesAlgorithm
 from .alg_characteristics import CatchmentCharacteristicsAlgorithm
 from .alg_build_exchange import BuildHeasExchangeAlgorithm
+from .alg_crossing_candidates import CrossingCandidatesAlgorithm
+from .alg_burn_crossings import BurnCrossingsAlgorithm
+from .alg_renumber_relink import RenumberRelinkAlgorithm
 
 
 class QehtProvider(QgsProcessingProvider):
@@ -39,6 +42,9 @@ class QehtProvider(QgsProcessingProvider):
             LongestFlowPathAlgorithm(),
             CatchmentCharacteristicsAlgorithm(),
             BuildHeasExchangeAlgorithm(),
+            CrossingCandidatesAlgorithm(),
+            BurnCrossingsAlgorithm(),
+            RenumberRelinkAlgorithm(),
         ):
             self.addAlgorithm(alg)
 
