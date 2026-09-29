@@ -10,7 +10,6 @@ almost every time-of-concentration formula you will use.
 """
 
 import numpy as np
-from collections import deque
 
 from ..grid import DROW, DCOL, NO_RECEIVER, neighbour_distances, receivers_from_direction
 
@@ -59,26 +58,24 @@ def snap_pour_point(row, col, accumulation, valid, search_radius_cells=5,
     rows, cols = accumulation.shape
 
     if stream_mask is not None:
-        # Expand ring by ring so the nearest stream cell wins on distance
-        # first, accumulation only as a tie-break within the same ring.
-        for radius in range(0, int(search_radius_cells) + 1):
-            best = None
-            for dr in range(-radius, radius + 1):
-                for dc in range(-radius, radius + 1):
-                    if max(abs(dr), abs(dc)) != radius:
-                        continue
-                    r, c = row + dr, col + dc
-                    if not (0 <= r < rows and 0 <= c < cols):
-                        continue
-                    if not (stream_mask[r, c] and valid[r, c]):
-                        continue
-                    acc = float(accumulation[r, c])
-                    if best is None or acc > best[0]:
-                        best = (acc, r, c)
-            if best is not None:
-                _, br, bc = best
-                moved = int(round(np.hypot(br - row, bc - col)))
-                return br, bc, moved, float(accumulation[br, bc])
+        # Nearest stream cell by ring (Chebyshev distance); within the
+        # nearest ring the highest accumulation wins, and on equal
+        # accumulation the first cell in row-major order (the v0.8.3
+        # ring-by-ring scan, vectorised over the window in v0.12).
+        rad = int(search_radius_cells)
+        r0, r1 = max(0, row - rad), min(rows, row + rad + 1)
+        c0, c1 = max(0, col - rad), min(cols, col + rad + 1)
+        cand = stream_mask[r0:r1, c0:c1] & valid[r0:r1, c0:c1]
+        if cand.any():
+            rr, cc = np.nonzero(cand)
+            gr, gc = rr + r0, cc + c0
+            ring = np.maximum(np.abs(gr - row), np.abs(gc - col))
+            acc = accumulation[gr, gc].astype(np.float64)
+            order = np.lexsort((np.arange(rr.size), -acc, ring))   # ring, then -acc, then scan
+            k = order[0]
+            br, bc = int(gr[k]), int(gc[k])
+            moved = int(round(np.hypot(br - row, bc - col)))
+            return br, bc, moved, float(accumulation[br, bc])
         # No stream cell within the radius: leave the point untouched
         # rather than silently grabbing whatever is nearby.
         return row, col, 0, float(accumulation[row, col])
@@ -110,25 +107,22 @@ def delineate_catchment(direction, valid, outlet_rc):
     outlet in the list wins, so supply downstream outlets last if you
     want nested subcatchments carved out.
 
-    Implemented as a reverse traversal over the receiver graph, seeded at
-    the outlets. O(N), no recursion.
+    Reverse traversal over the receiver graph from each outlet, one whole
+    frontier at a time (vectorised in v0.12; same result as the v0.8.3
+    per-cell stack, kept in core/flow/_reference.py). O(N).
     """
     rows, cols = direction.shape
     n = rows * cols
     valid_flat = valid.reshape(-1)
     receiver = receivers_from_direction(direction, (rows, cols))
 
-    # Build upstream adjacency as a CSR-style structure - far cheaper in
-    # memory than a dict of lists on a large DEM.
     live = valid_flat & (receiver != NO_RECEIVER)
     src = np.flatnonzero(live)
     dst = receiver[live]
-
     counts = np.bincount(dst, minlength=n)
     starts = np.zeros(n + 1, dtype=np.int64)
     np.cumsum(counts, out=starts[1:])
-    order = np.argsort(dst, kind="stable")
-    children = src[order]
+    children = src[np.argsort(dst, kind="stable")]
 
     labels = np.zeros(n, dtype=np.int32)
     if isinstance(outlet_rc, tuple) and len(outlet_rc) == 2 and np.isscalar(outlet_rc[0]):
@@ -138,15 +132,18 @@ def delineate_catchment(direction, valid, outlet_rc):
         seed = int(orow) * cols + int(ocol)
         if not valid_flat[seed] or labels[seed] != 0:
             continue
-        stack = [seed]
         labels[seed] = idx
-        while stack:
-            i = stack.pop()
-            for p in range(starts[i], starts[i + 1]):
-                child = int(children[p])
-                if labels[child] == 0:
-                    labels[child] = idx
-                    stack.append(child)
+        front = np.array([seed], dtype=np.int64)
+        while front.size:
+            cnt = counts[front]
+            tot = int(cnt.sum())
+            if tot == 0:
+                break
+            offs = np.repeat(starts[front] - (np.cumsum(cnt) - cnt), cnt) + np.arange(tot)
+            ch = children[offs]
+            ch = ch[labels[ch] == 0]
+            labels[ch] = idx
+            front = ch
 
     return labels.reshape(rows, cols)
 
@@ -227,6 +224,12 @@ def longest_flow_path(direction, valid, outlet_rc, elevation=None,
     accumulated per link using the true diagonal weighting, so the result
     is a real length rather than a cell count.
 
+    v0.12 processes the topological order in waves (vectorised). Where two
+    branches are equally long, the branch chosen is the one the v0.8.3
+    first-in-first-out queue met first - reproduced exactly by tracking
+    each cell's wave and position - so paths, lengths and every slope
+    derived from them are unchanged.
+
     The length and slope returned here are exactly the inputs required by
     Kirpich, Bransby-Williams and the TRRL time-of-concentration methods.
     """
@@ -242,7 +245,6 @@ def longest_flow_path(direction, valid, outlet_rc, elevation=None,
     receiver = receivers_from_direction(direction, (rows, cols))
     dir_flat = direction.reshape(-1)
 
-    # Topological order: sources first (indegree 0 within the catchment).
     active = in_catch & valid_flat
     live = active & (receiver != NO_RECEIVER)
     live_recv = receiver.copy()
@@ -257,20 +259,34 @@ def longest_flow_path(direction, valid, outlet_rc, elevation=None,
     upstream_len = np.zeros(n, dtype=np.float64)
     from_cell = np.full(n, -1, dtype=np.int64)
 
-    queue = deque(int(i) for i in np.flatnonzero(active & (indegree == 0)))
-    while queue:
-        i = queue.popleft()
-        j = live_recv[i]
-        if j == NO_RECEIVER:
-            continue
-        step = dist[int(dir_flat[i])]
-        candidate = upstream_len[i] + step
-        if candidate > upstream_len[j]:
-            upstream_len[j] = candidate
-            from_cell[j] = i
-        indegree[j] -= 1
-        if indegree[j] == 0:
-            queue.append(int(j))
+    front = np.flatnonzero(active & (indegree == 0))        # FIFO order = this order
+    while front.size:
+        j = live_recv[front]
+        okj = j != NO_RECEIVER
+        src, dst = front[okj], j[okj]
+        pos = np.flatnonzero(okj)                           # FIFO position in this wave
+        if src.size:
+            cand = upstream_len[src] + dist[dir_flat[src]]
+            # best child per receiver this wave: max length, then earliest position
+            o = np.lexsort((pos, -cand, dst))
+            d_s, c_s, s_s = dst[o], cand[o], src[o]
+            first = np.ones(d_s.size, dtype=bool)
+            first[1:] = d_s[1:] != d_s[:-1]
+            d1, c1, s1 = d_s[first], c_s[first], s_s[first]
+            better = c1 > upstream_len[d1]                  # strict: earlier waves keep ties
+            upstream_len[d1[better]] = c1[better]
+            from_cell[d1[better]] = s1[better]
+            np.subtract.at(indegree, dst, 1)
+            # next wave in FIFO order: by the position of each cell's LAST child
+            ready = indegree[dst] == 0
+            rd, rp = dst[ready], pos[ready]
+            o = np.lexsort((-rp, rd))
+            last = np.ones(rd.size, dtype=bool)
+            last[1:] = rd[o][1:] != rd[o][:-1]
+            rd, rp = rd[o][last], rp[o][last]
+            front = rd[np.argsort(rp, kind="stable")]
+        else:
+            front = front[:0]
 
     outlet_flat = int(outlet_rc[0]) * cols + int(outlet_rc[1])
     path = [outlet_flat]

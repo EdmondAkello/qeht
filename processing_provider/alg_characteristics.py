@@ -22,6 +22,9 @@ from ..core.interop.gpkg import wkb_multipolygon, wkb_linestring
 FDR="FDR"; DEM="DEM"; RAW_DEM="RAW_DEM"; FAC="FAC"; POINTS="POINTS"
 SNAP="SNAP"; SNAP_THRESHOLD="SNAP_THRESHOLD"; NESTED="NESTED"
 CATCH_OUT="CATCH_OUT"; PATH_OUT="PATH_OUT"; ID_FIELD="ID_FIELD"; ID_PREFIX="ID_PREFIX"
+FLAT_CHECK="FLAT_CHECK"; FLAT_TOL="FLAT_TOL"
+SENSITIVITY_FIELDS=[("area_barnes_km2","float"),("area_toward_km2","float"),
+                    ("flat_sensitivity_pct","float"),("flat_sensitive","int")]
 
 
 class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
@@ -65,6 +68,14 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
             "Every polygon holds its catchment's full area, also where "
             "catchments overlap (fixed in 0.9: earlier versions could clip or "
             "drop the polygon of a crossing listed after a downstream one).\n\n"
+            "<b>Flat-method check</b> (on by default, 0.13.1): the conditioned DEM "
+            "is also routed with both flat methods (Barnes 2014 and toward lower "
+            "terrain) and the contributing area at each outlet is reported under "
+            "each (<i>area_barnes_km2</i>, <i>area_toward_km2</i>). Where they differ "
+            "by more than the tolerance, <i>flat_sensitive</i> = 1: flats or exactly "
+            "tied cells on the drainage line decide where the flow goes, not the "
+            "terrain, so verify that catchment against mapped drainage or on site. "
+            "Adds about two routing passes of run time.\n\n"
             "For HEAS, use 'Build HEAS exchange package', which writes the same "
             "values into one self-describing GeoPackage."
         )
@@ -90,7 +101,14 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
             ID_FIELD,"ID attribute for outlet_uid (optional; blank = sequential)",
             parentLayerParameterName=POINTS,optional=True))
         self.addParameter(QgsProcessingParameterString(
-            ID_PREFIX,"ID prefix",defaultValue="X",optional=True))
+            ID_PREFIX,"ID prefix (sequential IDs only; ignored with an ID attribute)",
+            defaultValue="X",optional=True))
+        self.addParameter(QgsProcessingParameterBoolean(
+            FLAT_CHECK,"Flat-method check: area under both flat methods, flag differences",
+            defaultValue=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            FLAT_TOL,"Flat-method check tolerance (%)",QgsProcessingParameterNumber.Type.Double,
+            defaultValue=10.0,minValue=0.0,maxValue=100.0))
         self.addParameter(QgsProcessingParameterVectorDestination(
             CATCH_OUT,"Catchments with characteristics"))
         self.addParameter(QgsProcessingParameterVectorDestination(
@@ -109,6 +127,8 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
         path_out=self.parameterAsOutputLayer(parameters,PATH_OUT,context)
         id_field = self.field_parameter(parameters, ID_FIELD, context)
         prefix=(self.parameterAsString(parameters,ID_PREFIX,context) or "").strip()
+        if id_field:
+            prefix=""   # the prefix applies to sequential IDs only (0.13.1)
 
         d8,valid,info=read_dem(fdr_path)
         accum,_,_=read_dem(fac_path)
@@ -171,7 +191,29 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
                 layer.CreateFeature(feat); feat=None
             ds=None
 
-        write(catch_out,"catchments",ogr.wkbMultiPolygon,CATCHMENT_FIELDS,catchments,wkb_multipolygon)
+        catch_fields=list(CATCHMENT_FIELDS)
+        if FLAT_CHECK not in parameters or self.parameterAsBool(parameters,FLAT_CHECK,context):
+            from ..core.flow.sensitivity import flat_method_sensitivity
+            tol=self.parameterAsDouble(parameters,FLAT_TOL,context) if FLAT_TOL in parameters else 10.0
+            cond,cv,_=read_dem(self.raster_path(parameters,DEM,context))
+            outlets=[info.xy_to_rowcol(cr["outlet_x"],cr["outlet_y"]) for _,cr in crossings]
+            by_uid={cr["outlet_uid"]:res for (_,cr),res in zip(crossings,flat_method_sensitivity(
+                cond,cv,info.cell_width,info.cell_height,outlets,tolerance=tol/100.0))}
+            for _,ch in catchments:
+                ch.update(by_uid.get(ch["outlet_uid"],{}))
+            catch_fields+=SENSITIVITY_FIELDS
+            flagged=[u for u,r in by_uid.items() if r["flat_sensitive"]]
+            if flagged:
+                feedback.pushWarning(
+                    f"Flat-method check: {len(flagged)} outlet(s) change area by more than "
+                    f"{tol:g}% between Barnes and toward-lower routing: "
+                    + ", ".join(f"{u} ({by_uid[u]['area_barnes_km2']:.3f} vs "
+                                f"{by_uid[u]['area_toward_km2']:.3f} km2)" for u in flagged)
+                    + ". Flats or tied cells decide these catchments - verify against "
+                    "mapped drainage or on site (see also the DEM QA check in Fill).")
+            else:
+                feedback.pushInfo(f"Flat-method check: every outlet within {tol:g}% under both methods.")
+        write(catch_out,"catchments",ogr.wkbMultiPolygon,catch_fields,catchments,wkb_multipolygon)
         write(path_out,"longest_flow_paths",ogr.wkbLineString,FLOWPATH_FIELDS,flowpaths,wkb_linestring)
 
         for _,ch in catchments:

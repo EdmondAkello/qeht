@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.11.0
+# QEHT — QGIS Engineering Hydrology Toolkit v0.12.0
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -39,6 +39,7 @@ which are C++ libraries already loaded inside the QGIS process. There is no
       tests/test_interop.py  ← outlet_uid, slopes, exchange package, golden fixture
       tests/test_crossings.py ← crossing candidates, burn, renumber-and-relink
       tests/test_soils.py    ← USLE K, texture, SOTWIS loader, soil block
+      tests/test_flats.py    ← vectorised core == v0.8.3 reference; Barnes == RichDEM port
       tests/qgis_smoke.py    ← every Processing tool, run inside QGIS
 
 The core is importable without QGIS. That is what makes the hydrology testable:
@@ -47,6 +48,7 @@ The core is importable without QGIS. That is what makes the hydrology testable:
     python -m qeht.tests.test_interop     # 74 checks incl. the golden fixture
     python -m qeht.tests.test_crossings   # 43 checks: road crossings, burn, relink
     python -m qeht.tests.test_soils       # 31 checks: soils and USLE K
+    python -m qeht.tests.test_flats       # 36 checks: oracles, Barnes == RichDEM, edge drains, DEM QA
 
 Run these after any change to the core, and before trusting any output on a
 real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
@@ -231,6 +233,32 @@ share of the catchment covered by soil data.
   six steep Rift-valley test catchments it was 0.026–0.038 against 0.027–0.028
   (ESDAC Wischmeier-based K). Treat K as an estimate with that spread.
 
+## Flats and performance (v0.12)
+
+**Vectorised core.** Fill, D8 flow direction, both flat resolvers,
+accumulation, Strahler order, catchment delineation, longest flow path and
+pour-point snapping were per-cell Python loops; they are now whole-array NumPy
+operations. The v0.8.3 implementations are kept in `core/flow/_reference.py`
+and the tests require identical output (bit for bit; fractional-weight
+accumulation to 1e-12). Measured on 30 m clips of about one million cells, the
+full chain (fill, flow direction, accumulation, Strahler, catchment, longest
+flow path) went from 10.5 s to 2.9 s on steep terrain and from 25.9 s to 4.8 s
+on a flat coastal clip; D8 peak memory fell from ~176 to ~59 bytes per cell.
+
+**Barnes resolver fixed.** Up to 0.11 the Barnes option could route two flat
+cells into each other; fixed in 0.12.
+
+### 0.13: Barnes is the default flat method (WP-G benchmark)
+
+80 random 15 km areas across Kenya (20 each flat, rolling, hilly,
+mountainous), each on ALOS AW3D30 and FABDEM, were routed with QEHT and with
+TauDEM, RichDEM, MAS and DDM HydroLogic. Barnes agreed best with the
+independent TauDEM (stream F1 0.969 vs 0.948 for toward-lower; 0.870 vs 0.733
+on whole-metre flats), and QEHT's Barnes now matches Barnes' own
+implementation (RichDEM) cell for cell. The hybrid reproduced Barnes and was
+removed; toward-lower stays as an option. The benchmark also fixed flats that
+touch the clip edge or NoData, which now drain to it. Details: `BENCHMARK.md`.
+
 ## Interoperability
 
 Flow direction is written and read in the standard D8 encoding
@@ -245,23 +273,23 @@ result.
 
 Stated explicitly because a drainage report needs them stated:
 
-1. **Flat resolution is one-sided.** We implement the gradient-toward-lower-
-   terrain component of Garbrecht & Martz (1997), not the gradient-away-from-
-   higher-terrain component. Drainage across wide flats converges into fewer
-   channels than commercial reference toolsets typically produce. Mitigate by
-   filling with a small minimum slope (1e-4), which largely removes flats
-   before routing.
-2. **Tie-breaking.** Where two neighbours give identical drop/distance, we take
-   the lowest internal index (E before SE before S...). Commercial toolsets'
-   exact tie handling is generally undocumented. Ours is deterministic and
-   reproducible, which matters more.
-3. **No tiling.** DEMs are processed whole in memory. Beyond roughly
-   5000 x 5000 cells, clip to your catchment plus a buffer first — which is
-   normal practice anyway.
+1. **Flat resolution.** The default (since 0.13) is Barnes 2014, both
+   gradients, identical to Barnes' RichDEM implementation; routing toward
+   lower terrain only is an option (see `BENCHMARK.md`). On wide flats the
+   two give different networks, and commercial reference toolsets may differ
+   from both. Filling with a small minimum slope (1e-4)
+   largely removes flats before routing.
+2. **Tie-breaking.** Where neighbours give identical drop/distance, the fixed
+   priority S, W, N, E, SE, SW, NW, NE applies - recovered empirically from a
+   reference platform (off-flat agreement 84 % → 91 %). Deterministic.
+3. **No tiling.** DEMs are processed whole in memory. Every tool reports an
+   estimated peak memory before it runs (measured per-step figures) and warns
+   when it approaches the free RAM; clip to your catchment plus a buffer when
+   it does — normal practice anyway.
 
 ## Validation
 
-**Level 1 — synthetic analytic DEMs.** 47 checks, `tests/test_core.py`, plus 74 interop checks in `tests/test_interop.py`, 43 road-crossing checks in `tests/test_crossings.py` and 31 soil checks in `tests/test_soils.py`. PASS. `tests/qgis_smoke.py` (26 checks) runs every tool inside QGIS.
+**Level 1 — synthetic analytic DEMs.** 47 checks, `tests/test_core.py`, plus 74 interop checks in `tests/test_interop.py`, 43 road-crossing checks in `tests/test_crossings.py` 31 soil checks in `tests/test_soils.py` and 36 checks in `tests/test_flats.py` (vectorised core vs the v0.8.3 reference; Barnes vs a port of RichDEM; edge drainage; resampling audit and flat-method sensitivity). PASS. `tests/qgis_smoke.py` (30 checks) runs every tool inside QGIS.
 
 **Level 3 — reference hydrology toolset production output, Site A.** 718 x 775
 cells @ 30.92 m, EPSG:21037, 16 road-crossing pour points with reference
@@ -286,6 +314,15 @@ Two defects were found by this validation and fixed:
 2. **Undeclared NoData.** The Site A DEM had 11.8% of cells at 0.0 with no
    NoData set in the header, while real terrain starts at 1574 m. `audit_nodata()`
    now detects this and warns; the Fill algorithm takes a NoData override.
+3. **Nearest-neighbour resampling (0.13.1, Site C road project).** A
+   FABDEM clip reprojected with nearest neighbour repeated ~1–2 % of its rows
+   and columns; 14 % of cells were exactly tied with a neighbour. One tied cell
+   on a river sent ~176 km² to one culvert or the next depending on the flat
+   method. Fill and D8 flow direction now warn when rows or columns repeat
+   (`audit_resampling()`), and Catchment characteristics reports every
+   outlet's area under both flat methods and flags the ones that differ
+   (`flat_sensitive`). On a bilinear resample of the same DEM both methods
+   agreed at every crossing.
 
 The one remaining outlier (0.65 area ratio) is a genuine hydrological
 difference, not a snapping artefact, and is worth inspecting on its own.

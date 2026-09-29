@@ -57,27 +57,28 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
                 feedback.setProgressText(message)
         return _progress
 
-    def check_size(self, feedback, rows, cols):
-        """Warn before a very large DEM exhausts memory.
+    def check_size(self, feedback, rows, cols, steps=None):
+        """Report the estimated peak memory before a run; warn when it is
+        close to the free RAM (or large and free RAM is unknown).
 
-        QEHT holds the whole grid in memory - several float64 and int64
-        copies during routing. Past validation, a 41-megapixel DEM
-        (6400x6400) needed well over 8 GB and was killed on a 16 GB
-        machine at the flow-direction step. There is no tiling in this
-        version, so the honest guidance is to clip first.
+        QEHT processes the grid whole - there is no tiling. Estimates come
+        from measured per-step peaks (core/memory.py). Clipping to the
+        catchment plus a buffer is standard practice and does not change
+        results inside the clip.
         """
-        megapixels = rows * cols / 1.0e6
-        # rough: ~8 working copies of float64 = 64 bytes/cell peak
-        est_gb = rows * cols * 64 / 1.0e9
-        if megapixels > 25:
+        from ..core.memory import estimate_peak_memory, available_memory_gb
+        est = estimate_peak_memory(rows, cols, steps)
+        free = available_memory_gb()
+        feedback.pushInfo(f"Grid {rows:,} x {cols:,} = {est['megapixels']:,.1f} megapixels; "
+                          f"estimated peak memory {est['peak_gb']:,.2f} GB"
+                          + (f" (free: {free:,.1f} GB)" if free else ""))
+        if (free and est["peak_gb"] > 0.8 * free) or (free is None and est["peak_gb"] > 8.0):
             feedback.pushWarning(
-                f"Large DEM: {rows:,} x {cols:,} = {megapixels:,.0f} megapixels, "
-                f"needing roughly {est_gb:,.1f} GB of RAM at peak. QEHT processes "
-                "the grid whole - there is no tiling yet. If this runs out of "
-                "memory, clip the DEM to your catchment plus a buffer and run "
-                "again. Clipping is standard practice and does not affect "
-                "results within the clipped area.")
-        return megapixels
+                f"This run needs roughly {est['peak_gb']:,.1f} GB at peak"
+                + (f" and only {free:,.1f} GB is free" if free else "")
+                + ". If it runs out of memory, clip the DEM to your catchment plus a buffer "
+                "and run again - results inside the clip are unchanged.")
+        return est["megapixels"]
 
     def read_alignment(self, parameters, name, context, info, feedback,
                        start_chainage=0.0, reverse=False):

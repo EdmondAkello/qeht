@@ -83,7 +83,8 @@ class LongestFlowPathAlgorithm(QehtAlgorithm):
             ID_FIELD, "ID attribute for outlet_uid (optional; blank = sequential)",
             parentLayerParameterName=POINTS, optional=True))
         self.addParameter(QgsProcessingParameterString(
-            ID_PREFIX, "ID prefix", defaultValue="X", optional=True))
+            ID_PREFIX, "ID prefix (sequential IDs only; ignored with an ID attribute)",
+            defaultValue="X", optional=True))
         self.addParameter(QgsProcessingParameterVectorDestination(
             OUTPUT, "Longest flow paths"))
 

@@ -16,7 +16,6 @@ counting.
 """
 
 import numpy as np
-from collections import deque
 
 from ..grid import NO_RECEIVER, receivers_from_direction
 
@@ -63,22 +62,24 @@ def flow_accumulation(direction, valid, weights=None, progress=None):
     live = valid_flat & (receiver != NO_RECEIVER)
     np.add.at(indegree, receiver[live], 1)
 
-    queue = deque(int(i) for i in np.flatnonzero(valid_flat & (indegree == 0)))
-
+    # Topological order in waves (v0.12, vectorised): every cell whose
+    # upstream is complete passes its total on in one step. Identical to the
+    # v0.8.3 queue for cell counts; with fractional weights the sums may
+    # differ in the last binary digit (different addition order).
+    front = np.flatnonzero(valid_flat & (indegree == 0))
     processed = 0
     n_valid = max(1, int(valid_flat.sum()))
-    while queue:
-        i = queue.popleft()
-        processed += 1
-        if progress is not None and processed % 50000 == 0:
-            progress(processed / n_valid, "Accumulating flow")
-
-        j = receiver[i]
-        if j != NO_RECEIVER:
-            total[j] += total[i] + weight_flat[i]
-            indegree[j] -= 1
-            if indegree[j] == 0:
-                queue.append(int(j))
+    while front.size:
+        processed += front.size
+        j = receiver[front]
+        ok = j != NO_RECEIVER
+        src, dst = front[ok], j[ok]
+        np.add.at(total, dst, total[src] + weight_flat[src])
+        np.subtract.at(indegree, dst, 1)
+        dst = np.unique(dst)
+        front = dst[indegree[dst] == 0]
+        if progress is not None:
+            progress(min(0.99, processed / n_valid), "Accumulating flow")
 
     unresolved = int((indegree > 0).sum())
 
@@ -129,27 +130,34 @@ def strahler_order(direction, valid, stream_mask, progress=None):
     live = stream_flat & (receiver != NO_RECEIVER)
     np.add.at(indegree, receiver[live], 1)
 
-    queue = deque(int(i) for i in np.flatnonzero(stream_flat & (indegree == 0)))
-
-    while queue:
-        i = queue.popleft()
-        if max_up[i] == 0:
-            order[i] = 1                       # headwater
-        elif count_at_max[i] >= 2:
-            order[i] = max_up[i] + 1           # confluence of equals
-        else:
-            order[i] = max_up[i]               # single dominant tributary
-
-        j = receiver[i]
-        if j != NO_RECEIVER:
-            if order[i] > max_up[j]:
-                max_up[j] = order[i]
-                count_at_max[j] = 1
-            elif order[i] == max_up[j]:
-                count_at_max[j] += 1
-            indegree[j] -= 1
-            if indegree[j] == 0:
-                queue.append(int(j))
+    # Waves (vectorised in v0.12). Strahler order does not depend on the
+    # processing order, so the result equals the v0.8.3 queue exactly.
+    front = np.flatnonzero(stream_flat & (indegree == 0))
+    wave_max = np.zeros(n, dtype=np.int32)     # scratch, reset per wave
+    wave_cnt = np.zeros(n, dtype=np.int32)
+    while front.size:
+        o = np.where(max_up[front] == 0, 1,
+                     np.where(count_at_max[front] >= 2, max_up[front] + 1, max_up[front]))
+        order[front] = o
+        j = receiver[front]
+        ok = j != NO_RECEIVER
+        dst, oo = j[ok], o[ok]
+        if dst.size == 0:
+            break
+        np.maximum.at(wave_max, dst, oo)
+        at = oo == wave_max[dst]
+        np.add.at(wave_cnt, dst[at], 1)
+        ud = np.unique(dst)
+        wm, wc = wave_max[ud].copy(), wave_cnt[ud].copy()
+        wave_max[ud] = 0
+        wave_cnt[ud] = 0
+        higher = wm > max_up[ud]
+        equal = wm == max_up[ud]
+        count_at_max[ud] = np.where(higher, wc, np.where(equal, count_at_max[ud] + wc,
+                                                          count_at_max[ud]))
+        max_up[ud] = np.maximum(max_up[ud], wm)
+        np.subtract.at(indegree, dst, 1)
+        front = ud[indegree[ud] == 0]
 
     if progress is not None:
         progress(1.0, "Strahler ordering")

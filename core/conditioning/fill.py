@@ -19,8 +19,6 @@ depression-filling and watershed-labeling algorithm for digital elevation
 models", Computers & Geosciences 62:117-127. O(n log n).
 """
 
-import heapq
-
 import numpy as np
 
 from ..grid import DROW, DCOL
@@ -76,73 +74,77 @@ def fill_depressions(dem, valid, min_slope=0.0, cell_width=1.0, cell_height=1.0,
     filled : 2-D float array. Cells outside `valid` are set to NaN.
     n_filled : int, count of cells whose elevation was raised.
     seed_count : int, number of boundary outlet cells seeded.
+
+    Method (v0.12)
+    --------------
+    Priority-flood (Barnes et al. 2014a) - with or without epsilon -
+    produces the unique solution of
+
+        F = z                                   on the boundary seeds
+        F = max(z, min over valid neighbours of F + epsilon)   elsewhere
+
+    (the lowest "spill" surface; with epsilon > 0 every filled step rises by
+    epsilon). v0.12 computes that solution by frontier relaxation, fully
+    vectorised: start from +inf inside, and repeatedly lower the neighbours
+    of the cells that changed, until nothing changes. The result is
+    identical, bit for bit, to the v0.8.3 heap implementation (kept in
+    core/flow/_reference.py as the test oracle) and runs in a small
+    fraction of the time.
     """
     dem = np.asarray(dem, dtype=np.float64)
     rows, cols = dem.shape
-    filled = np.full((rows, cols), np.nan, dtype=np.float64)
-    closed = np.zeros((rows, cols), dtype=bool)
-
     mean_cell = 0.5 * (abs(cell_width) + abs(cell_height))
     epsilon = float(min_slope) * mean_cell
 
-    heap = []
-    counter = 0
-    seed_count = 0
-
     boundary = valid_boundary_mask(valid)
-    seeds = np.flatnonzero(boundary.reshape(-1))
-    for flat in seeds:
-        r, c = divmod(int(flat), cols)
-        closed[r, c] = True
-        filled[r, c] = dem[r, c]
-        heapq.heappush(heap, (float(dem[r, c]), counter, r, c))
-        counter += 1
-        seed_count += 1
-
-    if not heap:
+    if not boundary.any():
         # Degenerate case: fully interior valid region with no edge and no
         # NoData contact. Seed the single lowest valid cell.
-        flat_ids = np.flatnonzero(valid.reshape(-1))
-        if flat_ids.size == 0:
-            return filled, 0, 0
-        lowest = flat_ids[np.argmin(dem.reshape(-1)[flat_ids])]
-        r, c = divmod(int(lowest), cols)
-        closed[r, c] = True
-        filled[r, c] = dem[r, c]
-        heapq.heappush(heap, (float(dem[r, c]), counter, r, c))
-        counter += 1
-        seed_count = 1
+        ids = np.flatnonzero(valid.reshape(-1))
+        if ids.size == 0:
+            return np.full((rows, cols), np.nan), 0, 0
+        boundary = np.zeros_like(valid)
+        boundary.reshape(-1)[ids[np.argmin(dem.reshape(-1)[ids])]] = True
+    seed_count = int(boundary.sum())
 
-    total = max(1, int(valid.sum()))
-    processed = 0
-    n_filled = 0
+    # Pad by one cell so neighbour shifts need no bounds checks.
+    P = np.full((rows + 2, cols + 2), np.inf)
+    Z = np.full((rows + 2, cols + 2), np.inf)
+    Z[1:-1, 1:-1] = np.where(valid, dem, np.inf)
+    V = np.zeros((rows + 2, cols + 2), dtype=bool)
+    V[1:-1, 1:-1] = valid
+    S = np.zeros((rows + 2, cols + 2), dtype=bool)
+    S[1:-1, 1:-1] = boundary
+    P[S] = Z[S]
+    W = cols + 2
+    offs = np.array([int(DROW[k]) * W + int(DCOL[k]) for k in range(8)], dtype=np.int64)
+    Pf, Zf, Vf, Sf = P.reshape(-1), Z.reshape(-1), V.reshape(-1), S.reshape(-1)
+    updatable = Vf & ~Sf
 
-    while heap:
-        elev, _seq, r, c = heapq.heappop(heap)
-        processed += 1
-        if progress is not None and processed % 20000 == 0:
-            progress(processed / total, "Filling depressions")
+    front = np.flatnonzero(Sf)
+    slot = np.zeros(Pf.size, dtype=np.int64)       # sort-free de-duplication
+    it = 0
+    while front.size:
+        it += 1
+        cand = (front[:, None] + offs[None, :]).reshape(-1)
+        cand = cand[updatable[cand]]
+        pos = np.arange(cand.size)
+        slot[cand] = pos
+        cand = cand[slot[cand] == pos]             # keep one copy of each cell
+        if cand.size == 0:
+            break
+        nb = cand[:, None] + offs[None, :]
+        m = Pf[nb].min(axis=1)
+        new = np.maximum(Zf[cand], m + epsilon)
+        ch = new < Pf[cand]
+        Pf[cand[ch]] = new[ch]
+        front = cand[ch]
+        if progress is not None and it % 200 == 0:
+            progress(min(0.99, it / float(rows + cols)), "Filling depressions")
 
-        for k in range(8):
-            nr = r + int(DROW[k])
-            nc = c + int(DCOL[k])
-            if nr < 0 or nr >= rows or nc < 0 or nc >= cols:
-                continue
-            if closed[nr, nc] or not valid[nr, nc]:
-                continue
-
-            closed[nr, nc] = True
-            raw = float(dem[nr, nc])
-            spill = elev + epsilon
-            if raw < spill:
-                new_elev = spill
-                n_filled += 1
-            else:
-                new_elev = raw
-            filled[nr, nc] = new_elev
-            heapq.heappush(heap, (new_elev, counter, nr, nc))
-            counter += 1
-
+    filled = P[1:-1, 1:-1].copy()
+    filled[~valid] = np.nan
+    n_filled = int((valid & (filled > dem)).sum())
     if progress is not None:
         progress(1.0, "Filling depressions")
     return filled, n_filled, seed_count
