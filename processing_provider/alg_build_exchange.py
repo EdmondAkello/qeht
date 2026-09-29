@@ -125,7 +125,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             CONDITIONING, "Conditioning used (recorded, e.g. 'fill, min_slope 0')",
             optional=True))
         self.addParameter(QgsProcessingParameterString(
-            FLAT_METHOD, "Flat resolution used for flow direction (recorded, e.g. 'toward')",
+            FLAT_METHOD, "Flat resolution used for flow direction (recorded, e.g. 'barnes')",
             optional=True))
         self.add_soil_parameters("SOIL", optional=True)
         self.addParameter(QgsProcessingParameterBoolean(

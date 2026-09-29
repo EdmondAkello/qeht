@@ -65,9 +65,16 @@ _TIE_TOL = 1e-6
 
 
 def d8_direction(elevation, valid, cell_width=1.0, cell_height=1.0,
-                 resolve_flats=True, flat_method="toward", progress=None,
-                 flat_weight=2.0, small_flat_cells=0):
+                 resolve_flats=True, flat_method="barnes", progress=None):
     """Compute D8 direction indices (0-7) from a conditioned DEM.
+
+    flat_method : "barnes" (default since v0.13; Barnes, Lehman & Mulla
+        2014, identical to Barnes' own RichDEM implementation) or "toward"
+        (shortest path to the flat's outlet; the default up to v0.12, kept
+        for matching outputs of reference platforms that route flats that
+        way). The WP-G benchmark (v0.13, 80 Kenyan AOIs x ALOS/FABDEM)
+        chose Barnes; the v0.12 hybrid family was removed from this API
+        because it reproduced Barnes (core/flow/flats.resolve_flats keeps w).
 
     Returns
     -------
@@ -133,19 +140,20 @@ def d8_direction(elevation, valid, cell_width=1.0, cell_height=1.0,
     n_no_descent = int((valid & (direction < 0)).sum())
     flat_stats = {}
 
+    # Boundary cells (grid edge or next to NoData) with no descent are
+    # outlets that drain off the grid. v0.13: flats touching them drain to
+    # them (TauDEM and RichDEM do the same); up to v0.12 such flats stayed
+    # unrouted and became false sinks at clip edges and coastlines.
+    from ..conditioning.fill import valid_boundary_mask
+    drain = valid & (direction < 0) & valid_boundary_mask(valid)
+
     if resolve_flats and n_no_descent:
         # Garbrecht & Martz: impose a two-gradient surface on the flats,
         # then re-run the ordinary steepest-descent pass over it. One
         # routing rule, applied twice - not two competing rules.
-        if flat_method == "hybrid":
-            # One-parameter family: w = flat_weight (2 = Barnes, large =
-            # toward-lower inside the Barnes rules); optional size switch.
-            from .flats import resolve_flats as _rf
-            if progress is not None:
-                progress(0.75, f"Resolving flats (hybrid, w={flat_weight:g})")
-            direction, flat_stats = _rf(elev, valid, direction, w=flat_weight,
-                                        small_flat_cells=small_flat_cells)
-        elif flat_method == "barnes":
+        if flat_method not in ("barnes", "toward"):
+            raise ValueError(f"flat_method must be 'barnes' or 'toward', not {flat_method!r}")
+        if flat_method == "barnes":
             # Iterated Barnes 2014 convergent flat resolution. Repeats the
             # Barnes pass until no further flats resolve, so flats drain in
             # hierarchy order (a flat whose outlet is a lower flat resolves
@@ -153,9 +161,9 @@ def d8_direction(elevation, valid, cell_width=1.0, cell_height=1.0,
             from .flats import resolve_flats_barnes
             if progress is not None:
                 progress(0.75, "Resolving flats (Barnes 2014, iterated)")
-            direction, flat_stats = resolve_flats_barnes(elev, valid, direction)
+            direction, flat_stats = resolve_flats_barnes(elev, valid, direction, drain=drain)
         else:
-            direction, n_res = _resolve_flats_toward(work, valid, direction)
+            direction, n_res = _resolve_flats_toward(work, valid, direction, drain=drain)
             flat_stats = {"flat_cells": n_res, "method": "toward-lower only"}
 
     stats = {
@@ -166,12 +174,13 @@ def d8_direction(elevation, valid, cell_width=1.0, cell_height=1.0,
         "flat_cells": flat_stats.get("flat_cells", 0),
         "flat_outlet_seeds": flat_stats.get("flat_outlet_seeds", 0),
         "flat_high_edge_seeds": flat_stats.get("flat_high_edge_seeds", 0),
-        "cells_still_unrouted": int((valid & (direction < 0)).sum()),
+        "boundary_outlets": int((drain & (direction < 0)).sum()),
+        "cells_still_unrouted": int((valid & (direction < 0) & ~drain).sum()),
     }
     return direction, stats
 
 
-def _resolve_flats_toward(work, valid, direction, progress=None):
+def _resolve_flats_toward(work, valid, direction, progress=None, drain=None):
     """Route flat cells by BFS distance toward the nearest flat outlet.
 
     Vectorised in v0.12 (whole-frontier BFS, neighbour shifts). Reproduces
@@ -184,7 +193,9 @@ def _resolve_flats_toward(work, valid, direction, progress=None):
     """
     from .flats import _neighbours, _csr, _bfs
     rows, cols = work.shape
-    flat = valid & (direction < 0)
+    drain = np.zeros(work.shape, dtype=bool) if drain is None else drain
+    routed = (direction >= 0) | drain
+    flat = valid & (direction < 0) & ~drain
     if not flat.any():
         return direction, 0
     fr, fc = np.nonzero(flat)
@@ -197,7 +208,7 @@ def _resolve_flats_toward(work, valid, direction, progress=None):
     for k in range(8):
         nr, nc, inside = _neighbours(fr, fc, k, rows, cols)
         ok = inside & valid[nr, nc]
-        seed |= ok & (direction[nr, nc] >= 0) & (work[nr, nc] <= wv)
+        seed |= ok & routed[nr, nc] & (work[nr, nc] <= wv)
         j = idx[nr, nc]
         link = ok & (j >= 0) & (work[nr, nc] == wv)
         ea.append(np.flatnonzero(link)); eb.append(j[link])
@@ -213,7 +224,7 @@ def _resolve_flats_toward(work, valid, direction, progress=None):
     for k in range(8):
         nr, nc, inside = _neighbours(fr, fc, k, rows, cols)
         ok = inside & valid[nr, nc] & (work[nr, nc] <= wv)
-        nd = np.where((direction[nr, nc] >= 0) & ~flat[nr, nc], 0, bfs_grid[nr, nc])
+        nd = np.where(routed[nr, nc] & ~flat[nr, nc], 0, bfs_grid[nr, nc])
         better = ok & (nd < best_d)
         best_d = np.where(better, nd, best_d)
         best_k = np.where(better, k, best_k)

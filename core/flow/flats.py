@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # QEHT - QGIS Engineering Hydrology Toolkit
 # Licensed under the GNU General Public License v2 or later.
-"""Flat resolution: Barnes (2014) and the one-parameter hybrid family (v0.12).
+"""Flat resolution: Barnes (2014), the QEHT default since v0.13.
 
 Barnes, Lehman & Mulla (2014) resolve a flat with two BFS gradients:
     toward : distance from the flat's low edges (its outlets)
@@ -9,7 +9,14 @@ Barnes, Lehman & Mulla (2014) resolve a flat with two BFS gradients:
 combined as   flat_mask = w * toward + (flat_height - away),  w = 2.
 Each flat cell flows to the same-flat neighbour with the lowest flat_mask.
 
-QEHT v0.12 exposes w (decision D4 keeps toward-lower the default):
+v0.13: this reproduces Barnes' own implementation (RichDEM) cell for cell -
+low-edge cells leave the flat directly and neighbours are scanned W, NW,
+N, NE, E, SE, S, SW (oracle: _reference.reference_barnes_richdem). Flats
+touching boundary drains (grid edge / NoData) drain to them.
+
+The weight w is kept for research; the Processing tools use w = 2 (the
+v0.12 'hybrid' option was removed after the WP-G benchmark showed it
+reproduces Barnes). Properties of w:
   * w = 2        exactly Barnes 2014;
   * w -> inf     the away term only breaks ties: flow follows a shortest
                  path to the outlet (tested), like toward-lower - but among
@@ -36,11 +43,8 @@ seams.
 Implementation: fully vectorised - edge finding by neighbour shifts,
 labelling by union-find with pointer jumping over equal-elevation links,
 BFS by whole frontiers over a compact adjacency list - except the exit
-rule for local-minimum cells, which in v0.8.3 was order-dependent and could
-create 2-cell flow cycles; v0.12 exits only to lower or pre-routed cells,
-which is order-independent and cycle-free. The v0.8.3 per-cell
-implementation is kept in core/flow/_reference.py; the tests require this
-module to match it everywhere except those exit cells.
+rule for low-edge cells, which exits only to cells routed before the pass
+(order-independent and cycle-free; v0.8.3's rule could form 2-cell cycles).
 
 Iteration: a pass only resolves flats whose outlet is already routed;
 passes repeat until nothing more resolves (flats drain in hierarchy order).
@@ -55,6 +59,11 @@ from ..grid import DROW, DCOL
 
 _IS_CARDINAL = np.array([True, False, True, False, True, False, True, False])
 _TOL = 1e-9
+# Neighbour scan order for assignment and exits: W, NW, N, NE, E, SE, S, SW
+# (QEHT indices), the order of Barnes' reference implementation (RichDEM).
+# With cardinal-over-diagonal on ties this reproduces RichDEM's Barnes flat
+# resolution cell for cell (WP-G benchmark, v0.13).
+_ORDER = (4, 5, 6, 7, 0, 1, 2, 3)
 
 
 def _neighbours(r, c, k, rows, cols):
@@ -114,9 +123,9 @@ def _bfs(n, indptr, indices, seeds):
     return dist
 
 
-def _one_pass(elev, valid, direction, w, small_flat_cells):
+def _one_pass(elev, valid, direction, w, small_flat_cells, drain):
     rows, cols = elev.shape
-    fr, fc = np.nonzero(valid & (direction < 0))
+    fr, fc = np.nonzero(valid & (direction < 0) & ~drain)
     n = fr.size
     if n == 0:
         return 0, 0
@@ -131,7 +140,8 @@ def _one_pass(elev, valid, direction, w, small_flat_cells):
         nr, nc, inside = _neighbours(fr, fc, k, rows, cols)
         ok = inside & valid[nr, nc]
         ne = elev[nr, nc]
-        low |= ok & ((ne < e - _TOL) | ((direction[nr, nc] >= 0) & (np.abs(ne - e) <= _TOL)))
+        routed = (direction[nr, nc] >= 0) | drain[nr, nc]
+        low |= ok & ((ne < e - _TOL) | (routed & (np.abs(ne - e) <= _TOL)))
         high |= ok & (ne > e + _TOL)
         j = idx[nr, nc]
         link = ok & (j >= 0) & (np.abs(ne - e) <= _TOL)
@@ -164,7 +174,7 @@ def _one_pass(elev, valid, direction, w, small_flat_cells):
     fmask = np.where(big, fmask, toward.astype(np.float64))
     fmask[~labelled] = 0.0
 
-    # -- assignment (reference order: row-major, k = 0..7) -----------------
+    # -- assignment: lowest flat_mask among same-flat neighbours -------------
     L = np.flatnonzero(labelled)
     lr, lc = fr[L], fc[L]
     lab_grid = np.zeros((rows, cols), dtype=np.int64)
@@ -173,7 +183,7 @@ def _one_pass(elev, valid, direction, w, small_flat_cells):
     fm_grid[fr, fc] = fmask
     best_v = fmask[L].copy()
     best_k = np.full(L.size, -1, dtype=np.int64)
-    for k in range(8):
+    for k in _ORDER:
         nr, nc, inside = _neighbours(lr, lc, k, rows, cols)
         same = inside & (lab_grid[nr, nc] == lab[L])
         v = fm_grid[nr, nc]
@@ -183,13 +193,16 @@ def _one_pass(elev, valid, direction, w, small_flat_cells):
         best_v = np.where(better, v, best_v)
         best_k = np.where(better, k, best_k)
 
-    # Exit rule for local minima (low-edge cells with no lower same-flat
-    # neighbour): leave the flat to a strictly lower neighbour, or to an
-    # equal-elevation neighbour that was ROUTED BEFORE THIS PASS - which is
-    # what made the cell a low edge, so an exit always exists. v0.8.3 also
-    # accepted neighbours assigned earlier in the same pass; that could
-    # point two cells at each other (a 2-cell flow cycle - see CHANGELOG
-    # 0.12.0). Cardinal preferred over diagonal, then E, SE, S ... order.
+    # Low-edge cells (toward = 1) leave the flat directly, to a neighbour
+    # that was routed before this pass or is a boundary drain. In Barnes
+    # 2014 the routed low-edge cells carry the smallest flat_mask of all, so
+    # every flat cell next to one drains into it (v0.13; up to v0.12 such a
+    # cell could first run along the rim of the flat, which is where QEHT
+    # departed from the reference implementation). The remaining local
+    # minima, if any, use the same exit. Exits only ever go to cells routed
+    # BEFORE the pass, so they are order-independent and cannot form cycles.
+    # Cardinal preferred over diagonal, then W, NW, N, NE ... order.
+    best_k[low[L]] = -1
     d0 = direction.copy()
     direction[lr[best_k >= 0], lc[best_k >= 0]] = best_k[best_k >= 0]
     resolved = int((best_k >= 0).sum())
@@ -198,11 +211,11 @@ def _one_pass(elev, valid, direction, w, small_flat_cells):
         mr, mc = lr[lm], lc[lm]
         ev = elev[mr, mc]
         exit_k = np.full(lm.size, -1, dtype=np.int64)
-        for k in range(8):
+        for k in _ORDER:
             nr, nc, inside = _neighbours(mr, mc, k, rows, cols)
             ok = inside & valid[nr, nc] & (
                 (elev[nr, nc] < ev - _TOL)
-                | ((d0[nr, nc] >= 0) & (np.abs(elev[nr, nc] - ev) <= _TOL)))
+                | (((d0[nr, nc] >= 0) | drain[nr, nc]) & (np.abs(elev[nr, nc] - ev) <= _TOL)))
             take = ok & ((exit_k < 0) | (~_IS_CARDINAL[np.maximum(exit_k, 0)] & _IS_CARDINAL[k]))
             exit_k = np.where(take, k, exit_k)
         got = exit_k >= 0
@@ -211,19 +224,25 @@ def _one_pass(elev, valid, direction, w, small_flat_cells):
     return resolved, n_labels
 
 
-def resolve_flats(elev, valid, direction, w=2.0, small_flat_cells=0, max_iterations=50):
+def resolve_flats(elev, valid, direction, w=2.0, small_flat_cells=0, max_iterations=50,
+                  drain=None):
     """Iterated Barnes-family flat resolution. Modifies `direction` in place.
 
     w : toward-gradient weight (w = 2 is Barnes 2014; must be > 1).
     small_flat_cells : flats smaller than this use the toward gradient only
         (0 = off).
+    drain : optional bool grid of boundary cells without descent that drain
+        off the grid or into NoData (v0.13). They are outlets: a flat that
+        touches one drains to it, as in TauDEM and RichDEM. None = no drains
+        (the v0.12 behaviour, where such flats stayed unrouted).
     """
     if not w > 1.0:
         raise ValueError("w must be greater than 1 (w <= 1 can create false sinks)")
     elev = np.asarray(elev, dtype=np.float64)
+    drain = np.zeros(elev.shape, dtype=bool) if drain is None else np.asarray(drain, dtype=bool)
     total = passes = first = 0
     for it in range(max_iterations):
-        resolved, n = _one_pass(elev, valid, direction, w, small_flat_cells)
+        resolved, n = _one_pass(elev, valid, direction, w, small_flat_cells, drain)
         if it == 0:
             first = n
         passes += 1
@@ -236,13 +255,13 @@ def resolve_flats(elev, valid, direction, w=2.0, small_flat_cells=0, max_iterati
         "flat_cells_resolved": total,
         "flat_regions_first_pass": first,
         "iterations": passes,
-        "outletless_flat_cells": int((valid & (direction < 0)).sum()),
+        "outletless_flat_cells": int((valid & (direction < 0) & ~drain).sum()),
         "method": method,
         "w": float(w),
         "small_flat_cells": int(small_flat_cells),
     }
 
 
-def resolve_flats_barnes(elev, valid, direction, max_iterations=50):
+def resolve_flats_barnes(elev, valid, direction, max_iterations=50, drain=None):
     """Iterated Barnes 2014 (w = 2). Kept for API compatibility."""
-    return resolve_flats(elev, valid, direction, w=2.0, max_iterations=max_iterations)
+    return resolve_flats(elev, valid, direction, w=2.0, max_iterations=max_iterations, drain=drain)

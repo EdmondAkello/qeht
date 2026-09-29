@@ -718,3 +718,106 @@ def reference_strahler_order(direction, valid, stream_mask, progress=None):
     if progress is not None:
         progress(1.0, "Strahler ordering")
     return order.reshape(rows, cols)
+
+
+# ---------------------------------------------------------------------------
+# v0.13: per-cell port of Barnes' own implementation (RichDEM,
+# include/richdem/flats/flat_resolution.hpp: find_flat_edges, label_this,
+# BuildAwayGradient, BuildTowardsCombinedGradient, d8_masked_FlowDir), kept
+# as the oracle for core/flow/flats.py at w = 2. RichDEM neighbour n = 1..8
+# is W, NW, N, NE, E, SE, S, SW; QEHT index for each:
+_RD_N = (4, 5, 6, 7, 0, 1, 2, 3)
+
+
+def reference_barnes_richdem(elev, valid, direction, drain=None):
+    """Barnes 2014 exactly as RichDEM runs it, on QEHT arrays.
+
+    direction : QEHT indices, -1 = no flow. drain : cells without descent
+    that drain off the grid (RichDEM gives edge cells an off-grid flow
+    direction, so they count as routed). Modifies `direction` in place.
+    """
+    from collections import deque
+    from ..grid import DROW, DCOL
+    rows, cols = elev.shape
+    drain = np.zeros(elev.shape, bool) if drain is None else drain
+    noflow = valid & (direction < 0) & ~drain
+    routed = valid & ~noflow
+
+    def inside(r, c):
+        return 0 <= r < rows and 0 <= c < cols
+
+    low, high = deque(), deque()
+    for c in range(cols):                    # RichDEM loops x (col) then y (row)
+        for r in range(rows):
+            if not valid[r, c]:
+                continue
+            for k in _RD_N:
+                nr, nc = r + int(DROW[k]), c + int(DCOL[k])
+                if not inside(nr, nc) or not valid[nr, nc]:
+                    continue
+                if routed[r, c] and noflow[nr, nc] and elev[nr, nc] == elev[r, c]:
+                    low.append((r, c)); break
+                elif noflow[r, c] and elev[r, c] < elev[nr, nc]:
+                    high.append((r, c)); break
+    if not low:
+        return direction
+    labels = np.zeros(elev.shape, np.int64)
+    group = 1
+    for (r0, c0) in low:
+        if labels[r0, c0]:
+            continue
+        q = deque([(r0, c0)]); target = elev[r0, c0]
+        while q:
+            r, c = q.popleft()
+            if not valid[r, c] or elev[r, c] != target or labels[r, c] > 0:
+                continue
+            labels[r, c] = group
+            for k in _RD_N:
+                nr, nc = r + int(DROW[k]), c + int(DCOL[k])
+                if inside(nr, nc):
+                    q.append((nr, nc))
+        group += 1
+    high = deque(h for h in high if labels[h])
+    mask = np.zeros(elev.shape, np.int64)
+    fh = np.zeros(group, np.int64)
+
+    def bfs(edges, combine):
+        loops = 1
+        q = deque(edges); q.append(None)
+        while len(q) != 1:
+            cell = q.popleft()
+            if cell is None:
+                loops += 1; q.append(None); continue
+            r, c = cell
+            if mask[r, c] > 0:
+                continue
+            combine(r, c, loops)
+            for k in _RD_N:
+                nr, nc = r + int(DROW[k]), c + int(DCOL[k])
+                if inside(nr, nc) and labels[nr, nc] == labels[r, c] and noflow[nr, nc]:
+                    q.append((nr, nc))
+
+    def away(r, c, loops):
+        mask[r, c] = loops; fh[labels[r, c]] = loops
+
+    def toward(r, c, loops):
+        mask[r, c] = (fh[labels[r, c]] + mask[r, c]) + 2 * loops if mask[r, c] != 0 else 2 * loops
+
+    bfs(high, away)
+    mask *= -1
+    bfs(low, toward)
+    for r in range(rows):
+        for c in range(cols):
+            if not noflow[r, c] or labels[r, c] == 0:
+                continue
+            best, fd, fd_rd = mask[r, c], -1, 0
+            for n, k in enumerate(_RD_N, start=1):
+                nr, nc = r + int(DROW[k]), c + int(DCOL[k])
+                if not inside(nr, nc) or labels[nr, nc] != labels[r, c]:
+                    continue
+                v = mask[nr, nc]
+                if v < best or (v == best and fd_rd > 0 and fd_rd % 2 == 0 and n % 2 == 1):
+                    best, fd, fd_rd = v, k, n
+            if fd >= 0:
+                direction[r, c] = fd
+    return direction
