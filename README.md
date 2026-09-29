@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.10.0
+# QEHT — QGIS Engineering Hydrology Toolkit v0.11.0
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -32,10 +32,13 @@ which are C++ libraries already loaded inside the QGIS process. There is no
         interop/             HEAS exchange: field dictionary, GeoPackage writer
         network/             road alignment chainage, crossing candidates
         conditioning/burn.py breach road embankments at crossings
+        soils/               SOTWIS / attribute loaders, USLE K, texture, HSG proxy
+        geometry/rasterize.py polygons -> grid (cell-centre rule, pure NumPy)
       processing_provider/   ← the only place QGIS and core meet
       tests/test_core.py     ← runs on bare Python + NumPy
       tests/test_interop.py  ← outlet_uid, slopes, exchange package, golden fixture
       tests/test_crossings.py ← crossing candidates, burn, renumber-and-relink
+      tests/test_soils.py    ← USLE K, texture, SOTWIS loader, soil block
       tests/qgis_smoke.py    ← every Processing tool, run inside QGIS
 
 The core is importable without QGIS. That is what makes the hydrology testable:
@@ -43,6 +46,7 @@ The core is importable without QGIS. That is what makes the hydrology testable:
     python -m qeht.tests.test_core        # 47 analytic checks
     python -m qeht.tests.test_interop     # 74 checks incl. the golden fixture
     python -m qeht.tests.test_crossings   # 43 checks: road crossings, burn, relink
+    python -m qeht.tests.test_soils       # 31 checks: soils and USLE K
 
 Run these after any change to the core, and before trusting any output on a
 real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
@@ -63,6 +67,7 @@ real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
 | Renumber and relink exchange package | — (re-issue IDs after editing crossings) |
 | Road crossing candidates | — (road × drainage crossings with chainage, clustering) |
 | Burn crossings through embankments | a DEM-reconditioning "burn culverts" step |
+| Soil parameters for catchments | zonal soil statistics + USLE K |
 
 For Pairwise Intersect, use the built-in `native:intersection` — it is C++ and
 never spawns anything. There is no reason to wrap it.
@@ -198,6 +203,34 @@ in its own tests.
    and flow path, and writes `renumber_log` (old → new, including deleted and
    new, and how far a moved point moved) into a new package.
 
+## Soils (v0.11)
+
+**Soil parameters for catchments** (and an optional soil input on Build HEAS
+exchange package) adds a soil block to every catchment: area-weighted topsoil
+sand, silt, clay, organic carbon, coarse fragments and bulk density; USDA
+texture; dominant FAO drainage class; **USLE K** (Williams/EPIC, SI units
+t·ha·h/(ha·MJ·mm)) plus the Renard Dg-based alternative; the coarse-fragment
+factor CFRG; a texture-and-drainage **hydrologic soil group proxy**; and the
+share of the catchment covered by soil data.
+
+- **SOTWIS (Kenya preset).** Give the SOTWIS polygons and the SQLite database
+  (never the .mdb). Each soil unit's components (up to ten profiles with their
+  shares) are depth-weighted over the chosen interval (default 0–20 cm) and K
+  is computed per component, then weighted by share, then by catchment area.
+  SOTWIS missing values (−1) are left out and the shares renormalised.
+- **Other soil maps.** Polygons carrying SOTWIS fields (dominant soil only) or
+  plain `sand`, `silt`, `clay`, `oc` (%) [+ `bulk`, `cfrag`, `drain`].
+- The Williams f_csand coefficient is 0.0256; the SWAT 2009 theory PDF prints
+  0.256, which pins f_csand at 0.2 for sandy soils.
+- The soil map is rasterised on the DEM grid by cell centre (identical to
+  `gdal.RasterizeLayer` in the tests), so catchments are weighted by the same
+  cells as the hydrology. Invalid soil polygons (present in the SOTWIS Kenya
+  shapefile) are rasterised as they are and counted in the log.
+- Across Kenya, SOTWIS-derived K has a median of 0.029 against 0.022–0.024 for
+  the ESDAC global K rasters over the same cells (correlation 0.24–0.40); on
+  six steep Rift-valley test catchments it was 0.026–0.038 against 0.027–0.028
+  (ESDAC Wischmeier-based K). Treat K as an estimate with that spread.
+
 ## Interoperability
 
 Flow direction is written and read in the standard D8 encoding
@@ -228,7 +261,7 @@ Stated explicitly because a drainage report needs them stated:
 
 ## Validation
 
-**Level 1 — synthetic analytic DEMs.** 47 checks, `tests/test_core.py`, plus 74 interop checks in `tests/test_interop.py` and 43 road-crossing checks in `tests/test_crossings.py`. PASS. `tests/qgis_smoke.py` (23 checks) runs every tool inside QGIS.
+**Level 1 — synthetic analytic DEMs.** 47 checks, `tests/test_core.py`, plus 74 interop checks in `tests/test_interop.py`, 43 road-crossing checks in `tests/test_crossings.py` and 31 soil checks in `tests/test_soils.py`. PASS. `tests/qgis_smoke.py` (26 checks) runs every tool inside QGIS.
 
 **Level 3 — reference hydrology toolset production output, Site A.** 718 x 775
 cells @ 30.92 m, EPSG:21037, 16 road-crossing pour points with reference

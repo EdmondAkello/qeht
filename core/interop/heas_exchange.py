@@ -127,7 +127,7 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
                            outlets, snap_radius_cells=5, stream_mask=None,
                            local=False, stream_order=None, id_scheme="sequential",
                            id_prefix="X", id_width=3, id_start=1,
-                           id_order="downstream", progress=None):
+                           id_order="downstream", soil=None, progress=None):
     """Run snap -> id -> catchment -> LFP -> characteristics for every outlet.
 
     Parameters
@@ -150,6 +150,9 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
         outlets are processed upstream-first (ascending accumulation) so the
         result does not depend on the order of the input layer.
     stream_order : optional Strahler grid for the crossing attribute
+    soil : optional (unit_grid, index_to_unit, units, info) from the soils
+        module; adds the soil block (core.soils.catchment.SOIL_FIELDS) to
+        every catchment
 
     Returns (crossings, catchments, flowpaths, issues, id_info) where the
     first three are lists of (geometry, attributes) ready for the writer
@@ -251,6 +254,9 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
             issues.append(f"{s['uid']}: empty catchment (no valid cells); no catchment "
                           "or flow path written.")
             continue
+        if soil is not None:
+            from ..soils.catchment import soil_block
+            chs.update(soil_block(mask, soil[0], soil[2], soil[1], soil[3]))
         polys = mask_to_polygons(mask, gt)
         catchments.append((polys, dict(
             chs, **link, outlet_uid=s["uid"], catchment_id=s["uid"],

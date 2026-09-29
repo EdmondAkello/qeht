@@ -27,6 +27,7 @@ from .alg_build_exchange import BuildHeasExchangeAlgorithm
 from .alg_crossing_candidates import CrossingCandidatesAlgorithm
 from .alg_burn_crossings import BurnCrossingsAlgorithm
 from .alg_renumber_relink import RenumberRelinkAlgorithm
+from .alg_soil_parameters import SoilParametersAlgorithm
 
 
 class QehtProvider(QgsProcessingProvider):
@@ -45,6 +46,7 @@ class QehtProvider(QgsProcessingProvider):
             CrossingCandidatesAlgorithm(),
             BurnCrossingsAlgorithm(),
             RenumberRelinkAlgorithm(),
+            SoilParametersAlgorithm(),
         ):
             self.addAlgorithm(alg)
 
