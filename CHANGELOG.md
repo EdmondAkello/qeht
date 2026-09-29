@@ -3,6 +3,18 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.11.0] — unreleased (WP-C soils)
+### Added
+- **Soil parameters for catchments** (new "Soils and erosion" group) and an optional soil input on **Build HEAS exchange package**: a soil block on every catchment — topsoil sand, silt, clay, organic carbon, coarse fragments, bulk density, USDA texture, FAO drainage class, USLE K (Williams/EPIC, SI) and the Renard Dg-based K, CFRG, a texture/drainage hydrologic-group proxy, coverage %, dominant unit, TTR class, dataset and depth. Optional USLE K and soil-unit rasters.
+- **SOTWIS preset** (standard-library `sqlite3`, never the .mdb): full unit composition, depth-weighted over a chosen interval (default 0–20 cm), K per component then weighted. Also reads polygons with SOTWIS fields (dominant soil) or plain sand/silt/clay/oc fields.
+- `core/soils/` (usle_k, sotwis, catchment), `core/geometry/rasterize.py` (pure-NumPy polygon rasteriser, identical to `gdal.RasterizeLayer` on 1.44 M test cells).
+- Exchange schema: 18 soil fields on `catchments` and `soil_dataset` / `soil_depth_cm` in the metadata (additive, still `qeht-heas-1`; empty when no soil data is given).
+- Tests: `tests/test_soils.py` (31 checks); QGIS smoke test extended (26 checks).
+
+### Notes
+- The Williams f_csand coefficient is 0.0256 (the SWAT 2009 theory PDF misprints 0.256).
+- The SOTWIS Kenya shapefile contains invalid polygons; the soil tools read them without QGIS's validity check (which would abort) and report how many were rasterised as-is.
+
 ## [0.10.0] — unreleased (WP-A crossings, WP-D burn, D3 relink)
 ### Added
 - **Road crossing candidates** (new "Road drainage" group): intersects every D8 flow link of the stream network near a road centreline with the alignment. Candidates carry chainage (from a start value, optionally reversed; multi-part roads chained in layer order), crossing angle, contributing area, Strahler order, reach id, flow side (L/R), road azimuth and `status = candidate`. Streams running alongside the road within the corridor for at least the minimum parallel length form one cluster and are exported as `parallel_reaches` (side-drain hints); an optional merge distance also clusters candidates by chainage. In each cluster the most downstream candidate is `recommended = 1` (D3). Nothing is deleted.
