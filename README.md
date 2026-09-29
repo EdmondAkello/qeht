@@ -48,7 +48,7 @@ The core is importable without QGIS. That is what makes the hydrology testable:
     python -m qeht.tests.test_interop     # 74 checks incl. the golden fixture
     python -m qeht.tests.test_crossings   # 43 checks: road crossings, burn, relink
     python -m qeht.tests.test_soils       # 31 checks: soils and USLE K
-    python -m qeht.tests.test_flats       # 31 checks: oracles, Barnes == RichDEM, edge drains
+    python -m qeht.tests.test_flats       # 36 checks: oracles, Barnes == RichDEM, edge drains, DEM QA
 
 Run these after any change to the core, and before trusting any output on a
 real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
@@ -289,7 +289,7 @@ Stated explicitly because a drainage report needs them stated:
 
 ## Validation
 
-**Level 1 — synthetic analytic DEMs.** 47 checks, `tests/test_core.py`, plus 74 interop checks in `tests/test_interop.py`, 43 road-crossing checks in `tests/test_crossings.py` 31 soil checks in `tests/test_soils.py` and 31 checks in `tests/test_flats.py` (vectorised core vs the v0.8.3 reference; Barnes vs a port of RichDEM; edge drainage). PASS. `tests/qgis_smoke.py` (28 checks) runs every tool inside QGIS.
+**Level 1 — synthetic analytic DEMs.** 47 checks, `tests/test_core.py`, plus 74 interop checks in `tests/test_interop.py`, 43 road-crossing checks in `tests/test_crossings.py` 31 soil checks in `tests/test_soils.py` and 36 checks in `tests/test_flats.py` (vectorised core vs the v0.8.3 reference; Barnes vs a port of RichDEM; edge drainage; resampling audit and flat-method sensitivity). PASS. `tests/qgis_smoke.py` (30 checks) runs every tool inside QGIS.
 
 **Level 3 — reference hydrology toolset production output, Site A.** 718 x 775
 cells @ 30.92 m, EPSG:21037, 16 road-crossing pour points with reference
@@ -314,6 +314,15 @@ Two defects were found by this validation and fixed:
 2. **Undeclared NoData.** The Site A DEM had 11.8% of cells at 0.0 with no
    NoData set in the header, while real terrain starts at 1574 m. `audit_nodata()`
    now detects this and warns; the Fill algorithm takes a NoData override.
+3. **Nearest-neighbour resampling (0.13.1, Site C road project).** A
+   FABDEM clip reprojected with nearest neighbour repeated ~1–2 % of its rows
+   and columns; 14 % of cells were exactly tied with a neighbour. One tied cell
+   on a river sent ~176 km² to one culvert or the next depending on the flat
+   method. Fill and D8 flow direction now warn when rows or columns repeat
+   (`audit_resampling()`), and Catchment characteristics reports every
+   outlet's area under both flat methods and flags the ones that differ
+   (`flat_sensitive`). On a bilinear resample of the same DEM both methods
+   agreed at every crossing.
 
 The one remaining outlier (0.65 area ratio) is a genuine hydrological
 difference, not a snapping artefact, and is worth inspecting on its own.

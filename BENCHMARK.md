@@ -150,6 +150,16 @@ Indicative only: the steps timed are not identical across tools. The figures are
 | DDM | Receiver graph | 0.82 s |
 | MAS | Fill + flats + D8, numba | 1.46 s |
 
+## Caveat found after the run (0.13.1)
+
+The national FABDEM file used here is an Earth Engine export at 0.000269495°, which is slightly finer than FABDEM's native 1″ grid (0.0002778°). As a result it repeats about one row and one column in every 33. Every FABDEM clip in this benchmark has 2.8–3.0 % duplicated rows and columns, and about 9 % of neighbouring cells exactly tied. The ALOS clips are native, with no duplicates.
+
+- **Effect on the decision:** none. The decision rests on the ALOS strata, where flats are real (whole-metre DEM). The FABDEM strata already showed that the method matters little.
+- **Effect on the FABDEM numbers:** they include some resampling ties.
+- **Before any FABDEM re-run:** re-export FABDEM in its native projection and scale.
+
+QEHT 0.13.1 warns about this pattern (see DOCUMENTATION §4.1, "Resampling audit").
+
 ## Validation of QGIS 4.2.2 (same session)
 
 **QGIS 4.2.2-Belém do Pará**, run headless in a Debian trixie chroot with the official qgis.org packages (Qt 6, Python 3.13, GDAL 3.10.3, NumPy 2.2.4):

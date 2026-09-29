@@ -3,6 +3,19 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.13.1] — unreleased (real-road review follow-ups)
+Found on Site C, a road project (old-tool outputs vs 0.13; report kept outside the repo).
+### Added
+- **DEM QA: nearest-neighbour resampling.** Fill and D8 flow direction warn when rows or columns exactly repeat their neighbour (`core.raster.resampling_stats` / `audit_resampling`, threshold 0.2 %). On the project DEM (FABDEM reprojected with nearest neighbour) 1.9 % of rows and 1.2 % of columns repeated and 14 % of cells were tied; one tied cell on a river moved ~176 km² between two culverts depending on the flat method.
+- **Flat-method check in Catchment characteristics** (on by default, tolerance 10 %): `area_barnes_km2`, `area_toward_km2`, `flat_sensitivity_pct`, `flat_sensitive`, plus a warning listing flagged outlets (`core/flow/sensitivity.py`). On the project it flagged exactly the four unstable crossings; none on a bilinear resample.
+- Tests: test_flats 36 checks (+5); smoke test 30 checks (+2).
+
+### Changed
+- **ID prefix applies to sequential IDs only.** With an ID attribute the default prefix "X" is no longer prepended (it turned NS1 into XNS1 in Catchment characteristics and Build HEAS exchange package). The core `assign_uids(scheme="attribute", prefix=...)` keeps an explicit prefix for scripted use.
+
+### Notes
+- An Earth Engine FABDEM export at 0.000269° (finer than the native 1″) repeats about one row and column in 33; every FABDEM benchmark clip in WP-G carries this (see BENCHMARK.md). ALOS clips were native.
+
 ## [0.13.0] — unreleased (WP-G benchmark, QGIS 4)
 ### Changed
 - **Barnes 2014 is the default flat method** (D8 flow direction and `core.flow.direction.d8_direction`). Decided on the WP-G benchmark: 80 stratified random 15 km areas across Kenya (flat, rolling, hilly, mountainous), each on ALOS AW3D30 and FABDEM, against TauDEM, RichDEM, MAS 1.2.1 and DDM HydroLogic 2.3. Toward-lower and Barnes are not interchangeable; Barnes agrees best with the independent TauDEM (mean stream F1 0.969 vs 0.948; 0.870 vs 0.733 on whole-metre flats). Design, tables and decision in `BENCHMARK.md`.
