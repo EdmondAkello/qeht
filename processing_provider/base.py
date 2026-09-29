@@ -79,6 +79,83 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
                 "results within the clipped area.")
         return megapixels
 
+    def read_pour_points(self, parameters, name, context, info, feedback,
+                         id_field=None):
+        """Pour points -> list of dicts {x, y, fid, source_id} in the DEM CRS.
+
+        Shared by every tool that takes pour points, so reprojection,
+        multipoint handling and out-of-grid checks cannot drift between
+        tools. `source_id` is the value of `id_field` (None if not given).
+        """
+        from qgis.core import (QgsCoordinateReferenceSystem,
+                               QgsCoordinateTransform, QgsProject)
+        source = self.parameterAsSource(parameters, name, context)
+        if source is None:
+            raise QgsProcessingException("Could not read the pour-point layer.")
+        dem_crs = QgsCoordinateReferenceSystem()
+        dem_crs.createFromWkt(info.projection_wkt)
+        transform = None
+        if dem_crs.isValid() and source.sourceCrs() != dem_crs:
+            transform = QgsCoordinateTransform(source.sourceCrs(), dem_crs,
+                                               QgsProject.instance())
+            feedback.pushInfo(f"Reprojecting pour points "
+                              f"{source.sourceCrs().authid()} -> {dem_crs.authid()}")
+        points = []
+        for feature in source.getFeatures():
+            geom = feature.geometry()
+            if geom is None or geom.isEmpty():
+                feedback.pushWarning(f"Pour point fid {feature.id()} has no geometry. Skipped.")
+                continue
+            if transform is not None:
+                geom.transform(transform)
+            pt = geom.asMultiPoint()[0] if geom.isMultipart() else geom.asPoint()
+            row, col = info.xy_to_rowcol(pt.x(), pt.y())
+            if not (0 <= row < info.rows and 0 <= col < info.cols):
+                feedback.pushWarning(f"Pour point fid {feature.id()} "
+                                     f"({pt.x():.1f}, {pt.y():.1f}) falls outside the DEM. Skipped.")
+                continue
+            sid = None
+            if id_field:
+                v = feature[id_field]
+                sid = None if v is None or str(v) == "NULL" else v
+            points.append({"x": pt.x(), "y": pt.y(), "fid": int(feature.id()),
+                           "source_id": sid})
+        if not points:
+            raise QgsProcessingException("No usable pour points.")
+        return points
+
+    def field_parameter(self, parameters, name, context):
+        """First field chosen in a field parameter, or None.
+
+        parameterAsStrings() replaces parameterAsFields() from QGIS 3.32;
+        the plugin still supports 3.22, so use whichever exists.
+        """
+        getter = getattr(self, "parameterAsStrings", None) or self.parameterAsFields
+        values = getter(parameters, name, context)
+        return values[0] if values else None
+
+    def outlet_uids(self, points, outlet_rc, accumulation, id_field, prefix):
+        """outlet_uid per outlet for the single-purpose tools.
+
+        Attribute IDs when `id_field` is set; otherwise sequential with
+        `prefix`, downstream-first when an accumulation grid is available,
+        else in pour-point order. Duplicates raise with a list.
+        """
+        from ..core.linking.ids import assign_uids, OutletIdError
+        try:
+            if id_field:
+                uids, _ = assign_uids(len(points), scheme="attribute", prefix="",
+                                      attribute_values=[p["source_id"] for p in points])
+            elif accumulation is not None:
+                uids, _ = assign_uids(len(points), prefix=prefix, order="downstream",
+                                      accumulation=[float(accumulation[r, c])
+                                                    for r, c in outlet_rc])
+            else:
+                uids, _ = assign_uids(len(points), prefix=prefix, order="input")
+        except OutletIdError as e:
+            raise QgsProcessingException(str(e))
+        return uids
+
     def report_stats(self, feedback, title, stats):
         """Print a stats block. Handles str/int/float without assuming type -
         a string value here previously raised

@@ -25,10 +25,25 @@ other in a design calculation without saying which you used.
 On flow path slope
 ------------------
 The plain slope is drop over planimetric length, divided over the whole
-path. The 10-85 slope excludes the top 10% and bottom 15% of the path
-length, which removes the steep headwater and the flat outlet reach that
-otherwise distort the average. It is required by several UK and TRRL
-methods and is usually the more defensible figure for a design flood.
+path. The 10-85 slope is measured between the points at 10% and 85% of
+the path length MEASURED FROM THE OUTLET upstream (the conventional
+definition), so it excludes the bottom 10% (flat outlet reach) and the
+top 15% (steep headwater):
+
+    S_10-85 = (z85 - z10) / (L85 - L10),  L10 = 0.10 L,  L85 = 0.85 L
+
+Elevations are interpolated linearly along the path at exactly those
+distances. QEHT <= 0.8.3 measured the percentages from the divide instead
+(points at 90% and 15% from the outlet); see CHANGELOG 0.9.0.
+
+Field names (v0.9, HEAS exchange schema qeht-heas-1)
+---------------------------------------------------
+Four slope domains, never merged:
+    catch_slope_horn    mean Horn 3x3 terrain slope        (was slope_mean)
+    catch_relief_ratio  relief / LFP length                 (was slope_relief_ratio)
+    lfp_slope           drop / length over the whole LFP
+    lfp_slope_1085      10-85 slope along the LFP (outlet-referenced)
+The old names are still written as aliases for one release.
 """
 
 import numpy as np
@@ -61,39 +76,95 @@ def horn_slope(elevation, valid, cell_width, cell_height):
     return slope
 
 
-def path_slope_10_85(cells, elevation, cell_width, cell_height, direction=None):
-    """Slope between the 10% and 85% points along a flow path.
+def _cumulative_from_divide(cells, cell_width, cell_height):
+    """Cumulative planimetric distance along `cells` (divide -> outlet)."""
+    cum = np.zeros(len(cells), dtype=np.float64)
+    for k in range(1, len(cells)):
+        (r0, c0), (r1, c1) = cells[k - 1], cells[k]
+        cum[k] = cum[k - 1] + np.hypot((c1 - c0) * cell_width,
+                                       (r1 - r0) * cell_height)
+    return cum
 
-    `cells` runs from the catchment divide to the outlet.
+
+def path_10_85(cells, elevation, cell_width, cell_height, reference="outlet"):
+    """10-85 slope along a flow path, with the points used to compute it.
+
+    `cells` runs from the catchment divide to the outlet (as returned by
+    longest_flow_path). Distances are the true planimetric path distance
+    (diagonal steps = cell diagonal). Elevations at the 10% and 85% points
+    are interpolated linearly between cell centres, so the result does not
+    depend on which cell happens to be "next".
+
+    reference="outlet" (default, v0.9+): L10/L85 measured from the outlet
+        upstream - the conventional definition.
+    reference="divide": the mirrored convention used by QEHT <= 0.8.3
+        (kept only so the change can be demonstrated and tested).
+
+    Returns a dict with slope, L10_m, L85_m (distance FROM THE OUTLET of
+    the two points, whatever the reference), z10_m, z85_m (elevation at the
+    points labelled 10 and 85 under the chosen reference) and length_m.
+    Values are NaN when the path is shorter than two cells.
+    """
+    nan = float("nan")
+    out = {"slope": nan, "L10_m": nan, "L85_m": nan, "z10_m": nan,
+           "z85_m": nan, "length_m": nan, "reference": reference}
+    if reference not in ("outlet", "divide"):
+        raise ValueError("reference must be 'outlet' or 'divide'")
+    if len(cells) < 2:
+        return out
+
+    cum = _cumulative_from_divide(cells, cell_width, cell_height)
+    total = float(cum[-1])
+    out["length_m"] = total
+    if total <= 0:
+        return out
+
+    z = np.array([elevation[rc] for rc in cells], dtype=np.float64)
+    if reference == "outlet":
+        pos10, pos85 = 0.90 * total, 0.15 * total   # measured from divide
+        L10, L85 = 0.10 * total, 0.85 * total       # measured from outlet
+    else:
+        pos10, pos85 = 0.10 * total, 0.85 * total
+        L10, L85 = 0.90 * total, 0.15 * total
+    z10 = float(np.interp(pos10, cum, z))
+    z85 = float(np.interp(pos85, cum, z))
+    span = 0.75 * total
+    if reference == "outlet":
+        slope = (z85 - z10) / span          # 85% point is upstream
+    else:
+        slope = (z10 - z85) / span          # 10% point is upstream
+    out.update({"slope": slope, "L10_m": L10, "L85_m": L85,
+                "z10_m": z10, "z85_m": z85})
+    return out
+
+
+def path_slope_10_85(cells, elevation, cell_width, cell_height,
+                     direction=None, reference="outlet"):
+    """10-85 slope only (see path_10_85). Outlet-referenced from v0.9."""
+    return path_10_85(cells, elevation, cell_width, cell_height,
+                      reference=reference)["slope"]
+
+
+def path_slope_10_85_v083(cells, elevation, cell_width, cell_height):
+    """The exact QEHT <= 0.8.3 computation, kept for regression comparison.
+
+    Divide-referenced points, elevation taken at the first cell at or past
+    each target distance (no interpolation). Do not use for design.
     """
     if len(cells) < 3:
         return float("nan")
-
-    dist = neighbour_distances(cell_width, cell_height)
-    cumulative = [0.0]
-    for (r0, c0), (r1, c1) in zip(cells[:-1], cells[1:]):
-        step = np.hypot((c1 - c0) * cell_width, (r1 - r0) * cell_height)
-        cumulative.append(cumulative[-1] + step)
+    cumulative = _cumulative_from_divide(cells, cell_width, cell_height)
     total = cumulative[-1]
     if total <= 0:
         return float("nan")
-
-    cumulative = np.array(cumulative)
-    lo_target, hi_target = 0.10 * total, 0.85 * total
-    lo_idx = int(np.searchsorted(cumulative, lo_target))
-    hi_idx = int(np.searchsorted(cumulative, hi_target))
-    lo_idx = min(lo_idx, len(cells) - 1)
-    hi_idx = min(hi_idx, len(cells) - 1)
+    lo_idx = min(int(np.searchsorted(cumulative, 0.10 * total)), len(cells) - 1)
+    hi_idx = min(int(np.searchsorted(cumulative, 0.85 * total)), len(cells) - 1)
     if hi_idx <= lo_idx:
         return float("nan")
-
-    z_lo = float(elevation[cells[lo_idx]])
-    z_hi = float(elevation[cells[hi_idx]])
     span = cumulative[hi_idx] - cumulative[lo_idx]
     if span <= 0:
         return float("nan")
-    # cells run divide -> outlet, so the upstream point is higher
-    return (z_lo - z_hi) / span
+    return (float(elevation[cells[lo_idx]]) - float(elevation[cells[hi_idx]])) / span
 
 
 def catchment_characteristics(mask, elevation, valid, cell_width, cell_height,
@@ -140,7 +211,8 @@ def catchment_characteristics(mask, elevation, valid, cell_width, cell_height,
         "elev_min_m": z_min,
         "elev_mean_m": float(z.mean()),
         "relief_m": relief,
-        "slope_mean": float(cell_slopes.mean()) if cell_slopes.size else float("nan"),
+        "catch_slope_horn": float(cell_slopes.mean()) if cell_slopes.size else float("nan"),
+        "slope_mean": float(cell_slopes.mean()) if cell_slopes.size else float("nan"),  # legacy alias
         "slope_median": float(np.median(cell_slopes)) if cell_slopes.size else float("nan"),
     }
 
@@ -154,6 +226,9 @@ def catchment_characteristics(mask, elevation, valid, cell_width, cell_height,
         lfp_min = float(z_path.min()) if z_path.size else float("nan")
         lfp_drop = lfp_max - lfp_min
 
+        s1085 = path_10_85(cells, elevation, cell_width, cell_height,
+                           reference="outlet")
+        relief_ratio = relief / length if length > 0 else float("nan")
         out.update({
             "lfp_length_km": length / 1000.0,
             "lfp_length_m": length,
@@ -161,31 +236,42 @@ def catchment_characteristics(mask, elevation, valid, cell_width, cell_height,
             "lfp_elev_min_m": lfp_min,
             "lfp_drop_m": lfp_drop,
             "lfp_slope": lfp_drop / length if length > 0 else float("nan"),
-            "lfp_slope_1085": path_slope_10_85(cells, elevation,
-                                               cell_width, cell_height),
-            # Relief ratio: the "catchment slope" of most road drainage
-            # manuals. Distinct from slope_mean above.
-            "slope_relief_ratio": relief / length if length > 0 else float("nan"),
+            "lfp_slope_1085": s1085["slope"],
+            "lfp_L10_m": s1085["L10_m"],
+            "lfp_L85_m": s1085["L85_m"],
+            "lfp_z10_m": s1085["z10_m"],
+            "lfp_z85_m": s1085["z85_m"],
+            # Relief ratio (relief / LFP length). Distinct from the Horn
+            # mean slope; HEAS "catchment relief ratio" domain.
+            "catch_relief_ratio": relief_ratio,
+            "slope_relief_ratio": relief_ratio,     # legacy alias (<= 0.8.3)
         })
 
     return out
 
 
-# Field order and types for vector output. Kept here so the raster core
-# and the Processing layer cannot drift apart.
+# Field order and types for the per-tool vector outputs. Kept here so the
+# raster core and the Processing layer cannot drift apart. The HEAS
+# exchange package has its own, fuller field list (core/interop).
+# outlet_uid is the stable identifier (text); outlet_id is the pour-point
+# feature id, kept for backward compatibility and NOT stable.
 CATCHMENT_FIELDS = [
+    ("outlet_uid", "text"),
     ("outlet_id", "int"),
     ("area_km2", "float"),
     ("elev_max_m", "float"),
     ("elev_min_m", "float"),
     ("elev_mean_m", "float"),
     ("relief_m", "float"),
-    ("slope_mean", "float"),
-    ("slope_relief_ratio", "float"),
+    ("catch_slope_horn", "float"),
+    ("catch_relief_ratio", "float"),
     ("lfp_length_km", "float"),
+    ("slope_mean", "float"),            # legacy alias of catch_slope_horn
+    ("slope_relief_ratio", "float"),    # legacy alias of catch_relief_ratio
 ]
 
 FLOWPATH_FIELDS = [
+    ("outlet_uid", "text"),
     ("outlet_id", "int"),
     ("lfp_length_km", "float"),
     ("lfp_elev_max_m", "float"),
@@ -193,5 +279,9 @@ FLOWPATH_FIELDS = [
     ("lfp_drop_m", "float"),
     ("lfp_slope", "float"),
     ("lfp_slope_1085", "float"),
+    ("lfp_L10_m", "float"),
+    ("lfp_L85_m", "float"),
+    ("lfp_z10_m", "float"),
+    ("lfp_z85_m", "float"),
     ("area_km2", "float"),
 ]
