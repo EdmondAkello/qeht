@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.8.3
+**Version:** 0.9.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -44,15 +44,26 @@ qeht/
       streamlines.py     stream-network vectorisation into reaches
     watershed/
       delineate.py       streams, snapping, catchments, longest flow path
-      statistics.py      catchment and flow-path morphometry
+      statistics.py      catchment and flow-path morphometry, 10-85 slope
+    linking/
+      ids.py             outlet_uid generation and uniqueness
+    geometry/
+      polygonize.py      cell mask -> OGC-valid (multi)polygon, pure NumPy
+    interop/
+      field_dictionary.py  the qeht-heas-1 contract (every exchange field)
+      gpkg.py            standard-library GeoPackage 1.2 writer/reader
+      heas_exchange.py   pipeline, writer, validator, CSV export
 
   processing_provider/   the only QGIS-aware code
-    provider.py          registers the eight algorithms
-    base.py              shared base class and helpers
+    provider.py          registers the nine algorithms
+    base.py              shared base class and helpers (pour points, IDs)
     alg_*.py             one file per algorithm
 
   tests/
-    test_core.py         48 analytic checks, runnable without QGIS
+    test_core.py         47 analytic checks, runnable without QGIS
+    test_interop.py      74 checks: outlet_uid, slopes, exchange, golden fixture
+    fixtures/            golden_exchange.gpkg + .json (shared with HEAS)
+    qgis_smoke.py        every Processing tool run inside QGIS
 ```
 
 The dependency direction is strict and one-way: `processing_provider` imports `core`; `core` never imports `processing_provider` or `qgis`. GDAL imports inside `core` are function-local and lazy, so the numeric modules remain importable where GDAL is absent.
@@ -61,7 +72,7 @@ The dependency direction is strict and one-way: `processing_provider` imports `c
 
 ## 3. Processing algorithms
 
-QEHT registers eight algorithms under the "Engineering Hydrology" provider.
+QEHT registers nine algorithms under the "Engineering Hydrology" provider.
 
 | Algorithm | Commercial reference analogue |
 |---|---|
@@ -73,6 +84,7 @@ QEHT registers eight algorithms under the "Engineering Hydrology" provider.
 | Delineate catchments from pour points | a reference hydrology toolset's `Watershed` / `Batch Watershed Delineation` |
 | Longest flow path | a reference hydrology toolset's `Longest Flow Path` |
 | Catchment and flow path characteristics | a reference hydrology toolset's basin/LFP attribute tools |
+| Build HEAS exchange package | none — one self-describing GeoPackage for HEAS (Section 5.1) |
 
 Each is a `QgsProcessingAlgorithm` registered through a `QgsProcessingProvider`. Exposing the tools this way — rather than as bespoke dialogs — means they gain input validation, batch mode, the Graphical Modeler, the history log, and `processing.run()` scriptability at no additional cost. Chaining tools in the Modeler is much of a commercial hydrology extension's practical value, and this design reproduces it.
 
@@ -153,9 +165,13 @@ The longest flow path is found by propagating cumulative downstream distance upw
 
 ### 4.10 Catchment and flow-path characteristics
 
-For each catchment the tool reports area, highest/lowest/mean elevation, relief, and two distinct slopes; for each longest flow path it reports length, endpoint elevations, drop, whole-path slope, and 10–85 slope.
+For each catchment the tool reports area, highest/lowest/mean elevation, relief, and two distinct slopes; for each longest flow path it reports length, endpoint elevations, drop, whole-path slope, and 10–85 slope. Both carry `outlet_uid` (Section 5.1).
 
-**Two catchment slopes, deliberately.** `slope_mean` is the mean terrain gradient over every cell by Horn's 3×3 method (the algorithm behind most commercial GIS `Slope` tools), which runoff-coefficient and curve-number tables assume. `slope_relief_ratio` is relief divided by longest-flow-path length, which is the "catchment slope" of most road-drainage manuals and the term Kirpich expects. On the Site A catchments these differ by factors of 1.2 to 4.5. They are not interchangeable; the report must state which was used.
+**Four slope domains, never merged.** `catch_slope_horn` is the mean terrain gradient over every cell by Horn's 3×3 method (the algorithm behind most commercial GIS `Slope` tools), which runoff-coefficient and curve-number tables assume. `catch_relief_ratio` is relief divided by longest-flow-path length. On the Site A catchments these two differ by factors of 1.2 to 4.5; they are not interchangeable and the report must state which was used. Along the flow path, `lfp_slope` is the drop over the whole length and `lfp_slope_1085` the 10–85 slope. The v0.8 names `slope_mean` and `slope_relief_ratio` are written as aliases for one release.
+
+**10–85 slope.** S₁₀₋₈₅ = (z₈₅ − z₁₀) / (L₈₅ − L₁₀), with L₁₀ = 0.10 L and L₈₅ = 0.85 L measured from the outlet upstream along the path, and z interpolated linearly between cell centres at exactly those distances. `lfp_L10_m`, `lfp_L85_m`, `lfp_z10_m` and `lfp_z85_m` are exported so the value can be checked by hand. Up to v0.8.3 the points were measured from the divide (90 % and 15 % from the outlet) with next-cell elevations; on concave profiles that gives a steeper value (median +6 % over 40 longest flow paths on a steep 30 m test area, range −5 % to +24 % relative to the 0.9 value). The test suite includes an analytic concave profile z = a·d² on which the two conventions give exactly 0.95·aL and 1.05·aL.
+
+**Polygons.** Each catchment is traced from its own cell mask (`core/geometry/polygonize.py`), so overlapping full-upstream catchments each keep their full area. The tracer's output is OGC-valid and identical to `gdal.Polygonize` followed by a union (checked on ~3,000 random masks and on real 30 m catchments).
 
 ---
 
@@ -166,13 +182,25 @@ For each catchment the tool reports area, highest/lowest/mean elevation, relief,
 - **Flow-direction interchange** works in both directions via the standard D8 encoding, so a reference hydrology toolset's grid can be ingested and a QEHT grid exported.
 - **CRS** is carried with each raster and pour points are reprojected into the DEM CRS as needed.
 
+### 5.1 HEAS exchange package (schema `qeht-heas-1`)
+
+"Build HEAS exchange package" writes one GeoPackage per run with `crossings` (snapped outlets), `catchments` and `flowpaths`, plus two attribute tables: `qeht_run_metadata` (key/value provenance: QEHT version, run time, CRS, cell size, DEM path and SHA-256, user-declared DEM source, conditioning and flat method, stream threshold, snap radius and strategy, catchment mode, ID scheme, full parameter set) and `qeht_field_dictionary` (field, type, unit, meaning, method and HEAS target for every field — the file documents itself).
+
+- **Linking.** Every feature carries `outlet_uid`, identical across the three layers for one crossing, plus `crossing_id`/`catchment_id`/`flowpath_id` (default = `outlet_uid`), `link_method` (`pour_point`), `link_confidence` (1.0) and `link_note`. IDs come from a chosen pour-point attribute or are sequential with a prefix, numbered downstream-first (largest contributing area = 001) or in layer order. Empty or duplicate IDs, and two pour points snapping to the same cell, stop the run with a list. `outlet_id` (feature id) is kept for backward compatibility and is not stable.
+- **CRS.** A projected, metric CRS is required; a geographic DEM is refused before any computation.
+- **Values.** Missing values are NULL, never 0. `acc_at_outlet_km2` is read from the accumulation raster ((accumulation + 1) × cell area) and equals `area_km2` for full catchments — a built-in QA check.
+- **Evolution.** New fields may be added under `qeht-heas-1`; renaming or removing a field requires `qeht-heas-2`. The validator (also used by the tool after writing) rejects unknown major versions and checks that every catchment and flow path refers to an existing crossing.
+- **Implementation.** The file is written with the Python standard library (`sqlite3`, `struct`), so it is identical on every platform and testable without GDAL; the test suite validates it with GDAL's GeoPackage validator. `tests/fixtures/golden_exchange.gpkg` (synthetic DEM, three crossings: two nested on one valley, one on a tributary) is the shared contract fixture: QEHT asserts it reproduces the same attributes, HEAS asserts it imports with no field mapping.
+
 ---
 
 ## 6. Validation record
 
 QEHT is validated at three levels.
 
-**Level 1 — synthetic analytic DEMs.** 48 checks in `tests/test_core.py`, runnable on bare Python + NumPy, covering encoding round-trips, distance weighting, fill spill levels, accumulation on analytic surfaces, catchment areas, longest-flow-path geometry, snapping, Strahler rules, and the Barnes saddle convergence test. All pass.
+**Level 1 — synthetic analytic DEMs.** 47 checks in `tests/test_core.py`, runnable on bare Python + NumPy, covering encoding round-trips, distance weighting, fill spill levels, accumulation on analytic surfaces, catchment areas, longest-flow-path geometry, snapping, Strahler rules, and the Barnes saddle convergence test. A further 74 checks in `tests/test_interop.py` cover the 10–85 conventions on an analytic profile, the slope domains, `outlet_uid` rules, the polygon tracer, the GeoPackage writer, the CRS rule and the exchange package against the golden fixture. All pass. (Earlier documentation quoted 48 core checks; the suite has 47.)
+
+**QGIS level.** `tests/qgis_smoke.py` runs every Processing tool through `processing.run()` inside QGIS on the example DEM and checks outputs, `outlet_uid` consistency and the exchange package. Passes on QGIS 3.34.4 (headless).
 
 **Level 3 — reference hydrology toolset production output (Site A, steep).** 718×775 cells, EPSG:21037, 16 road-crossing pour points with reference catchments and longest flow paths. Catchment area median ratio 1.009 (15/16 within ±30%), longest-flow-path length median ratio 0.999 (15/16 within ±20%), best individual match 0.05%, zero flow-direction cycles. Cell-by-cell on an aligned grid, flow direction agrees with the reference toolset on 98.5%.
 
@@ -238,7 +266,7 @@ The recommended sequencing is to establish the public GitHub repository now — 
 
 ## 10. Citation
 
-See `CITATION.cff`. In brief: QEHT: QGIS Engineering Hydrology Toolkit, v0.8.3, GPL-2.0-or-later.
+See `CITATION.cff`. In brief: QEHT: QGIS Engineering Hydrology Toolkit, v0.9.0, GPL-2.0-or-later.
 
 ## 11. Licence
 

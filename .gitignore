@@ -5,3 +5,5 @@ __pycache__/
 Thumbs.db
 *.qgz~
 *.qgs~
+*.aux.xml
+__pycache__/
