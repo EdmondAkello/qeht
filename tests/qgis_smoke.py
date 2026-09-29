@@ -158,6 +158,21 @@ def main(in_qgis=False):
     ok = all(abs(f.geometry().area() - f["area_km2"] * 1e6) < 1e-3 * f["area_km2"] * 1e6
              for f in cl.getFeatures())
     check("characteristics: polygon area == area_km2 for every catchment", ok)
+    check("characteristics: flat-method check fields (0.13.1), areas consistent",
+          all(n in names for n in ("area_barnes_km2", "area_toward_km2", "flat_sensitivity_pct",
+                                   "flat_sensitive"))
+          and all(f["flat_sensitive"] in (0, 1) and f["area_barnes_km2"] > 0 for f in cl.getFeatures()),
+          ", ".join(f"{f['outlet_uid']} {f['area_barnes_km2']:.3f}/{f['area_toward_km2']:.3f}"
+                    for f in cl.getFeatures()))
+    r2 = processing.run("qeht:catchmentcharacteristics", {
+        "FDR": out("fdr.tif"), "DEM": out("fill.tif"), "FAC": out("fac.tif"), "POINTS": ptsfile,
+        "ID_FIELD": "culvert", "ID_PREFIX": "X", "FLAT_CHECK": False,
+        "CATCH_OUT": out("ch_c2.gpkg"), "PATH_OUT": out("ch_p2.gpkg")})
+    c2 = QgsVectorLayer(r2["CATCH_OUT"], "c", "ogr")
+    check("characteristics: ID prefix not added to IDs from a field; check can be switched off",
+          sorted(f["outlet_uid"] for f in c2.getFeatures()) == ["CV10", "CV11", "CV12"]
+          and "flat_sensitive" not in [f.name() for f in c2.fields()],
+          str(sorted(f["outlet_uid"] for f in c2.getFeatures())))
     check("characteristics: catchment and path uids match",
           sorted(f["outlet_uid"] for f in cl.getFeatures())
           == sorted(f["outlet_uid"] for f in pl.getFeatures()))

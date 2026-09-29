@@ -108,7 +108,8 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             ID_FIELD, "ID attribute (optional; blank = sequential IDs)",
             parentLayerParameterName=POINTS, optional=True))
         self.addParameter(QgsProcessingParameterString(
-            ID_PREFIX, "ID prefix", defaultValue="X", optional=True))
+            ID_PREFIX, "ID prefix (sequential IDs only; ignored with an ID attribute)",
+            defaultValue="X", optional=True))
         self.addParameter(QgsProcessingParameterEnum(
             ID_ORDER, "Sequential numbering order", options=ORDER_OPTIONS, defaultValue=0))
         self.addParameter(QgsProcessingParameterNumber(
@@ -176,6 +177,8 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
 
         id_field = self.field_parameter(parameters, ID_FIELD, context)
         prefix = (self.parameterAsString(parameters, ID_PREFIX, context) or "").strip()
+        if id_field:
+            prefix = ""   # the prefix applies to sequential IDs only (0.13.1)
         order = ORDER_KEYS[self.parameterAsEnum(parameters, ID_ORDER, context)]
         snap_radius = self.parameterAsInt(parameters, SNAP, context)
         snap_threshold = self.parameterAsDouble(parameters, SNAP_THRESHOLD, context)
