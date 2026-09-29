@@ -243,8 +243,52 @@ def test_edge_drains():
               abs(acc[ends].sum() + ends.sum() - v.sum()) < 1e-6, f"{int(ends.sum())} outlets")
 
 
+def test_dem_qa_and_sensitivity():
+    print("\n5. DEM QA (nearest-neighbour resampling) and flat-method sensitivity (0.13.1)")
+    from ..core.raster import resampling_stats, audit_resampling
+    from ..core.flow.sensitivity import flat_method_sensitivity
+    rng = np.random.default_rng(3)
+    n = 300
+    yy, xx = np.mgrid[0:n, 0:n] / n
+    z = 100 + 40 * np.sin(3 * xx) * np.cos(2 * yy) + rng.normal(0, 0.3, (n, n))
+    v = np.ones_like(z, dtype=bool)
+    st = resampling_stats(z, v)
+    check("native smooth DEM: no duplicated rows/cols, no warning",
+          st["duplicated_rows"] == 0 and st["duplicated_cols"] == 0 and not audit_resampling(z, v))
+    # nearest-neighbour upsampling by 1.03 (as a 1 arcsec source exported at ~0.97 arcsec)
+    idx = np.floor(np.arange(int(n * 1.03)) / 1.03).astype(int)
+    nn = z[np.ix_(idx, idx)]
+    st = resampling_stats(nn, np.ones_like(nn, dtype=bool))
+    w = audit_resampling(nn, np.ones_like(nn, dtype=bool))
+    check("nearest-neighbour upsampled DEM: ~3% duplicated rows and columns, warned",
+          0.02 < st["duplicated_row_share"] < 0.04 and 0.02 < st["duplicated_col_share"] < 0.04
+          and len(w) == 1 and "nearest neighbour" in w[0],
+          f"rows {st['duplicated_row_share']:.3f}, cols {st['duplicated_col_share']:.3f}")
+    flat = np.round(z)                        # whole metres (like ALOS AW3D30): ties, no repeats
+    st = resampling_stats(flat, v)
+    check("whole-metre DEM with many ties but no repeated rows is not flagged",
+          st["tied_share"] > 0.3 and not audit_resampling(flat, v), f"ties {st['tied_share']:.2f}")
+    # one tied cell on a stream: toward-lower goes east (first in E, SE, S ... order),
+    # Barnes leaves the flat to the west (W, NW, N ... order) - the two edge outlets swap area
+    R, C, r0, c0 = 13, 21, 8, 10
+    z = np.full((R, C), 50.0) + np.arange(R)[:, None] * 0.01
+    z[r0, :] = [10 - abs(c - c0) * 0.5 for c in range(C)]
+    z[r0, c0 - 1] = z[r0, c0] = z[r0, c0 + 1] = 10.0
+    for r in range(r0):
+        z[r, c0] = 10 + (r0 - r)
+    res = flat_method_sensitivity(z, np.ones_like(z, dtype=bool), 30, 30,
+                                  [(r0, 0), (r0, C - 1), (0, 0)])
+    check("tied cell on a stream: both edge outlets flagged, areas swap between methods",
+          res[0]["flat_sensitive"] == 1 and res[1]["flat_sensitive"] == 1
+          and abs(res[0]["area_barnes_km2"] - res[1]["area_toward_km2"]) < 1e-12
+          and res[0]["area_barnes_km2"] > res[0]["area_toward_km2"],
+          f"W {res[0]['area_barnes_km2']:.4f}/{res[0]['area_toward_km2']:.4f} km2")
+    check("unaffected outlet not flagged", res[2]["flat_sensitive"] == 0
+          and res[2]["flat_sensitivity_pct"] == 0.0)
+
+
 def test_memory_estimate():
-    print("\n5. Memory estimate")
+    print("\n6. Memory estimate")
     e = estimate_peak_memory(5000, 5000)
     check("per-step estimate reported, peak is the maximum", e["peak_gb"] == max(e["steps_gb"].values())
           and 1.0 < e["peak_gb"] < 10.0, f"{e['peak_gb']:.1f} GB for 25 Mcells")
@@ -258,6 +302,7 @@ def main(argv=None):
     test_hybrid_family()
     test_size_switch()
     test_edge_drains()
+    test_dem_qa_and_sensitivity()
     test_memory_estimate()
     print("\n" + "=" * 62)
     if FAILURES:

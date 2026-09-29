@@ -74,7 +74,7 @@ qeht/
     test_interop.py      74 checks: outlet_uid, slopes, exchange, golden fixture
     test_crossings.py    43 checks: alignment, candidates, clusters, burn, relink
     test_soils.py        31 checks: USLE K, texture, HSG, SOTWIS loader, soil block
-    test_flats.py        31 checks: v0.8.3 oracles, Barnes == RichDEM port, edge drains
+    test_flats.py        36 checks: v0.8.3 oracles, Barnes == RichDEM port, edge drains, DEM QA
     fixtures/            golden_exchange.gpkg + .json (shared with HEAS)
     qgis_smoke.py        every Processing tool run inside QGIS
 ```
@@ -116,6 +116,10 @@ Filling uses the priority-flood algorithm (Barnes, Lehman & Mulla 2014): the DEM
 Conditioning is deliberately a standalone step producing only a conditioned elevation surface — it does not emit flow directions. An optional minimum slope may be imposed across filled flats (an epsilon increment per traversal step) to give routing a defined gradient. An optional fill-depth raster is produced as a QA product: large contiguous fill depths typically mark a road embankment, dam, or culvert the DEM treats as a barrier, and signal that breaching or stream burn-in may be more appropriate than filling.
 
 **NoData auditing.** QEHT inspects the DEM for undeclared NoData — for example a large block of cells at exactly 0.0 while genuine terrain begins far above it, with no NoData value set in the header. Treated as valid terrain, such a block becomes a spurious flat sink that the whole catchment drains into. The audit warns; the Fill algorithm accepts a NoData override so the user can mask it. (This was not hypothetical: it was found on a real project DEM with 11.8% of cells at 0.0 and real terrain starting at 1574 m.)
+
+**Resampling audit (v0.13.1).** A DEM regridded or reprojected with nearest neighbour repeats whole source rows and columns wherever the output grid is finer than the source. The repeats are exact, so they create artificial flats and exactly tied neighbours, and flow routing across them is decided by the flat method rather than the terrain. Fill and D8 flow direction count rows and columns that repeat their neighbour over ≥ 99 % of their overlapping valid cells (constant rows excluded) and warn above 0.2 %. Calibration: nearest-neighbour reprojections showed 0.45–3 %; native and bilinear grids 0 %; whole-metre DEMs (ALOS) have many tied cells but no repeated rows and are not flagged. Note that a FABDEM export at a scale slightly finer than its native 1″ grid (e.g. an Earth Engine export at 0.000269°) repeats about one row and column in 33 — export in the native projection and scale, or resample bilinearly.
+
+**Flat-method sensitivity (v0.13.1).** Catchment characteristics routes the conditioned DEM with both flat methods and reports each outlet's contributing area under each (`area_barnes_km2`, `area_toward_km2`, `flat_sensitivity_pct`); `flat_sensitive = 1` above a tolerance (default 10 %). A flagged catchment is decided by flats or ties, not terrain, and needs checking against mapped drainage or on site. On Site C (a road project) the check flagged exactly the four crossings on the section built from a nearest-neighbour DEM (areas differing by 40–100 %) and none of the six stable ones; on a bilinear resample it flagged none.
 
 ### 4.2 D8 flow direction
 

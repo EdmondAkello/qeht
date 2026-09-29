@@ -14,7 +14,7 @@ from qgis.core import (
 )
 
 from .base import QehtAlgorithm
-from ..core.raster import read_dem, write_raster, audit_nodata
+from ..core.raster import read_dem, write_raster, audit_nodata, audit_resampling
 from ..core.conditioning.fill import fill_depressions, depression_depth
 
 DEM = "DEM"
@@ -77,7 +77,7 @@ class FillDepressionsAlgorithm(QehtAlgorithm):
         feedback.pushInfo(f"{info}  valid cells: {int(valid.sum()):,}")
 
         self.check_size(feedback, info.rows, info.cols)
-        for warning in audit_nodata(dem, valid, info.nodata):
+        for warning in audit_nodata(dem, valid, info.nodata) + audit_resampling(dem, valid):
             feedback.pushWarning("DEM QA: " + warning)
 
         filled, n_filled, seeds = fill_depressions(
