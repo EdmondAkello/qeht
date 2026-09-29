@@ -3,6 +3,26 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.13.0] — unreleased (WP-G benchmark, QGIS 4)
+### Changed
+- **Barnes 2014 is the default flat method** (D8 flow direction and `core.flow.direction.d8_direction`). Decided on the WP-G benchmark: 80 stratified random 15 km areas across Kenya (flat, rolling, hilly, mountainous), each on ALOS AW3D30 and FABDEM, against TauDEM, RichDEM, MAS 1.2.1 and DDM HydroLogic 2.3. Toward-lower and Barnes are not interchangeable; Barnes agrees best with the independent TauDEM (mean stream F1 0.969 vs 0.948; 0.870 vs 0.733 on whole-metre flats). Design, tables and decision in `BENCHMARK.md`.
+- **Toward lower terrain** remains as an option (enum index unchanged, so saved models keep their method).
+- `cells_still_unrouted` no longer counts boundary outlets; new stat `boundary_outlets`.
+
+### Removed
+- **Hybrid flat method** (and the FLAT_WEIGHT / SMALL_FLATS parameters): it reproduced Barnes (stream F1 ≥ 0.99 in every stratum). `core/flow/flats.resolve_flats(w=…)` keeps w for research.
+
+### Fixed
+- **Flats touching the grid edge or NoData stayed unrouted** (all methods). Boundary cells without descent are now outlets and such flats drain to them, as in TauDEM and RichDEM — relevant for clips and coastlines.
+- **Barnes departed from the published algorithm at the flat's low edge**: a cell there could run along the rim before leaving; the neighbour scan order also differed. 0.12 Barnes agreed with RichDEM on 78 % of flat cells (one flat ALOS area); 0.13 matches RichDEM cell for cell on all 160 benchmark runs.
+
+### Added
+- `core/flow/_reference.reference_barnes_richdem`: per-cell port of RichDEM's Barnes code, the new test oracle (exact match on 80 random surfaces with NoData). Tests: edge/NoData drainage, Barnes default, hybrid refused (test_flats 31 checks; smoke 28).
+- `BENCHMARK.md`.
+
+### Compatibility
+- **QGIS 4.2.2** (Qt 6): all unit suites and the 28-check smoke test pass headless on the official Debian trixie packages; the plugin loads, registers 13 algorithms and unloads. Also tested on QGIS 3.34.4. `qgisMaximumVersion=4.99`.
+
 ## [0.12.0] — unreleased (WP-E flats and performance)
 ### Fixed
 - **Barnes flat resolution could create flow loops.** Its outlet rule for local-minimum flat cells accepted an equal-elevation neighbour assigned earlier in the same pass, which could point two cells at each other. The loops are small but sit on main channels and cut them off from their upstream area (on a 30 m flat coastal clip the largest accumulation was 40,117 cells; 794,103 with the fix). The exit now goes only to a lower neighbour or one routed before flat resolution. Toward-lower (the default) was not affected. The earlier Barnes-vs-reference comparison on coastal flats (stream IoU 0.19) used the faulty code and should be repeated.

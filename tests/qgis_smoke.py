@@ -81,7 +81,7 @@ def main(in_qgis=False):
     r = processing.run("qeht:flowaccumulation", {"FDR": out("fdr.tif"), "QUANTITY": 0,
                        "OUTPUT": out("fac.tif")})
     check("flow accumulation", os.path.exists(r["OUTPUT"]))
-    for m, extra in ((1, {}), (2, {"FLAT_WEIGHT": 5.0, "SMALL_FLATS": 20})):
+    for m, extra in ((1, {}),):
         r = processing.run("qeht:flowdirection", dict({"DEM": out("fill.tif"), "RESOLVE_FLATS": True,
                            "FLAT_METHOD": m, "OUTPUT": out(f"fdr_m{m}.tif")}, **extra))
         from ..core.grid import decode_d8
@@ -89,8 +89,13 @@ def main(in_qgis=False):
         from ..core.raster import read_dem as _rd
         _d8, _v, _ = _rd(r["OUTPUT"])
         _, _st = _fa(decode_d8(_d8.astype(int)), _v)
-        check(f"flow direction ({['toward', 'Barnes', 'hybrid w=5'][m]}): no flow cycles",
+        check(f"flow direction ({['toward', 'Barnes'][m]}): no flow cycles",
               _st["cells_in_cycles"] == 0, f"{_st['cells_in_cycles']} cells in cycles")
+    import numpy as _np
+    fdr_default = processing.run("qeht:flowdirection", {"DEM": out("fill.tif"),
+                                 "OUTPUT": out("fdr_default.tif")})
+    check("flow direction: Barnes is the default (0.13)",
+          _np.array_equal(_rd(fdr_default["OUTPUT"])[0], _rd(out("fdr_m1.tif"))[0]))
     r = processing.run("qeht:streamnetwork", {"FDR": out("fdr.tif"), "FAC": out("fac.tif"),
                        "MODE": 0, "THRESHOLD": 500, "STREAMS": out("str.tif"),
                        "ORDER": out("ord.tif")})
