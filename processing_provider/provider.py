@@ -23,6 +23,7 @@ from .alg_watershed import DelineateCatchmentAlgorithm
 from .alg_longest_flowpath import LongestFlowPathAlgorithm
 from .alg_streamlines import StreamLinesAlgorithm
 from .alg_characteristics import CatchmentCharacteristicsAlgorithm
+from .alg_build_exchange import BuildHeasExchangeAlgorithm
 
 
 class QehtProvider(QgsProcessingProvider):
@@ -37,6 +38,7 @@ class QehtProvider(QgsProcessingProvider):
             StreamLinesAlgorithm(),
             LongestFlowPathAlgorithm(),
             CatchmentCharacteristicsAlgorithm(),
+            BuildHeasExchangeAlgorithm(),
         ):
             self.addAlgorithm(alg)
 

@@ -3,7 +3,7 @@ name=QEHT Engineering Hydrology
 qgisMinimumVersion=3.22
 qgisMaximumVersion=4.99
 description=In-process terrain, drainage-network and catchment analysis for engineering hydrology. Equivalent to commercial reference hydrology/raster toolsets, with no external executables.
-version=0.8.3
+version=0.9.0
 author=Edmond Akello
 email=francenicklaus@gmail.com
 about=A security-conscious QGIS plugin providing terrain, drainage-network
@@ -19,7 +19,9 @@ about=A security-conscious QGIS plugin providing terrain, drainage-network
     Tools: Fill depressions, D8 flow direction, flow accumulation, stream
     network with Strahler ordering, catchment delineation with pour-point
     snapping, and longest flow path with length/drop/slope for time-of-
-    concentration calculations.
+    concentration calculations, and a "Build HEAS exchange package" tool that
+    writes crossings, catchments and longest flow paths linked by a stable
+    outlet_uid into one self-describing GeoPackage.
 
     Flow direction uses steepest descent weighted by distance and is written
     in the standard D8 1/2/4/.../128 encoding, so grids interchange directly
@@ -35,4 +37,4 @@ hasProcessingProvider=yes
 homepage=https://github.com/EdmondAkello/qeht
 repository=https://github.com/EdmondAkello/qeht
 tracker=https://github.com/EdmondAkello/qeht/issues
-changelog=See CHANGELOG.md
+changelog=0.9.0: HEAS exchange package, stable outlet_uid, outlet-referenced 10-85 slope, overlapping-catchment polygon fix. See CHANGELOG.md
