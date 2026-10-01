@@ -61,10 +61,11 @@ def main(in_qgis=False):
         reg.addProvider(QehtProvider())
     algs = sorted(a.id() for a in reg.providerById("qeht").algorithms())
     print("QEHT algorithms:", ", ".join(algs))
-    check("provider loads with 13 algorithms incl. exchange, crossings, burn, relink, soils",
-          len(algs) == 13 and all(a in algs for a in (
+    check("provider loads with 15 algorithms incl. exchange, crossings, burn, relink, soils, erosion",
+          len(algs) == 15 and all(a in algs for a in (
               "qeht:buildheasexchange", "qeht:crossingcandidates", "qeht:burncrossings",
-              "qeht:renumberrelink", "qeht:soilparameters")))
+              "qeht:renumberrelink", "qeht:soilparameters", "qeht:erosionindices",
+              "qeht:erosioncorridor")))
 
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     dem = os.path.join(here, "examples", "example_dem.tif")
@@ -258,6 +259,17 @@ def main(in_qgis=False):
     check("burn crossings: burned DEM + one breach per recommended crossing",
           os.path.exists(r["OUTPUT"]) and bl.featureCount() == len(rec),
           f"{bl.featureCount()} breaches")
+    r = processing.run("qeht:buildheasexchange", {
+        "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "POINTS": out("cand.gpkg"),
+        "BURN_LOG": out("breach.gpkg"), "CONDITIONING": "fill, min_slope 0",
+        "OUTPUT": out("burn_exchange.gpkg")})
+    md = {row["key"]: row["value"] for row in gpkg.read_table(r["OUTPUT"], "qeht_run_metadata")}
+    errors, _ = validate_exchange(r["OUTPUT"])
+    bt = gpkg.read_table(r["OUTPUT"], "burn_log", with_geometry=False)
+    check("exchange records the breach log: burn_log layer + conditioning metadata",
+          not errors and len(bt) == bl.featureCount() and "burn crossings:" in md["conditioning"]
+          and md["conditioning"].startswith("fill, min_slope 0") and md["conditioning_burn"],
+          md["conditioning"])
 
     # edit the package: delete the first crossing, add one on a stream elsewhere
     edited = out("edited.gpkg"); shutil.copy(xp2, edited)
@@ -311,6 +323,27 @@ def main(in_qgis=False):
                                and abs(f["soil_coverage_pct"] - 100) < 1e-6 for f in fl)
           and os.path.exists(r["K_RASTER"]) and "outlet_uid" in sl.fields().names(),
           ", ".join(f"{f['outlet_uid']} K={f['usle_k']:.4f} {f['soil_texture']}" for f in fl))
+    # same soil as polygons with only a unit code + a CSV table (v0.14)
+    soil2 = QgsVectorLayer(f"Polygon?crs={QgsRasterLayer(dem).crs().authid()}"
+                           "&field=SU:string", "soil2", "memory")
+    sf2 = []
+    for (x0, x1), code in (((xa, xmid), "A1"), ((xmid, xb), "B2")):
+        f = QgsFeature(soil2.fields())
+        f.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(x0, ya), QgsPointXY(x1, ya),
+                                                  QgsPointXY(x1, yb), QgsPointXY(x0, yb)]]))
+        f.setAttributes([code]); sf2.append(f)
+    soil2.dataProvider().addFeatures(sf2)
+    QgsVectorFileWriter.writeAsVectorFormatV3(soil2, out("soil_units.gpkg"),
+                                              QgsCoordinateTransformContext(), opts)
+    with open(out("soil_table.csv"), "w", encoding="utf-8") as fh:
+        fh.write("SU,sand,silt,clay,oc,drain\nA1,35,30,35,1.8,W\nB2,60,20,20,0.9,M\n")
+    r2 = processing.run("qeht:soilparameters", {
+        "CATCHMENTS": out("ch_c.gpkg"), "REF": out("fdr.tif"), "SOIL_POLYGONS": out("soil_units.gpkg"),
+        "SOIL_CSV": out("soil_table.csv"), "SOIL_UNIT_FIELD": "SU", "OUTPUT": out("ch_soil_csv.gpkg")})
+    k1 = sorted(round(f["usle_k"], 6) for f in fl)
+    k2 = sorted(round(f["usle_k"], 6) for f in QgsVectorLayer(r2["OUTPUT"], "s2", "ogr").getFeatures())
+    check("soil parameters from unit polygons + CSV table = same K as attribute polygons",
+          k1 == k2, f"{k1} vs {k2}")
     r = processing.run("qeht:buildheasexchange", {
         "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "POINTS": ptsfile,
         "ID_FIELD": "culvert", "SNAP": 5, "SNAP_THRESHOLD": 200,
@@ -321,6 +354,61 @@ def main(in_qgis=False):
     check("exchange with soils: soil block on catchments, dataset in metadata, validates",
           not errors and all(c["usle_k"] and c["soil_hsg_proxy"] for c in ca)
           and md["soil_depth_cm"] and md["soil_dataset"])
+
+    # ---- v0.14: erosion (WP-F) -------------------------------------------
+    import json as _json
+    from osgeo import gdal as _gdal
+    r = processing.run("qeht:erosionindices", {
+        "RAW_DEM": dem, "FAC": out("fac.tif"), "LS_METHOD": 0, "CHANNEL_CELLS": 500,
+        "R_VALUE": 1800.0, "C_VALUE": 0.05, "SOIL_POLYGONS": out("soil.gpkg"),
+        "SPI_SCHEME": 1, "RUSLE_SCHEME": 1, "OUTPUT": out("erosion")})
+    ef = r["OUTPUT"]
+    with open(os.path.join(ef, "erosion_run.json")) as fh:
+        run = _json.load(fh)
+    need = ["ln_spi.tif", "ls_factor.tif", "twi.tif", "rusle_soil_loss_t_ha_yr.tif",
+            "spi_class.tif", "rusle_class.tif", "erosion_combined_class.tif", "class_extents.csv",
+            "erosion_combined_class.qml", "k_factor.tif"]
+    check("erosion indices + RUSLE: rasters, class rasters, styles, run record",
+          all(os.path.exists(os.path.join(ef, n)) for n in need) and run["mode"] == "RUSLE"
+          and any(f["factor"] == "K" and "Williams" in f["source"] for f in run["factors"]),
+          str([n for n in need if not os.path.exists(os.path.join(ef, n))]))
+    ds = _gdal.Open(os.path.join(ef, "spi_class.tif"))
+    rat = ds.GetRasterBand(1).GetDefaultRAT()
+    check("SPI class raster carries the A14 class names (attribute table)",
+          rat is not None and [rat.GetValueAsString(i, 1) for i in range(rat.GetRowCount())]
+          == ["Low", "Moderate", "High", "Severe"])
+    ds = None
+    r2 = processing.run("qeht:erosionindices", {"RAW_DEM": dem, "FAC": out("fac.tif"),
+                                                "OUTPUT": out("erosion_ls")})
+    with open(os.path.join(r2["OUTPUT"], "erosion_run.json")) as fh:
+        run2 = _json.load(fh)
+    check("no R/K/C: LS-only terrain potential, no soil-loss raster",
+          run2["mode"].startswith("LS-only")
+          and os.path.exists(os.path.join(r2["OUTPUT"], "ls_class.tif"))
+          and not os.path.exists(os.path.join(r2["OUTPUT"], "rusle_soil_loss_t_ha_yr.tif")))
+    r = processing.run("qeht:erosioncorridor", {
+        "EROSION": ef, "ROAD": out("road.gpkg"), "START": 1000.0, "STEP": 10, "HALF_WIDTH": 50,
+        "STATIONS": out("ero_st.gpkg"), "REACHES": out("ero_re.gpkg"), "CHART": out("ero.png")})
+    st = QgsVectorLayer(r["STATIONS"], "s", "ogr"); rl = QgsVectorLayer(r["REACHES"], "r", "ogr")
+    chs = [f["chainage"] for f in st.getFeatures()]
+    check("corridor: stations from ch 1000 every 10 m, reaches cover the road",
+          chs[0] == 1000.0 and all(b > a for a, b in zip(chs, chs[1:])) and rl.featureCount() >= 1
+          and abs(sum(f["length_m"] for f in rl.getFeatures()) - (chs[-1] - chs[0])) < 1e-6,
+          f"{st.featureCount()} stations, {rl.featureCount()} reaches, chart {os.path.exists(out('ero.png'))}")
+    r = processing.run("qeht:buildheasexchange", {
+        "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "POINTS": ptsfile,
+        "ID_FIELD": "culvert", "SNAP": 5, "SNAP_THRESHOLD": 200, "SOIL_POLYGONS": out("soil.gpkg"),
+        "EROSION": ef, "OUTPUT": out("erosion_exchange.gpkg")})
+    ca = gpkg.read_table(r["OUTPUT"], "catchments", with_geometry=False)
+    cr = gpkg.read_table(r["OUTPUT"], "crossings", with_geometry=False)
+    md = {row["key"]: row["value"] for row in gpkg.read_table(r["OUTPUT"], "qeht_run_metadata")}
+    errors, _ = validate_exchange(r["OUTPUT"])
+    check("exchange with erosion: ero_* on catchments and crossings, composite, metadata, validates",
+          not errors and all(c["ero_a_mean_tha"] is not None and c["ero_sy_m3_yr"] is not None
+                             for c in ca)
+          and all(x["ero_composite"] is not None and x["ero_impact"] for x in cr)
+          and "mcdma_weights" in md["erosion_json"],
+          ", ".join(f"{x['outlet_uid']} {x['ero_impact']} ({x['ero_composite']:.1f})" for x in cr))
 
     print("\n" + ("ALL QGIS SMOKE CHECKS PASSED" if not FAILURES
                   else f"{len(FAILURES)} FAILURE(S): " + "; ".join(FAILURES)))

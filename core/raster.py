@@ -13,6 +13,8 @@ NOTHING in this module spawns a subprocess. `gdal_polygonize.exe`,
 is a direct call into the already-loaded GDAL C++ library.
 """
 
+import os
+
 import numpy as np
 
 
@@ -376,3 +378,30 @@ def polyline_from_cells(cells, info, output_path, layer_name="flowpath",
     feat = None
     vds = None
     return output_path
+
+
+def warp_to_grid(path, info, resampling="bilinear", band=1):
+    """Read raster `path` resampled onto the DEM grid described by `info`.
+
+    In-process GDAL Warp to memory (no subprocess): same CRS, extent, cell
+    size and shape as the DEM. resampling: "bilinear" for continuous
+    factors (R, K, C, P), "near" for class rasters (WorldCover).
+    Returns (array float64 with NaN for NoData, source description).
+    """
+    from osgeo import gdal
+    gdal.UseExceptions()
+    gt = info.geotransform
+    bounds = (gt[0], gt[3] + info.rows * gt[5], gt[0] + info.cols * gt[1], gt[3])
+    src = gdal.Open(path)
+    nd = src.GetRasterBand(band).GetNoDataValue()
+    opts = gdal.WarpOptions(format="MEM", outputBounds=bounds, width=info.cols,
+                            height=info.rows, dstSRS=info.projection_wkt or None,
+                            resampleAlg=resampling, srcBands=[band],
+                            dstNodata=-3.4e38, srcNodata=nd)
+    ds = gdal.Warp("", src, options=opts)
+    a = ds.GetRasterBand(1).ReadAsArray().astype(np.float64)
+    a[a <= -3.0e38] = np.nan
+    desc = f"{os.path.basename(path)} (resampled {resampling} to the DEM grid)"
+    ds = None
+    src = None
+    return a, desc

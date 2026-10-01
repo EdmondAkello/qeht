@@ -70,6 +70,34 @@ def raises(fn, exc):
 
 
 # ------------------------------------------------------------------
+def test_slope_wording_and_drop():
+    print("\n0. Slope domains: relief ratio is not a Tc input; lfp_drop_m end points")
+    from ..core.watershed.statistics import catchment_characteristics
+    row = [r for r in fd.CATCHMENTS if r[0] == "catch_relief_ratio"][0]
+    check("field dictionary: catch_relief_ratio says 'not a Tc input'",
+          "not a Tc input" in row[4], row[4])
+    # straight 21-cell N-S path falling 1 m per cell, with a 3 m spike mid-way
+    n = 21
+    z = np.full((n, 3), np.nan)
+    z[:, 1] = 100.0 - np.arange(n) * 1.0
+    z[10, 1] += 3.0 + 10.0              # spike: 13 m above the clean profile there
+    valid = np.isfinite(z)
+    mask = valid.copy()
+    cells = [(r, 1) for r in range(n)]      # divide (row 0) -> outlet (row 20)
+    ch = catchment_characteristics(mask, z, valid, 10.0, 10.0,
+                                   flow_path={"cells": cells, "length": 200.0})
+    head_minus_outlet = ch["lfp_z_head_m"] - ch["lfp_z_outlet_m"]
+    check("spike on the path: lfp_drop_m includes it, head - outlet excludes it, flagged",
+          abs(head_minus_outlet - 20.0) < 1e-9 and ch["lfp_drop_m"] > head_minus_outlet + 0.5
+          and ch["lfp_nonmonotonic"] == 1,
+          f"drop {ch['lfp_drop_m']:.1f}, head-outlet {head_minus_outlet:.1f}")
+    z[10, 1] -= 13.0
+    ch = catchment_characteristics(mask, z, valid, 10.0, 10.0,
+                                   flow_path={"cells": cells, "length": 200.0})
+    check("clean monotonic path: drop = head - outlet, not flagged",
+          abs(ch["lfp_drop_m"] - 20.0) < 1e-9 and ch["lfp_nonmonotonic"] == 0)
+
+
 def test_1085_convention():
     print("\n1. 10-85 slope: outlet-referenced (v0.9) vs divide-referenced (<=0.8.3)")
     # Straight N-S path of 21 cells (20 steps x 10 m = 200 m), concave-up
@@ -407,6 +435,7 @@ def main(argv=None):
     print("=" * 62)
     print("QEHT INTEROP - v0.9 (outlet_uid, D1 slopes, HEAS exchange)")
     print("=" * 62)
+    test_slope_wording_and_drop()
     test_1085_convention()
     test_slope_domains()
     test_ids()

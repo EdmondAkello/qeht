@@ -212,8 +212,11 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterFile(
             prefix + "_DB", "SOTWIS SQLite database (optional; full unit composition)",
             optional=True, fileFilter="SQLite (*.db *.sqlite)"))
+        self.addParameter(QgsProcessingParameterFile(
+            prefix + "_CSV", "Soil table CSV (optional; unit field + sand, silt, clay, oc %, "
+            "[bulk, cfrag, drain])", optional=True, fileFilter="CSV (*.csv *.txt)"))
         self.addParameter(QgsProcessingParameterString(
-            prefix + "_UNIT_FIELD", "Soil unit field linking polygons to the database",
+            prefix + "_UNIT_FIELD", "Soil unit field linking polygons to the database or table",
             defaultValue="NEWSUID", optional=True))
         self.addParameter(QgsProcessingParameterNumber(
             prefix + "_TOP", "Soil depth from (cm)", QgsProcessingParameterNumber.Type.Double,
@@ -241,6 +244,8 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
         if src is None:
             return None
         db = self.parameterAsFile(parameters, prefix + "_DB", context)
+        csv_path = self.parameterAsFile(parameters, prefix + "_CSV", context) \
+            if (prefix + "_CSV") in parameters else ""
         unit_field = (self.parameterAsString(parameters, prefix + "_UNIT_FIELD", context)
                       or "NEWSUID").strip()
         top = self.parameterAsDouble(parameters, prefix + "_TOP", context)
@@ -259,7 +264,11 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
         records, polys, index_of = [], [], {}
         sotwis_fields = all(f in names for f in ("SDTO", "STPC", "CLPC", "TOTC"))
         plain = all(f in lower for f in ("sand", "silt", "clay", "oc"))
-        if db:
+        if csv_path and not db:
+            if unit_field not in names:
+                raise QgsProcessingException(
+                    f"The soil polygons have no field '{unit_field}' to join to the soil table.")
+        elif db:
             if unit_field not in names:
                 raise QgsProcessingException(
                     f"The soil polygons have no field '{unit_field}' to join to the database.")
@@ -298,6 +307,8 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
                 n_invalid += 1
             if db:
                 key = feat[unit_field]
+            elif csv_path:
+                key = str(feat[unit_field]).strip()
             else:
                 key = int(feat.id())
                 rec = {"id": key}
@@ -316,6 +327,12 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
                               "rasterised by cell centre (even-odd), not repaired.")
         if db:
             units, sinfo = load_sotwis(db, top, bottom)
+        elif csv_path:
+            from ..core.soils.sotwis import load_csv_units
+            try:
+                units, sinfo = load_csv_units(csv_path, unit_field)
+            except ValueError as e:
+                raise QgsProcessingException(str(e))
         elif sotwis_fields:
             units, sinfo = load_attributes(records, sand="SDTO", silt="STPC", clay="CLPC",
                                            oc_pct="TOTC", oc_is_gkg=True,
