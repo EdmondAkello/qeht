@@ -127,7 +127,7 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
                            outlets, snap_radius_cells=5, stream_mask=None,
                            local=False, stream_order=None, id_scheme="sequential",
                            id_prefix="X", id_width=3, id_start=1,
-                           id_order="downstream", soil=None, progress=None):
+                           id_order="downstream", soil=None, erosion=None, progress=None):
     """Run snap -> id -> catchment -> LFP -> characteristics for every outlet.
 
     Parameters
@@ -150,6 +150,9 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
         outlets are processed upstream-first (ascending accumulation) so the
         result does not depend on the order of the input layer.
     stream_order : optional Strahler grid for the crossing attribute
+    erosion : optional core.erosion.summary.ErosionInputs; adds the ero_*
+        blocks to catchments and crossings (bulk density from the soil
+        block when present)
     soil : optional (unit_grid, index_to_unit, units, info) from the soils
         module; adds the soil block (core.soils.catchment.SOIL_FIELDS) to
         every catchment
@@ -257,6 +260,14 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
         if soil is not None:
             from ..soils.catchment import soil_block
             chs.update(soil_block(mask, soil[0], soil[2], soil[1], soil[3]))
+        if erosion is not None:
+            from ..erosion.summary import catchment_erosion, crossing_erosion
+            bd = chs.get("soil_bulk_gcm3")
+            eb = catchment_erosion(mask, erosion, cell_area,
+                                   bulk_kgm3=bd * 1000.0 if bd else None)
+            chs.update(eb)
+            crossings[-1][1].update(crossing_erosion(s["row"], s["col"], mask, direction,
+                                                     erosion, eb))
         polys = mask_to_polygons(mask, gt)
         catchments.append((polys, dict(
             chs, **link, outlet_uid=s["uid"], catchment_id=s["uid"],
@@ -323,9 +334,9 @@ def write_exchange(path, crossings, catchments, flowpaths, metadata, crs_wkt,
                "crs_name": crs_name or md.get("crs_name", ""),
                "n_crossings": str(len(crossings)),
                "lfp_1085_reference": "outlet"})
-    if isinstance(md.get("parameters_json"), (dict, list)):
-        md["parameters_json"] = json.dumps(md["parameters_json"], sort_keys=True,
-                                           default=str)
+    for key in ("parameters_json", "erosion_json"):
+        if isinstance(md.get(key), (dict, list)):
+            md[key] = json.dumps(md[key], sort_keys=True, default=str)
 
     srs_id = int(epsg) if epsg else 99999
     w = GeoPackageWriter(path, overwrite=True,

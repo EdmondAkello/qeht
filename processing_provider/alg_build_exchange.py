@@ -74,7 +74,8 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "non-overlapping areas, computed upstream-first so the result does "
             "not depend on the order of the pour-point layer.\n\n"
             "<b>Slopes (four domains, never merged):</b> catch_slope_horn (Horn "
-            "mean), catch_relief_ratio (relief / LFP length), lfp_slope (drop / "
+            "mean), catch_relief_ratio (relief / LFP length; a basin-steepness index, not a Tc "
+            "input), lfp_slope (drop / "
             "length) and lfp_slope_1085 (10-85 along the LFP, measured from the "
             "OUTLET; lfp_L10_m, lfp_L85_m, lfp_z10_m, lfp_z85_m let you check it "
             "by hand).\n\n"
@@ -129,6 +130,14 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             FLAT_METHOD, "Flat resolution used for flow direction (recorded, e.g. 'barnes')",
             optional=True))
         self.add_soil_parameters("SOIL", optional=True)
+        from qgis.core import QgsProcessingParameterFeatureSource as _FS, QgsProcessing as _QP
+        self.addParameter(_FS(
+            "BURN_LOG", "Breach log from 'Burn crossings through embankments' (optional; "
+            "recorded in the package)", [_QP.SourceType.TypeVectorLine], optional=True))
+        from qgis.core import QgsProcessingParameterFile as _PF
+        self.addParameter(_PF(
+            "EROSION", "Erosion output folder (optional; adds the ero_* erosion block)",
+            behavior=_PF.Behavior.Folder, optional=True))
         self.addParameter(QgsProcessingParameterBoolean(
             CSV, "Also write one CSV per layer (for spreadsheets)", defaultValue=False))
         self.addParameter(QgsProcessingParameterFileDestination(
@@ -207,6 +216,37 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                 p["chainage"] = p.get("attr_chainage_m")
             feedback.pushInfo(f"Candidate layer: {len(points)} crossing(s) selected ({rule}).")
 
+        burn_summary = ""
+        burn_src = self.parameterAsSource(parameters, "BURN_LOG", context) \
+            if "BURN_LOG" in parameters else None
+        if burn_src is not None:
+            from .alg_burn_crossings import LOG_FIELDS as BURN_FIELDS
+            from qgis.core import QgsCoordinateReferenceSystem as _CRS, QgsCoordinateTransform as _CT, QgsProject as _P
+            dcrs = _CRS(); dcrs.createFromWkt(info.projection_wkt)
+            tr = _CT(burn_src.sourceCrs(), dcrs, _P.instance()) \
+                if dcrs.isValid() and burn_src.sourceCrs() != dcrs else None
+            names = burn_src.fields().names()
+            brows = []
+            for f in burn_src.getFeatures():
+                g = f.geometry()
+                if g is None or g.isEmpty():
+                    continue
+                if tr is not None:
+                    g.transform(tr)
+                line = g.asMultiPolyline()[0] if g.isMultipart() else g.asPolyline()
+                if len(line) < 2:
+                    continue
+                attrs = {k: (f[k] if k in names else None) for k, _ in BURN_FIELDS}
+                attrs = {k: (None if str(v) == "NULL" else v) for k, v in attrs.items()}
+                brows.append(([(pt.x(), pt.y()) for pt in line], attrs))
+            n_burned = sum(1 for _, a in brows if (a.get("cells") or 0) > 0)
+            cut = sum(float(a.get("total_cut_m3") or 0) for _, a in brows)
+            burn_summary = (f"burn crossings: {n_burned} of {len(brows)} breached, "
+                            f"{cut:,.0f} m3 cut (see layer burn_log)")
+            extra_layers.append(("burn_log", "LINESTRING", BURN_FIELDS, brows,
+                                 "Breaches cut through embankments before routing"))
+            feedback.pushInfo("Conditioning: " + burn_summary)
+
         alignment = self.read_alignment(
             parameters, ROAD, context, info, feedback,
             start_chainage=self.parameterAsDouble(parameters, START, context),
@@ -238,13 +278,22 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                           f"{'local' if local else 'full upstream'} catchments; "
                           f"IDs {'from ' + id_field if id_field else 'sequential ' + (prefix or '') + '001...'}")
         soil = self.load_soil(parameters, context, info, feedback, "SOIL")
+        erosion, erosion_run = None, None
+        ero_folder = self.parameterAsFile(parameters, "EROSION", context) if "EROSION" in parameters else ""
+        if ero_folder:
+            from ..core.erosion.io import load_erosion_inputs
+            try:
+                erosion, erosion_run = load_erosion_inputs(ero_folder, info, read_dem)
+            except (ValueError, FileNotFoundError) as e:
+                raise QgsProcessingException(str(e))
+            feedback.pushInfo(f"Erosion block from {ero_folder} ({erosion.mode}).")
         try:
             crossings, catchments, flowpaths, issues, id_info = build_exchange_records(
                 direction, valid, accum, elevation, info.geotransform, points,
                 snap_radius_cells=snap_radius, stream_mask=stream_mask, local=local,
                 stream_order=stream_order,
                 id_scheme="attribute" if id_field else "sequential",
-                id_prefix=prefix, id_order=order, soil=soil,
+                id_prefix=prefix, id_order=order, soil=soil, erosion=erosion,
                 progress=self.make_progress(feedback, weight=0.9))
         except ExchangeError as e:
             raise QgsProcessingException(str(e))
@@ -259,7 +308,10 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "dem_path": fdr_path, "raw_dem_path": raw_path,
             "dem_sha256": file_fingerprint(raw_path),
             "dem_source": self.parameterAsString(parameters, DEM_SOURCE, context) or "",
-            "conditioning": self.parameterAsString(parameters, CONDITIONING, context) or "not recorded",
+            "conditioning": "; ".join(x for x in (
+                self.parameterAsString(parameters, CONDITIONING, context) or "",
+                burn_summary) if x) or "not recorded",
+            "conditioning_burn": burn_summary,
             "flat_method": self.parameterAsString(parameters, FLAT_METHOD, context) or "not recorded",
             "tie_rule": "QEHT D8: steepest drop/distance; ties by lowest internal index",
             "stream_threshold_cells": f"{snap_threshold:g}",
@@ -274,6 +326,9 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "crossing_source": ("crossing candidates" if candidate_mode else "pour points"),
             "chainage_start_m": (f"{alignment.start_chainage:g}" if alignment is not None else ""),
             "parameters_json": {k: str(v) for k, v in parameters.items()},
+            "erosion_json": ({k: erosion_run.get(k) for k in (
+                "mode", "factors", "indices", "schemes", "mcdma_weights", "bulk_density_kgm3",
+                "sdr_model", "channel_threshold_cells")} if erosion_run else ""),
         })
         try:
             write_exchange(out_path, crossings, catchments, flowpaths, md,
@@ -285,6 +340,10 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         except ExchangeError as e:
             raise QgsProcessingException(str(e))
 
+        feedback.pushInfo(
+            f"QEHT {plugin_version()} \u00b7 flat method "
+            f"{self.parameterAsString(parameters, FLAT_METHOD, context) or 'not recorded'} "
+            f"\u00b7 10-85 reference outlet")
         errors, warnings = validate_exchange(out_path)
         for w in warnings:
             feedback.pushWarning(w)

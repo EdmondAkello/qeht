@@ -28,6 +28,8 @@ from .alg_crossing_candidates import CrossingCandidatesAlgorithm
 from .alg_burn_crossings import BurnCrossingsAlgorithm
 from .alg_renumber_relink import RenumberRelinkAlgorithm
 from .alg_soil_parameters import SoilParametersAlgorithm
+from .alg_erosion import ErosionIndicesAlgorithm
+from .alg_erosion_corridor import ErosionCorridorAlgorithm
 
 
 class QehtProvider(QgsProcessingProvider):
@@ -47,6 +49,8 @@ class QehtProvider(QgsProcessingProvider):
             BurnCrossingsAlgorithm(),
             RenumberRelinkAlgorithm(),
             SoilParametersAlgorithm(),
+            ErosionIndicesAlgorithm(),
+            ErosionCorridorAlgorithm(),
         ):
             self.addAlgorithm(alg)
 
