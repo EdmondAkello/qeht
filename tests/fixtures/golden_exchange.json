@@ -364,6 +364,7 @@
   "cell_size_m": "10 x 10",
   "chainage_start_m": "",
   "conditioning": "priority-flood fill, min_slope 0",
+  "conditioning_burn": "",
   "crossing_source": "",
   "crs_epsg": "32737",
   "crs_name": "WGS 84 / UTM zone 37S",

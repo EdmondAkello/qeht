@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.12.0
+**Version:** 0.14.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -56,6 +56,13 @@ qeht/
       catchment.py       per-catchment soil block
     geometry/
       rasterize.py       polygons -> grid, cell-centre rule
+    erosion/
+      terrain.py         A_s, SPI, ln SPI, TWI, LS (Moore & Burch, Desmet & Govers)
+      rusle.py           source-tagged R, K, C, P; WorldCover C/P lookups; LS-only fallback
+      classes.py         class schemes, severity scores, combination matrix, class rasters
+      summary.py         catchment and crossing erosion blocks, SDR, impact score
+      corridor.py        stations and reaches along an alignment
+      io.py              the erosion output folder and its run record
     network/
       alignment.py       linear referencing: chainage, signed offset, intersections
       crossings.py       road x drainage candidates, parallel reaches, clusters
@@ -65,16 +72,17 @@ qeht/
       heas_exchange.py   pipeline, writer, validator, CSV export
 
   processing_provider/   the only QGIS-aware code
-    provider.py          registers the thirteen algorithms
+    provider.py          registers the fifteen algorithms
     base.py              shared base class and helpers (pour points, IDs)
     alg_*.py             one file per algorithm
 
   tests/
     test_core.py         47 analytic checks, runnable without QGIS
-    test_interop.py      74 checks: outlet_uid, slopes, exchange, golden fixture
+    test_interop.py      77 checks: outlet_uid, slopes, exchange, golden fixture
     test_crossings.py    43 checks: alignment, candidates, clusters, burn, relink
-    test_soils.py        31 checks: USLE K, texture, HSG, SOTWIS loader, soil block
+    test_soils.py        33 checks: USLE K, texture, HSG, SOTWIS and CSV loaders, soil block
     test_flats.py        36 checks: v0.8.3 oracles, Barnes == RichDEM port, edge drains, DEM QA
+    test_erosion.py      44 checks: analytic plane/valley, A14 2025 anchors, RUSLE, classes, corridor
     fixtures/            golden_exchange.gpkg + .json (shared with HEAS)
     qgis_smoke.py        every Processing tool run inside QGIS
 ```
@@ -85,7 +93,7 @@ The dependency direction is strict and one-way: `processing_provider` imports `c
 
 ## 3. Processing algorithms
 
-QEHT registers thirteen algorithms under the "Engineering Hydrology" provider.
+QEHT registers fifteen algorithms under the "Engineering Hydrology" provider.
 
 | Algorithm | Commercial reference analogue |
 |---|---|
@@ -102,6 +110,8 @@ QEHT registers thirteen algorithms under the "Engineering Hydrology" provider.
 | Road crossing candidates | none — road × drainage crossings (Section 4.11) |
 | Burn crossings through embankments | DEM reconditioning at culverts (Section 4.12) |
 | Soil parameters for catchments | zonal soil statistics and USLE K (Section 4.13) |
+| Erosion indices and RUSLE soil loss | terrain indices, RUSLE and severity classes (Section 4.14) |
+| Sample erosion along alignment | none — erosion stations and reaches along a road (Section 4.14) |
 
 Each is a `QgsProcessingAlgorithm` registered through a `QgsProcessingProvider`. Exposing the tools this way — rather than as bespoke dialogs — means they gain input validation, batch mode, the Graphical Modeler, the history log, and `processing.run()` scriptability at no additional cost. Chaining tools in the Modeler is much of a commercial hydrology extension's practical value, and this design reproduces it.
 
@@ -224,6 +234,18 @@ At each crossing the breach runs perpendicular to the road between two points `h
 
 **Kenya check.** All 397 SOTWIS units give a K (median 0.029, range 0.009–0.051). Over the country's cells the median is 16–20 % above the ESDAC global K rasters with correlation 0.24–0.40; on six steep Rift-valley catchments, 0.026–0.038 against 0.027–0.028 (ESDAC Wischmeier-based). The two products are independent estimates at very different resolutions (1:1 M soil map vs 1 km model); report which one was used.
 
+### 4.14 Erosion indices, RUSLE and erosion along a road
+
+**Indices.** On the raw DEM (filling would zero the slope in depressions): Horn slope β; A_s = (upslope cells + 1)·cell area / cell size (D8 flow width = cell size); SPI = A_s·tan β; TWI = ln(A_s/tan β). tan β is floored at 0.001 inside the indices only; the slope raster is not floored. LS: Moore & Burch (1986) (A_s/22.13)^m·(sin β/0.0896)^1.3 with m = 0.4, or m by percent-slope class (0–1 % 0.2 … > 30 % 0.6, after Renard 1997 and McCool 1987, as in the A14 study); or Desmet & Govers (1996) per cell with McCool m and S. The A14 study used flow accumulation × cell size for A_s; QEHT adds the cell itself so headwater cells are not zero.
+
+**RUSLE.** A = R·K·LS·C·P (t/ha/yr; R in MJ·mm/(ha·h·yr), K in SI). Every factor is a `Factor` with a source and a proxy flag. C from WorldCover is the mean of the A14 study's class ranges (tree 0.001–0.05, shrub 0.01–0.05, grass 0.01–0.15, crop 0.1–0.4, built-up 0.05–0.2, bare 0.4–0.6; water and wetlands from Panagos 2015 / Linard 2014) and is labelled a land-cover proxy. If R, K or C is missing no soil loss is computed and the classes use LS percentiles ("terrain potential").
+
+**Classes.** A scheme is breaks, names and a severity score on a common 1–5 scale, so schemes with four and five classes combine. Shipped: SPI percentiles 50/75/90/97 (relative to the extent, D7) or fixed ln(SPI) 0/5/10 (A14); RUSLE 5/12/25/50 (D7) or 5/10/20/40 t/ha/yr (A14, after Watene et al. 2021); sediment volume 1,000/5,000/15,000 m³/yr. Combined = D7 matrix on the two scores (default: the higher). Class rasters are uint8, NoData 0, with a colour table, an attribute table (value, class, score) and a `.qml`.
+
+**Catchment and crossing blocks.** Gross soil loss = mean A × area; SDR = 0.565·A_km²^−0.125 (FAO, capped at 1); sediment volume = yield × 1000 / bulk density (soil block, else the tool value). At the crossing: ln(SPI) max in the 3×3 outlet window and p50/p90 on the approach channel (up to 10 D8 steps), and composite = 0.4·SPI + 0.3·RUSLE + 0.3·sediment score with levels ≤ 2.0 Low, ≤ 3.0 Moderate, ≤ 4.0 High, else Severe (Akello & Omosa 2025). The test suite reproduces the paper's Table 14 composite scores and levels for all 14 crossings.
+
+**Corridor.** Stations every Δs along the chainage; samples on perpendicular offsets to the half-width each side (nearest cell); per side max and mean of ln(SPI), LS, A and TWI; worst combined score in the buffer; reaches are runs of equal worst score with boundaries half-way between stations, so reach lengths sum to the sampled length.
+
 ---
 
 ## 5. Data handling and interoperability
@@ -242,6 +264,8 @@ At each crossing the breach runs perpendicular to the road between two points `h
 - **Values.** Missing values are NULL, never 0. `acc_at_outlet_km2` is read from the accumulation raster ((accumulation + 1) × cell area) and equals `area_km2` for full catchments — a built-in QA check.
 - **Renumber and relink (5.2).** After crossings are deleted, moved or added in a package, "Renumber and relink exchange package" writes a new package: unmoved crossings keep their outlet cell, moved/added ones are snapped; crossings are ordered by chainage (recomputed from the road for moved/added points) or downstream-first; IDs are re-issued gaplessly with the package's prefix; catchments and flow paths are recomputed; `renumber_log` lists old → new (`unchanged`, `renumbered`, `new`, `deleted`, and `moved_m`). IDs are only re-issued when this tool is run.
 - **Evolution.** New fields may be added under `qeht-heas-1`; renaming or removing a field requires `qeht-heas-2`. The validator (also used by the tool after writing) rejects unknown major versions and checks that every catchment and flow path refers to an existing crossing.
+- **Erosion block (v0.14).** With an erosion folder, catchments carry `ero_*` soil loss, LS, ln(SPI), K/C/P, class shares, SDR and sediment fields and crossings carry `ero_*` ln(SPI), local terrain, class and impact fields; `erosion_json` in the metadata records the mode, factor sources and proxy flags, schemes, weights and SDR model. Additive under `qeht-heas-1`.
+- **Burn log (v0.14).** Give the breach log from "Burn crossings through embankments" and the package stores it as layer `burn_log`; `conditioning` appends a summary (breaches cut, volume) to the user-declared text and `conditioning_burn` holds it on its own.
 - **Road layers.** When built from a candidate layer, the package also holds `crossing_candidates` (every candidate, the audit trail) and, when a road is given, `road_alignment`. The crossings keep each candidate's outlet cell (no snapping), carry `chainage_m`, and are numbered along the chainage. Metadata records `crossing_source` and `chainage_start_m`.
 - **Implementation.** The file is written with the Python standard library (`sqlite3`, `struct`), so it is identical on every platform and testable without GDAL; the test suite validates it with GDAL's GeoPackage validator. `tests/fixtures/golden_exchange.gpkg` (synthetic DEM, three crossings: two nested on one valley, one on a tributary) is the shared contract fixture: QEHT asserts it reproduces the same attributes, HEAS asserts it imports with no field mapping.
 
@@ -323,7 +347,7 @@ The recommended sequencing is to establish the public GitHub repository now — 
 
 ## 10. Citation
 
-See `CITATION.cff`. In brief: QEHT: QGIS Engineering Hydrology Toolkit, v0.12.0, GPL-2.0-or-later.
+See `CITATION.cff`. In brief: QEHT: QGIS Engineering Hydrology Toolkit, v0.14.0, GPL-2.0-or-later.
 
 ## 11. Licence
 

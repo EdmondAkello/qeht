@@ -259,6 +259,17 @@ def main(in_qgis=False):
     check("burn crossings: burned DEM + one breach per recommended crossing",
           os.path.exists(r["OUTPUT"]) and bl.featureCount() == len(rec),
           f"{bl.featureCount()} breaches")
+    r = processing.run("qeht:buildheasexchange", {
+        "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "POINTS": out("cand.gpkg"),
+        "BURN_LOG": out("breach.gpkg"), "CONDITIONING": "fill, min_slope 0",
+        "OUTPUT": out("burn_exchange.gpkg")})
+    md = {row["key"]: row["value"] for row in gpkg.read_table(r["OUTPUT"], "qeht_run_metadata")}
+    errors, _ = validate_exchange(r["OUTPUT"])
+    bt = gpkg.read_table(r["OUTPUT"], "burn_log", with_geometry=False)
+    check("exchange records the breach log: burn_log layer + conditioning metadata",
+          not errors and len(bt) == bl.featureCount() and "burn crossings:" in md["conditioning"]
+          and md["conditioning"].startswith("fill, min_slope 0") and md["conditioning_burn"],
+          md["conditioning"])
 
     # edit the package: delete the first crossing, add one on a stream elsewhere
     edited = out("edited.gpkg"); shutil.copy(xp2, edited)
@@ -312,6 +323,27 @@ def main(in_qgis=False):
                                and abs(f["soil_coverage_pct"] - 100) < 1e-6 for f in fl)
           and os.path.exists(r["K_RASTER"]) and "outlet_uid" in sl.fields().names(),
           ", ".join(f"{f['outlet_uid']} K={f['usle_k']:.4f} {f['soil_texture']}" for f in fl))
+    # same soil as polygons with only a unit code + a CSV table (v0.14)
+    soil2 = QgsVectorLayer(f"Polygon?crs={QgsRasterLayer(dem).crs().authid()}"
+                           "&field=SU:string", "soil2", "memory")
+    sf2 = []
+    for (x0, x1), code in (((xa, xmid), "A1"), ((xmid, xb), "B2")):
+        f = QgsFeature(soil2.fields())
+        f.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(x0, ya), QgsPointXY(x1, ya),
+                                                  QgsPointXY(x1, yb), QgsPointXY(x0, yb)]]))
+        f.setAttributes([code]); sf2.append(f)
+    soil2.dataProvider().addFeatures(sf2)
+    QgsVectorFileWriter.writeAsVectorFormatV3(soil2, out("soil_units.gpkg"),
+                                              QgsCoordinateTransformContext(), opts)
+    with open(out("soil_table.csv"), "w", encoding="utf-8") as fh:
+        fh.write("SU,sand,silt,clay,oc,drain\nA1,35,30,35,1.8,W\nB2,60,20,20,0.9,M\n")
+    r2 = processing.run("qeht:soilparameters", {
+        "CATCHMENTS": out("ch_c.gpkg"), "REF": out("fdr.tif"), "SOIL_POLYGONS": out("soil_units.gpkg"),
+        "SOIL_CSV": out("soil_table.csv"), "SOIL_UNIT_FIELD": "SU", "OUTPUT": out("ch_soil_csv.gpkg")})
+    k1 = sorted(round(f["usle_k"], 6) for f in fl)
+    k2 = sorted(round(f["usle_k"], 6) for f in QgsVectorLayer(r2["OUTPUT"], "s2", "ogr").getFeatures())
+    check("soil parameters from unit polygons + CSV table = same K as attribute polygons",
+          k1 == k2, f"{k1} vs {k2}")
     r = processing.run("qeht:buildheasexchange", {
         "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "POINTS": ptsfile,
         "ID_FIELD": "culvert", "SNAP": 5, "SNAP_THRESHOLD": 200,

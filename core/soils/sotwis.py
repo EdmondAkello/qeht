@@ -31,6 +31,7 @@ No QGIS imports, no GDAL.
 """
 
 import math
+import os
 import sqlite3
 
 from .usle_k import williams_k, dg_k, cfrg, usda_texture, hsg_proxy
@@ -189,3 +190,48 @@ def load_attributes(records, unit_field="id", sand="sand", silt="silt", clay="cl
         units[uid] = _combine(uid, [(100.0, _component_record(props), None, None)])
     return units, {"soil_dataset": label, "soil_depth_cm": "as supplied",
                    "n_units": len(units)}
+
+
+def load_csv_units(path, unit_field):
+    """Soil properties per unit from a CSV table (v0.14), for polygons that carry
+    only a unit code. Columns (case-insensitive): the unit field, sand, silt,
+    clay, oc (percent), optional bulk, cfrag, drain.
+
+    Returns load_attributes(...) output keyed by the unit code as TEXT, so a
+    polygon attribute 12 and a CSV value "12" match.
+    """
+    import csv
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        sample = f.read(4096)
+        f.seek(0)
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
+        except csv.Error:
+            dialect = csv.excel
+        rows = list(csv.DictReader(f, dialect=dialect))
+    if not rows:
+        raise ValueError(f"{path}: no rows")
+    lower = {k.strip().lower(): k for k in rows[0].keys() if k}
+    need = [unit_field.lower(), "sand", "silt", "clay", "oc"]
+    missing = [n for n in need if n not in lower]
+    if missing:
+        raise ValueError(f"{path}: missing column(s) {', '.join(missing)} "
+                         "(need the unit field, sand, silt, clay, oc in percent)")
+    recs, seen = [], set()
+    for r in rows:
+        key = str(r[lower[unit_field.lower()]]).strip()
+        if not key:
+            continue
+        if key in seen:
+            raise ValueError(f"{path}: unit '{key}' appears more than once")
+        seen.add(key)
+        rec = {"id": key}
+        for name in ("sand", "silt", "clay", "oc", "bulk", "cfrag", "drain"):
+            if name in lower:
+                rec[name] = r[lower[name]]
+        recs.append(rec)
+    return load_attributes(recs, sand="sand", silt="silt", clay="clay", oc_pct="oc",
+                           bulk="bulk" if "bulk" in lower else None,
+                           cfrag="cfrag" if "cfrag" in lower else None,
+                           drain="drain" if "drain" in lower else None,
+                           label=f"soil table {os.path.basename(path)} (joined on {unit_field})")
