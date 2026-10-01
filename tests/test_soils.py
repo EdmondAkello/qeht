@@ -131,6 +131,35 @@ def test_sotwis_loader():
     check("generic attribute loader", math.isclose(g[7].k_si, k1))
 
 
+def test_csv_loader():
+    print("\n3b. Soil table CSV joined on a unit code (v0.14)")
+    import tempfile as _tf
+    from ..core.soils.sotwis import load_csv_units, load_attributes
+    d = _tf.mkdtemp()
+    p = os.path.join(d, "soils.csv")
+    with open(p, "w", encoding="utf-8") as f:
+        f.write("Unit;Sand;Silt;Clay;OC;bulk\n12;40;30;30;1.5;1.3\nKE7;70;15;15;0.6;1.5\n")
+    units, info = load_csv_units(p, "unit")
+    ref, _ = load_attributes([{"id": "12", "sand": 40, "silt": 30, "clay": 30, "oc": 1.5,
+                               "bulk": 1.3}], bulk="bulk")
+    check("CSV (semicolon, any header case) keyed by unit code as text, same K as attributes",
+          set(units) == {"12", "KE7"} and abs(units["12"].k_si - ref["12"].k_si) < 1e-12
+          and "soils.csv" in info["soil_dataset"])
+    with open(p, "w", encoding="utf-8") as f:
+        f.write("unit,sand,silt,clay,oc\n1,40,30,30,1\n1,50,25,25,1\n")
+    try:
+        load_csv_units(p, "unit"); dup = False
+    except ValueError as e:
+        dup = "more than once" in str(e)
+    with open(p, "w", encoding="utf-8") as f:
+        f.write("unit,sand,silt,clay\n1,40,30,30\n")
+    try:
+        load_csv_units(p, "unit"); miss = False
+    except ValueError as e:
+        miss = "oc" in str(e)
+    check("duplicate units and missing columns are refused with a message", dup and miss)
+
+
 def test_catchment_block():
     print("\n4. Rasterised soil map -> catchment block (exact weights, coverage)")
     gt = (0.0, 10.0, 0.0, 100.0, 0.0, -10.0)          # 10 x 30 cells of 10 m
@@ -201,6 +230,7 @@ def main(argv=None):
     test_williams()
     test_texture_hsg()
     test_sotwis_loader()
+    test_csv_loader()
     test_catchment_block()
     test_pipeline_soil()
     print("\n" + "=" * 62)

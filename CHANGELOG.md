@@ -10,8 +10,16 @@ development history of the numerical core and Processing tools.
 
 ### Added
 - `lfp_z_head_m`, `lfp_z_outlet_m`, `lfp_nonmonotonic` on flow paths: `lfp_drop_m` is highest − lowest raw-DEM elevation on the path; the flag marks a spike or pit (> 0.5 m) that makes it exceed headwater − outlet (additive; schema still `qeht-heas-1`).
-- Erosion (WP-F): erosion indices, RUSLE, severity classes, corridor sampler and the HEAS erosion block (full notes with the 0.14.0 release).
-- Tests: test_interop 77 (+3), test_erosion 44.
+- **Erosion indices and RUSLE soil loss** (Soils and erosion group): slope, A_s, SPI, ln(SPI), TWI and LS (Moore & Burch with m = 0.4 or m by slope class; Desmet & Govers); RUSLE A = R·K·LS·C·P with each factor from a raster, a value or a dataset (K from SOTWIS; C from ESA WorldCover 2021 through an editable lookup, flagged as a proxy), resampled in-process to the DEM grid; LS-only "terrain potential" when R, K or C is missing. Severity classes (D7 and the A14 2025 schemes, or custom breaks; 5 × 5 combination matrix) as uint8 rasters with colour table, attribute table and `.qml`; `class_extents.csv`; `erosion_run.json`.
+- **Sample erosion along alignment**: stations every 10 m with left/right statistics, reaches by worst class, optional chainage chart.
+- **Erosion block in the HEAS exchange package** (optional erosion folder): per-catchment soil loss, LS, ln(SPI), K/C/P, class shares, gross loss, SDR (0.565·A^−0.125) and sediment volume; per-crossing ln(SPI), local terrain and the hydrodynamic impact score 0.4·SPI + 0.3·RUSLE + 0.3·sediment (Akello & Omosa 2025). Additive (`ero_*` fields, `erosion_json` metadata); schema still `qeht-heas-1`.
+- `core/erosion/` (terrain, rusle, classes, summary, corridor, io); `core.raster.warp_to_grid`.
+- **Breach log in the exchange package**: Build HEAS exchange package takes the log from Burn crossings; stored as layer `burn_log`, summarised in `conditioning` and the new metadata key `conditioning_burn`.
+- **Soil table loader**: soil polygons with only a unit code plus a CSV of sand, silt, clay, oc [bulk, cfrag, drain], joined on the unit field (`core.soils.sotwis.load_csv_units`), on every tool with soil inputs.
+- Tests: test_interop 77 (+3), test_soils 33 (+2), test_erosion 44 (analytic plane and valley; the A14 paper's Tables 4–9 and the 14 composite scores of Table 14), smoke test 37.
+
+### Notes
+- The WorldCover → C lookup is a draft for review; edit `core/erosion/rusle.WORLDCOVER_C` or supply a C raster.
 
 ## [0.13.1] — unreleased (real-road review follow-ups)
 Found on Site C, a road project (old-tool outputs vs 0.13; report kept outside the repo).

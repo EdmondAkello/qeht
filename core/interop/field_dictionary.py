@@ -249,6 +249,7 @@ METADATA_KEYS = [
     ("relinked_from", "package this one was renumbered/relinked from (D3)"),
     ("soil_dataset", "soil dataset used for the soil block (empty = none)"),
     ("soil_depth_cm", "topsoil depth interval of the soil block"),
+    ("conditioning_burn", "summary of the breach log when one was supplied (layer burn_log)"),
     ("erosion_json", "erosion inputs: mode, factor provenance (source, proxy flags), LS method, "
      "class schemes, MCDMA weights, SDR model (empty = no erosion block)"),
     ("n_crossings", "number of crossings written"),

@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.12.0
+# QEHT — QGIS Engineering Hydrology Toolkit v0.14.0
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -45,10 +45,11 @@ which are C++ libraries already loaded inside the QGIS process. There is no
 The core is importable without QGIS. That is what makes the hydrology testable:
 
     python -m qeht.tests.test_core        # 47 analytic checks
-    python -m qeht.tests.test_interop     # 74 checks incl. the golden fixture
+    python -m qeht.tests.test_interop     # 77 checks incl. the golden fixture
     python -m qeht.tests.test_crossings   # 43 checks: road crossings, burn, relink
-    python -m qeht.tests.test_soils       # 31 checks: soils and USLE K
+    python -m qeht.tests.test_soils       # 33 checks: soils, USLE K, CSV soil table
     python -m qeht.tests.test_flats       # 36 checks: oracles, Barnes == RichDEM, edge drains, DEM QA
+    python -m qeht.tests.test_erosion     # 44 checks: erosion indices, RUSLE, classes, A14 anchors
 
 Run these after any change to the core, and before trusting any output on a
 real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
@@ -70,6 +71,8 @@ real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
 | Road crossing candidates | — (road × drainage crossings with chainage, clustering) |
 | Burn crossings through embankments | a DEM-reconditioning "burn culverts" step |
 | Soil parameters for catchments | zonal soil statistics + USLE K |
+| Erosion indices and RUSLE soil loss | SPI, TWI, LS, RUSLE and severity classes |
+| Sample erosion along alignment | — (erosion stations and reaches along a road) |
 
 For Pairwise Intersect, use the built-in `native:intersection` — it is C++ and
 never spawns anything. There is no reason to wrap it.
@@ -235,6 +238,10 @@ share of the catchment covered by soil data.
   SOTWIS missing values (−1) are left out and the shares renormalised.
 - **Other soil maps.** Polygons carrying SOTWIS fields (dominant soil only) or
   plain `sand`, `silt`, `clay`, `oc` (%) [+ `bulk`, `cfrag`, `drain`].
+- **Polygons + a soil table (v0.14).** Polygons that carry only a unit code,
+  plus a CSV (comma, semicolon or tab) with the unit code and `sand`, `silt`,
+  `clay`, `oc` (%) [+ `bulk`, `cfrag`, `drain`]; give the unit field name.
+  Duplicate units or missing columns stop the run.
 - The Williams f_csand coefficient is 0.0256; the SWAT 2009 theory PDF prints
   0.256, which pins f_csand at 0.2 for sandy soils.
 - The soil map is rasterised on the DEM grid by cell centre (identical to
@@ -245,6 +252,49 @@ share of the catchment covered by soil data.
   the ESDAC global K rasters over the same cells (correlation 0.24–0.40); on
   six steep Rift-valley test catchments it was 0.026–0.038 against 0.027–0.028
   (ESDAC Wischmeier-based K). Treat K as an estimate with that spread.
+
+## Erosion (v0.14)
+
+**Erosion indices and RUSLE soil loss** writes one folder with the terrain
+indices, an optional RUSLE soil-loss raster, severity class rasters (with
+colours, class names and a QGIS style) and `erosion_run.json`, which records
+every factor's source and every setting.
+
+- **Indices.** Slope by Horn on the raw DEM; specific catchment area
+  A_s = (upslope cells + 1) × cell area / cell size; SPI = A_s·tan β;
+  ln(SPI); TWI = ln(A_s / tan β); LS by Moore & Burch (m = 0.4, or m by slope
+  class as in the A14 study) or Desmet & Govers with McCool m and S. tan β is
+  floored at 0.001 inside the indices only.
+- **RUSLE** A = R·K·LS·C·P (t/ha/yr). Each factor is a raster, a single value
+  or a dataset: R from a raster (GloREDa 2023 annual erosivity recommended);
+  K from SOTWIS (Williams/EPIC, 0–20 cm) by default; C from ESA WorldCover 2021
+  through an editable class lookup, **flagged as a land-cover proxy**; P = 1.0
+  unless a raster, value or the WorldCover P lookup is given. Rasters on other
+  grids are resampled in-process onto the DEM grid. **If R, K or C is missing,
+  no soil loss is computed**: QEHT never invents a factor and falls back to
+  LS-only classes labelled "terrain potential".
+- **Classes.** SPI by percentiles of the extent (relative) or fixed ln(SPI)
+  0 / 5 / 10; RUSLE by 5 / 12 / 25 / 50 or 5 / 10 / 20 / 40 t/ha/yr, or your own
+  breaks; the combined class is the higher of the two severity scores unless
+  you give a 5 × 5 matrix. `class_extents.csv` gives area per class, split into
+  channel and hillslope cells.
+
+**Sample erosion along alignment** reads that folder and a road centreline
+(a rough digitised line is fine; chainage is provisional until the geometric
+design exists). Stations every 10 m carry max and mean ln(SPI), LS, soil loss
+and TWI on each side within a buffer; consecutive stations with the same worst
+class form reaches whose lengths add up to the road length. Optional chainage
+profile chart.
+
+**Build HEAS exchange package** takes the folder as an optional input and adds
+an erosion block: per catchment the mean and p90 soil loss and LS, channel
+ln(SPI) p90, area-weighted K, C and P, class shares, gross soil loss, sediment
+delivery ratio (SDR = 0.565·A^−0.125) and sediment volume; per crossing the
+ln(SPI) at and above the outlet, local slope, LS and TWI, and the hydrodynamic
+impact score 0.4·SPI + 0.3·RUSLE + 0.3·sediment (Low / Moderate / High /
+Severe) with an indicative mitigation. The scheme, weights and C lookup follow
+the published A14 corridor study (Akello & Omosa 2025), whose tables are the
+test anchors.
 
 ## Flats and performance (v0.12)
 
@@ -302,7 +352,7 @@ Stated explicitly because a drainage report needs them stated:
 
 ## Validation
 
-**Level 1 — synthetic analytic DEMs.** 47 checks, `tests/test_core.py`, plus 74 interop checks in `tests/test_interop.py`, 43 road-crossing checks in `tests/test_crossings.py` 31 soil checks in `tests/test_soils.py` and 36 checks in `tests/test_flats.py` (vectorised core vs the v0.8.3 reference; Barnes vs a port of RichDEM; edge drainage; resampling audit and flat-method sensitivity). PASS. `tests/qgis_smoke.py` (30 checks) runs every tool inside QGIS.
+**Level 1 — synthetic analytic DEMs.** 47 checks, `tests/test_core.py`, plus 77 interop checks in `tests/test_interop.py`, 43 road-crossing checks in `tests/test_crossings.py` 33 soil checks in `tests/test_soils.py` and 36 checks in `tests/test_flats.py` (vectorised core vs the v0.8.3 reference; Barnes vs a port of RichDEM; edge drainage; resampling audit and flat-method sensitivity) and 44 erosion checks in `tests/test_erosion.py` (analytic plane and valley, the A14 2025 paper's tables). PASS. `tests/qgis_smoke.py` (37 checks) runs every tool inside QGIS.
 
 **Level 3 — reference hydrology toolset production output, Site A.** 718 x 775
 cells @ 30.92 m, EPSG:21037, 16 road-crossing pour points with reference
