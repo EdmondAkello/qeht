@@ -15,9 +15,14 @@ Two definitions are in common use and they are NOT interchangeable:
     standard slope algorithm used by most GIS raster toolsets). Runoff coefficient and
     curve number tables generally assume this one.
 
-  * **Relief ratio** - (highest elevation - lowest elevation) divided by
-    the longest flow path length. This is the "catchment slope" of most
-    road drainage manuals and is the term that goes into Kirpich.
+  * **Relief ratio** - (highest catchment elevation - lowest catchment
+    elevation) divided by the longest flow path length. A basin-steepness
+    index (morphometry, erosion indices). QEHT divides by LFP length; this
+    is a variant of Schumm's (1956) relief ratio, which divides by basin
+    length (the longest straight dimension parallel to the main drainage
+    line). It is NOT a time-of-concentration input: Kirpich,
+    Bransby-Williams and TRRL use the flow-path slope (lfp_slope or
+    lfp_slope_1085, see below).
 
 Both are returned, under distinct names. Do not substitute one for the
 other in a design calculation without saying which you used.
@@ -31,6 +36,13 @@ definition), so it excludes the bottom 10% (flat outlet reach) and the
 top 15% (steep headwater):
 
     S_10-85 = (z85 - z10) / (L85 - L10),  L10 = 0.10 L,  L85 = 0.85 L
+
+lfp_drop_m is the highest minus the lowest raw-DEM elevation on the path.
+On a monotonic path that equals headwater - outlet; lfp_z_head_m and
+lfp_z_outlet_m (first and last path cell) are exported as well, and
+lfp_nonmonotonic = 1 when the drop exceeds (head - outlet) by more than
+NONMONOTONIC_TOL_M (a spike or pit on the path: bridge deck, embankment,
+DEM artefact), in which case lfp_slope is slightly overstated.
 
 Elevations are interpolated linearly along the path at exactly those
 distances. QEHT <= 0.8.3 measured the percentages from the divide instead
@@ -167,6 +179,9 @@ def path_slope_10_85_v083(cells, elevation, cell_width, cell_height):
     return (float(elevation[cells[lo_idx]]) - float(elevation[cells[hi_idx]])) / span
 
 
+NONMONOTONIC_TOL_M = 0.5
+
+
 def catchment_characteristics(mask, elevation, valid, cell_width, cell_height,
                               flow_path=None, slope_raster=None):
     """Morphometry for one catchment.
@@ -221,6 +236,9 @@ def catchment_characteristics(mask, elevation, valid, cell_width, cell_height,
         length = float(flow_path.get("length", 0.0))
         z_path = np.array([elevation[rc] for rc in cells], dtype=np.float64)
         z_path = z_path[np.isfinite(z_path)]
+        # cells run divide -> outlet
+        z_head = float(z_path[0]) if z_path.size else float("nan")
+        z_outlet = float(z_path[-1]) if z_path.size else float("nan")
 
         lfp_max = float(z_path.max()) if z_path.size else float("nan")
         lfp_min = float(z_path.min()) if z_path.size else float("nan")
@@ -235,6 +253,10 @@ def catchment_characteristics(mask, elevation, valid, cell_width, cell_height,
             "lfp_elev_max_m": lfp_max,
             "lfp_elev_min_m": lfp_min,
             "lfp_drop_m": lfp_drop,
+            "lfp_z_head_m": z_head,
+            "lfp_z_outlet_m": z_outlet,
+            "lfp_nonmonotonic": int(np.isfinite(z_head) and np.isfinite(z_outlet)
+                                    and lfp_drop - (z_head - z_outlet) > NONMONOTONIC_TOL_M),
             "lfp_slope": lfp_drop / length if length > 0 else float("nan"),
             "lfp_slope_1085": s1085["slope"],
             "lfp_L10_m": s1085["L10_m"],
@@ -283,5 +305,8 @@ FLOWPATH_FIELDS = [
     ("lfp_L85_m", "float"),
     ("lfp_z10_m", "float"),
     ("lfp_z85_m", "float"),
+    ("lfp_z_head_m", "float"),
+    ("lfp_z_outlet_m", "float"),
+    ("lfp_nonmonotonic", "int"),
     ("area_km2", "float"),
 ]

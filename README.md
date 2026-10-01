@@ -96,7 +96,7 @@ so never join on it.
 | `elev_max_m` / `elev_min_m` | highest and lowest ground in the catchment |
 | `relief_m` | elev_max - elev_min |
 | `catch_slope_horn` | mean terrain gradient, Horn 3x3 (a standard slope algorithm) |
-| `catch_relief_ratio` | relief / longest flow path length |
+| `catch_relief_ratio` | relief / longest flow path length (variant of Schumm's relief ratio, which uses basin length) |
 | `lfp_length_km` | longest flow path length |
 | `slope_mean`, `slope_relief_ratio` | v0.8 names of the two slopes above, kept as aliases for this release |
 
@@ -132,8 +132,21 @@ by a factor of 1.2 to 4.5:
 | 24055 | 0.1762 | 0.0689 | 2.6x |
 
 Runoff coefficient and curve number tables generally assume the mean terrain
-gradient. Kirpich and most road drainage manuals want the relief ratio. Picking
-the wrong one changes a design discharge substantially. **State which you used.**
+gradient. Time-of-concentration formulas (Kirpich, Bransby-Williams, TRRL) take
+the slope along the longest flow path, `lfp_slope` or `lfp_slope_1085`, not
+either catchment slope. The relief ratio is a basin-steepness index. Picking the
+wrong slope changes a design discharge substantially. **State which you used.**
+
+> **Re-running a design dataset.** Two changes since 0.8.3 can move design
+> inputs: the 10–85 slope is measured from the outlet since 0.9.0 (values a
+> median 6 % lower on steep 30 m terrain), and Barnes is the default flat method
+> since 0.13.0 (flow paths and catchments can move on flat terrain). To re-run:
+> 1. re-run Longest flow path and Catchment characteristics;
+> 2. compare old and new `lfp_slope_1085` (`path_slope_10_85_v083()` gives the
+>    old value for the same path);
+> 3. check the outlets flagged `flat_sensitive`;
+> 4. record the QEHT version and flat method in the design report (both are
+>    printed in the tool log and stored in `qeht_run_metadata`).
 
 `lfp_slope_1085` = (z85 − z10) / (L85 − L10), where L10 and L85 are 10% and
 85% of the path length **measured from the outlet upstream**. It excludes the

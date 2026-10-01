@@ -92,7 +92,8 @@ CATCHMENTS = [
     ("relief_m", "real", "m", "elev_max_m - elev_min_m", "raw DEM", "provenance"),
     ("catch_slope_horn", "real", "m/m", "mean terrain slope over the catchment",
      "Horn 3x3 on the raw DEM, cell mean", "catchment_slope"),
-    ("catch_relief_ratio", "real", "m/m", "relief ratio", "relief_m / LFP length",
+    ("catch_relief_ratio", "real", "m/m", "relief ratio (basin-steepness index)",
+     "relief_m / LFP length (Schumm variant: LFP length, not basin length); not a Tc input",
      "catchment relief ratio"),
     ("lfp_length_km", "real", "km", "longest flow path length (planimetric)",
      "diagonal-weighted D8 path", "flow_path_km"),
@@ -182,7 +183,9 @@ FLOWPATHS = [
      "provenance"),
     ("lfp_elev_min_m", "real", "m", "lowest elevation on the path", "raw DEM",
      "provenance"),
-    ("lfp_drop_m", "real", "m", "lfp_elev_max_m - lfp_elev_min_m", "", "provenance"),
+    ("lfp_drop_m", "real", "m", "lfp_elev_max_m - lfp_elev_min_m",
+     "highest - lowest raw-DEM elevation on the path; equals headwater - outlet on a "
+     "monotonic path (see lfp_nonmonotonic)", "provenance"),
     ("lfp_slope", "real", "m/m", "whole-path slope", "lfp_drop_m / lfp_length_m",
      "flow_path_slope"),
     ("lfp_slope_1085", "real", "m/m", "10-85 slope along the LFP",
@@ -197,6 +200,12 @@ FLOWPATHS = [
      "hand check"),
     ("lfp_z85_m", "real", "m", "elevation at the 85% point", "raw DEM, interpolated",
      "hand check"),
+    ("lfp_z_head_m", "real", "m", "raw-DEM elevation of the first (headwater) path cell", "",
+     "hand check"),
+    ("lfp_z_outlet_m", "real", "m", "raw-DEM elevation of the last (outlet) path cell", "",
+     "hand check"),
+    ("lfp_nonmonotonic", "int", "0/1", "1 when lfp_drop_m exceeds lfp_z_head_m - lfp_z_outlet_m "
+     "by more than 0.5 m (spike or pit on the path; lfp_slope slightly overstated)", "", "QA"),
     ("area_km2", "real", "km2", "area of the catchment this path belongs to", "",
      "provenance"),
 ] + _LINK
