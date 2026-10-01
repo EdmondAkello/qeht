@@ -3,6 +3,16 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.14.0] — unreleased (WP-F erosion; slope review)
+### Changed
+- Documentation: the relief ratio is described as a basin-steepness index (QEHT divides by LFP length, a variant of Schumm's basin-length ratio) and no longer as the Kirpich slope. Kirpich, Bransby-Williams and TRRL use the flow-path slope (`lfp_slope` / `lfp_slope_1085`). Statistics docstring, README, tool help, DOCUMENTATION.md and field dictionary aligned. No values change.
+- Build HEAS exchange package and Catchment characteristics print one run line: QEHT version · flat method · 10–85 reference. README gains a "Re-running a design dataset" box.
+
+### Added
+- `lfp_z_head_m`, `lfp_z_outlet_m`, `lfp_nonmonotonic` on flow paths: `lfp_drop_m` is highest − lowest raw-DEM elevation on the path; the flag marks a spike or pit (> 0.5 m) that makes it exceed headwater − outlet (additive; schema still `qeht-heas-1`).
+- Erosion (WP-F): erosion indices, RUSLE, severity classes, corridor sampler and the HEAS erosion block (full notes with the 0.14.0 release).
+- Tests: test_interop 77 (+3), test_erosion 44.
+
 ## [0.13.1] — unreleased (real-road review follow-ups)
 Found on Site C, a road project (old-tool outputs vs 0.13; report kept outside the repo).
 ### Added

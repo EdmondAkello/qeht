@@ -47,7 +47,9 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
             "by Horn's 3x3 method - a standard slope algorithm used by most "
             "GIS raster toolsets - and is what runoff coefficient and curve number tables "
             "assume. <i>catch_relief_ratio</i> is relief divided by longest "
-            "flow path length (the relief ratio). They are not interchangeable; "
+            "flow path length (the relief ratio), a basin-steepness index; Tc "
+            "formulas use the flow-path slope (lfp_slope / lfp_slope_1085) from "
+            "Longest flow path. They are not interchangeable; "
             "state which you used. The v0.8 names slope_mean and "
             "slope_relief_ratio are still written as aliases for this release.\n\n"
             "<b>outlet_uid</b> is the stable identifier shared by a catchment and "
@@ -223,5 +225,9 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
                 f"Shorn={ch['catch_slope_horn']:.5f}  RR={ch.get('catch_relief_ratio',float('nan')):.5f}  "
                 f"L={ch.get('lfp_length_km',float('nan')):.3f} km  "
                 f"S1085={ch.get('lfp_slope_1085',float('nan')):.5f}")
+        from ..core.interop.heas_exchange import plugin_version
         feedback.pushInfo(f"Wrote {len(catchments)} catchments and {len(flowpaths)} flow paths.")
+        feedback.pushInfo(f"QEHT {plugin_version()} \u00b7 flat method: as used for the flow "
+                          "direction raster (see the D8 flow direction log; default Barnes "
+                          "since 0.13) \u00b7 10-85 reference outlet")
         return {CATCH_OUT:catch_out, PATH_OUT:path_out}

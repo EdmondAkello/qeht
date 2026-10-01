@@ -74,7 +74,8 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "non-overlapping areas, computed upstream-first so the result does "
             "not depend on the order of the pour-point layer.\n\n"
             "<b>Slopes (four domains, never merged):</b> catch_slope_horn (Horn "
-            "mean), catch_relief_ratio (relief / LFP length), lfp_slope (drop / "
+            "mean), catch_relief_ratio (relief / LFP length; a basin-steepness index, not a Tc "
+            "input), lfp_slope (drop / "
             "length) and lfp_slope_1085 (10-85 along the LFP, measured from the "
             "OUTLET; lfp_L10_m, lfp_L85_m, lfp_z10_m, lfp_z85_m let you check it "
             "by hand).\n\n"
@@ -301,6 +302,10 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         except ExchangeError as e:
             raise QgsProcessingException(str(e))
 
+        feedback.pushInfo(
+            f"QEHT {plugin_version()} \u00b7 flat method "
+            f"{self.parameterAsString(parameters, FLAT_METHOD, context) or 'not recorded'} "
+            f"\u00b7 10-85 reference outlet")
         errors, warnings = validate_exchange(out_path)
         for w in warnings:
             feedback.pushWarning(w)
