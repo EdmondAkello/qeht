@@ -164,6 +164,35 @@ CATCHMENTS = [
     ("usle_k_source", "text", "-", "source of usle_k", "direct K input, or Williams/EPIC "
      "from the soil dataset", "provenance"),
 ] + [
+    # curve number and Rational C (v0.15, F1) - empty without a land-cover raster
+    ("cn_ii", "real", "-", "area-weighted curve number, AMC II",
+     "per cell: land cover x hydrologic soil group lookup (default TR-55 Table 2-2 matched to "
+     "WorldCover - a PROXY; see cn_lookup_id and run metadata runoff_json)", "CN"),
+    ("cn_amc", "text", "-", "antecedent moisture condition of cn_export (I, II, III)", "",
+     "provenance"),
+    ("cn_export", "real", "-", "curve number at cn_amc",
+     "cn_ii converted: CN_III = 23 CN/(10 + 0.13 CN), CN_I = 4.2 CN/(10 - 0.058 CN) "
+     "(Chow et al. 1988)", "CN"),
+    ("cn_coverage_pct", "real", "%", "share of the catchment with a CN (known cover and HSG)",
+     "", "QA"),
+    ("rational_c", "real", "-", "area-weighted Rational runoff coefficient",
+     "user lookup only (no default values ship)", "runoff coefficient"),
+    ("rc_coverage_pct", "real", "%", "share of the catchment with a Rational C", "", "QA"),
+    ("lc_pct_tree", "real", "%", "tree cover share", "WorldCover 10", "land cover"),
+    ("lc_pct_shrub", "real", "%", "shrubland share", "WorldCover 20", "land cover"),
+    ("lc_pct_grass", "real", "%", "grassland share", "WorldCover 30", "land cover"),
+    ("lc_pct_crop", "real", "%", "cropland share", "WorldCover 40", "land cover"),
+    ("lc_pct_built", "real", "%", "built-up share", "WorldCover 50", "land cover"),
+    ("lc_pct_bare", "real", "%", "bare / sparse vegetation share", "WorldCover 60", "land cover"),
+    ("lc_pct_water", "real", "%", "permanent water share", "WorldCover 80", "land cover"),
+    ("lc_pct_wetland", "real", "%", "herbaceous wetland and mangrove share", "WorldCover 90, 95",
+     "land cover"),
+    ("lc_pct_other", "real", "%", "snow / ice and moss / lichen share", "WorldCover 70, 100",
+     "land cover"),
+    ("cn_lookup_id", "text", "-", "CN lookup name and version", "full table in runoff_json",
+     "provenance"),
+    ("lc_dataset", "text", "-", "land-cover dataset", "", "provenance"),
+] + [
     # erosion block (v0.14, WP-F) - empty when no erosion inputs were supplied
     ("ero_mode", "text", "-", "RUSLE, or LS-only when R, K or C was not supplied",
      "no factor is ever invented", "erosion provenance"),
@@ -329,6 +358,8 @@ METADATA_KEYS = [
     ("soil_dataset", "soil dataset used for the soil block (empty = none)"),
     ("soil_depth_cm", "topsoil depth interval of the soil block"),
     ("soil_hsg_source", "source of the hydrologic soil groups (direct dataset or texture proxy)"),
+    ("runoff_json", "curve number / Rational C inputs: land-cover dataset, condition, AMC, "
+     "proxy flag and the full lookups (empty = no runoff block)"),
     ("soil_k_source", "source of K in the soil block (direct K or Williams/EPIC)"),
     ("conditioning_burn", "summary of the breach log when one was supplied (layer burn_log)"),
     ("erosion_json", "erosion inputs: mode, factor provenance (source, proxy flags), LS method, "
@@ -371,6 +402,9 @@ DOWNSTREAM_USE = {
     "sediment input": "soil property for sediment calculations",
     "CN input (proxy)": "hydrologic soil group for curve numbers (texture proxy)",
     "CN input": "hydrologic soil group for curve numbers",
+    "CN": "SCS curve number (when the engineer accepts it)",
+    "runoff coefficient": "Rational method runoff coefficient",
+    "land cover": "land-cover share for the report and CN / C checks",
     "MUSLE K": "soil erodibility for RUSLE / MUSLE",
     "MUSLE LS": "slope length-steepness factor for RUSLE / MUSLE",
     "MUSLE C": "cover factor for RUSLE / MUSLE",

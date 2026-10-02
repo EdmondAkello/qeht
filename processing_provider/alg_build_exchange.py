@@ -94,6 +94,12 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "Kerby and segmental (TR-55) Tc. <b>Basin shape:</b> perimeter, form factor, "
             "elongation and circularity ratios, drainage density, stream frequency and "
             "highest Strahler order, for the report.\n\n"
+            "<b>Curve number and Rational C (optional):</b> give a land-cover raster "
+            "(ESA WorldCover classes) with a soil source: per cell land cover x hydrologic "
+            "soil group -> CN from TR-55 Table 2-2 (a PROXY match to WorldCover, condition "
+            "fair/good/poor; replace it with your own lookup CSV), averaged over the "
+            "catchment (cn_ii) and exported at the chosen AMC (cn_export). Rational C needs "
+            "your lookup CSV - none ships. Land-cover shares lc_pct_* are always given.\n\n"
             "<b>Soils (optional), from any source:</b> soil map polygons (with the SOTWIS / "
             "SOTER SQLite database, a CSV table, SOTWIS or plain sand/silt/clay/oc fields, "
             "or your own field names under the advanced parameters); a soil unit raster "
@@ -158,6 +164,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "PROFILE_STEP", "Alignment profile station spacing (m)",
             QgsProcessingParameterNumber.Type.Double, defaultValue=10.0, minValue=0.5))
         self.add_soil_parameters("SOIL", optional=True)
+        self.add_runoff_parameters()
         from qgis.core import QgsProcessingParameterFeatureSource as _FS, QgsProcessing as _QP
         self.addParameter(_FS(
             "BURN_LOG", "Breach log from 'Burn crossings through embankments' (optional; "
@@ -329,6 +336,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                           f"{'local' if local else 'full upstream'} catchments; "
                           f"IDs {'from ' + id_field if id_field else 'sequential ' + (prefix or '') + '001...'}")
         soil = self.load_soil(parameters, context, info, feedback, "SOIL")
+        runoff = self.load_runoff(parameters, context, info, soil, feedback)
         erosion, erosion_run = None, None
         ero_folder = self.parameterAsFile(parameters, "EROSION", context) if "EROSION" in parameters else ""
         if ero_folder:
@@ -347,7 +355,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                 id_prefix=prefix, id_order=order, soil=soil, erosion=erosion,
                 progress=self.make_progress(feedback, weight=0.9),
                 channel_threshold_cells=snap_threshold if snap_threshold > 0 else None,
-                sheet_cap_m=sheet_cap)
+                sheet_cap_m=sheet_cap, runoff=runoff)
         except ExchangeError as e:
             raise QgsProcessingException(str(e))
         for msg in issues:
@@ -379,6 +387,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "soil_depth_cm": soil.info["soil_depth_cm"] if soil else "",
             "soil_hsg_source": soil.info.get("hsg_source", "") if soil else "",
             "soil_k_source": soil.info.get("k_source", "") if soil else "",
+            "runoff_json": runoff.meta_json() if runoff is not None else "",
             "crossing_source": ("crossing candidates" if candidate_mode else "pour points"),
             "chainage_start_m": (f"{alignment.start_chainage:g}" if alignment is not None else ""),
             "alignment_source": (self.parameterAsSource(parameters, ROAD, context).sourceName()

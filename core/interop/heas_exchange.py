@@ -128,7 +128,7 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
                            local=False, stream_order=None, id_scheme="sequential",
                            id_prefix="X", id_width=3, id_start=1,
                            id_order="downstream", soil=None, erosion=None, progress=None,
-                           channel_threshold_cells=None, sheet_cap_m=100.0):
+                           channel_threshold_cells=None, sheet_cap_m=100.0, runoff=None):
     """Run snap -> id -> catchment -> LFP -> characteristics for every outlet.
 
     Parameters
@@ -163,6 +163,8 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
         core.watershed.morphometry). None = only the shape ratios that need
         no channel network.
     sheet_cap_m : cap on sheet flow within the overland part (F2)
+    runoff : optional core.runoff.curve_number.RunoffInputs; adds the curve
+        number / Rational C / land-cover block (F1) to every catchment
 
     Returns (crossings, catchments, flowpaths, issues, id_info) where the
     first three are lists of (geometry, attributes) ready for the writer
@@ -285,6 +287,8 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
             else:                               # (unit_grid, index_to_unit, units, info)
                 from ..soils.catchment import soil_block
                 chs.update(soil_block(mask, soil[0], soil[2], soil[1], soil[3]))
+        if runoff is not None:
+            chs.update(runoff.block(mask))
         if erosion is not None:
             from ..erosion.summary import catchment_erosion, crossing_erosion
             bd = chs.get("soil_bulk_gcm3")
