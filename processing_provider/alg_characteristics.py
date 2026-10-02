@@ -78,6 +78,12 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
             "tied cells on the drainage line decide where the flow goes, not the "
             "terrain, so verify that catchment against mapped drainage or on site. "
             "Adds about two routing passes of run time.\n\n"
+            "Flow paths are also split at the channel head (first cell reaching the "
+            "snap-to-stream threshold): overland and channel lengths and slopes, the "
+            "10-85 slope of the channel part, and sheet (up to the cap) and shallow "
+            "overland lengths. Catchments also carry perimeter, form factor, "
+            "elongation and circularity ratios, drainage density, stream frequency "
+            "and highest Strahler order.\n\n"
             "For one linked package, use 'Build design hydrology package', which writes the same "
             "values into one self-describing GeoPackage."
         )
@@ -111,6 +117,9 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
         self.addParameter(QgsProcessingParameterNumber(
             FLAT_TOL,"Flat-method check tolerance (%)",QgsProcessingParameterNumber.Type.Double,
             defaultValue=10.0,minValue=0.0,maxValue=100.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            "SHEET_CAP","Sheet-flow cap within the overland part of the flow path (m)",
+            QgsProcessingParameterNumber.Type.Double,defaultValue=100.0,minValue=0.0))
         self.addParameter(QgsProcessingParameterVectorDestination(
             CATCH_OUT,"Catchments with characteristics"))
         self.addParameter(QgsProcessingParameterVectorDestination(
@@ -162,7 +171,10 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
                 direction,valid,accum,elevation,info.geotransform,points,
                 snap_radius_cells=snap_radius,stream_mask=stream_mask,local=nested,
                 id_scheme="attribute" if id_field else "sequential",id_prefix=prefix,
-                progress=self.make_progress(feedback,weight=0.9))
+                progress=self.make_progress(feedback,weight=0.9),
+                channel_threshold_cells=snap_threshold if snap_threshold>0 else None,
+                sheet_cap_m=self.parameterAsDouble(parameters,"SHEET_CAP",context)
+                if "SHEET_CAP" in parameters else 100.0)
         except ExchangeError as e:
             raise QgsProcessingException(str(e))
         for msg in issues: feedback.pushWarning(msg)

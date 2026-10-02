@@ -101,6 +101,23 @@ CATCHMENTS = [
      "later release)", "", "alias"),
     ("slope_relief_ratio", "real", "m/m", "LEGACY alias of catch_relief_ratio "
      "(removed in a later release)", "", "alias"),
+    # basin shape and network indices (v0.15, F6) - information only
+    ("perimeter_km", "real", "km", "catchment outline length",
+     "3x3-smoothed mask contoured at 0.5 (marching squares); not the cell-edge staircase",
+     "morphometry"),
+    ("form_factor", "real", "-", "form factor A / L^2", "Horton (1932); L = LFP length",
+     "morphometry"),
+    ("elongation_ratio", "real", "-", "elongation ratio (2/L) sqrt(A/pi)",
+     "Schumm (1956); L = LFP length", "morphometry"),
+    ("circularity_ratio", "real", "-", "circularity ratio 4 pi A / P^2", "Miller (1953)",
+     "morphometry"),
+    ("drainage_density", "real", "km/km2", "channel length / area",
+     "channel cells at stream_threshold_cells; length along D8 links", "morphometry"),
+    ("stream_frequency", "real", "1/km2", "channel links / area",
+     "a link runs from a source or confluence to the next confluence or the outlet",
+     "morphometry"),
+    ("max_strahler", "int", "-", "highest Strahler order in the catchment",
+     "stream-order raster if given, else computed at the stream threshold", "morphometry"),
 ] + _LINK + [
     # soil block (v0.11, WP-C) - empty when no soil dataset was supplied
     ("soil_sand_pct", "real", "%", "topsoil sand", "area-weighted over soil units; "
@@ -208,6 +225,26 @@ FLOWPATHS = [
      "by more than 0.5 m (spike or pit on the path; lfp_slope slightly overstated)", "", "QA"),
     ("area_km2", "real", "km2", "area of the catchment this path belongs to", "",
      "provenance"),
+    # overland / channel split (v0.15, F2)
+    ("lfp_overland_m", "real", "m", "divide -> channel head length",
+     "channel head = first path cell with accumulation >= lfp_threshold_km2",
+     "Kerby overland length"),
+    ("lfp_overland_slope", "real", "m/m", "slope of the overland part",
+     "(z head - z channel head) / lfp_overland_m, raw DEM", "Kerby overland slope"),
+    ("lfp_channel_m", "real", "m", "channel head -> outlet length",
+     "lfp_overland_m + lfp_channel_m = lfp_length_m", "Kirpich / Kerby channel length"),
+    ("lfp_channel_slope", "real", "m/m", "slope of the channel part",
+     "(z channel head - z outlet) / lfp_channel_m", "Kirpich / Kerby channel slope"),
+    ("lfp_channel_slope_1085", "real", "m/m", "10-85 slope of the channel part",
+     "outlet-referenced, as lfp_slope_1085", "channel slope (10-85)"),
+    ("lfp_sheet_m", "real", "m", "sheet-flow part of the overland length",
+     "min(lfp_overland_m, sheet cap; default 100 m, TR-55 practice)", "TR-55 sheet flow"),
+    ("lfp_shallow_m", "real", "m", "shallow concentrated part of the overland length",
+     "lfp_overland_m - lfp_sheet_m", "TR-55 shallow flow"),
+    ("lfp_threshold_km2", "real", "km2", "channel threshold used for the split",
+     "stream threshold x cell area", "provenance"),
+    ("lfp_no_channel", "int", "0/1", "1 when no path cell reaches the threshold "
+     "(whole path overland)", "", "QA"),
 ] + _LINK
 
 LAYERS = {
@@ -279,6 +316,7 @@ METADATA_KEYS = [
     ("conditioning_burn", "summary of the breach log when one was supplied (layer burn_log)"),
     ("erosion_json", "erosion inputs: mode, factor provenance (source, proxy flags), LS method, "
      "class schemes, MCDMA weights, SDR model (empty = no erosion block)"),
+    ("sheet_cap_m", "sheet-flow cap used for lfp_sheet_m (m)"),
     ("alignment_source", "road alignment layer used for chainage and the ground profile"),
     ("alignment_step_m", "station spacing of alignment_profile (m)"),
     ("n_crossings", "number of crossings written"),
@@ -329,6 +367,14 @@ DOWNSTREAM_USE = {
     "sediment": "sediment yield to the crossing",
     "MCDMA": "multi-criteria erosion impact score",
     "ground profile": "ground profile along the road (provisional levels, DEM check)",
+    "morphometry": "basin shape / network index for the report (information only)",
+    "Kerby overland length": "time of concentration: overland (Kerby) length",
+    "Kerby overland slope": "time of concentration: overland (Kerby) slope",
+    "Kirpich / Kerby channel length": "time of concentration: channel length",
+    "Kirpich / Kerby channel slope": "time of concentration: channel slope",
+    "channel slope (10-85)": "time of concentration: 10-85 channel slope",
+    "TR-55 sheet flow": "segmental Tc: sheet-flow length",
+    "TR-55 shallow flow": "segmental Tc: shallow concentrated flow length",
 }
 
 # heas_target terms that are HEAS input names (written to heas_field)

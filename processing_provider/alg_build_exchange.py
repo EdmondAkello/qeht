@@ -87,6 +87,13 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "length) and lfp_slope_1085 (10-85 along the LFP, measured from the "
             "OUTLET; lfp_L10_m, lfp_L85_m, lfp_z10_m, lfp_z85_m let you check it "
             "by hand).\n\n"
+            "<b>Flow path segments:</b> each flow path is split where it reaches the "
+            "snap-to-stream threshold (the channel head): lfp_overland_m / _slope, "
+            "lfp_channel_m / _slope / _slope_1085, and the overland part as sheet flow "
+            "(up to the cap, default 100 m) plus shallow concentrated flow - inputs for "
+            "Kerby and segmental (TR-55) Tc. <b>Basin shape:</b> perimeter, form factor, "
+            "elongation and circularity ratios, drainage density, stream frequency and "
+            "highest Strahler order, for the report.\n\n"
             "<b>Soils (optional):</b> give soil map polygons (with the SOTWIS SQLite "
             "database for the full unit composition, or polygons carrying SOTWIS or "
             "plain sand/silt/clay/oc fields) to add the soil block to every catchment: "
@@ -137,6 +144,9 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         self.addParameter(QgsProcessingParameterString(
             FLAT_METHOD, "Flat resolution used for flow direction (recorded, e.g. 'barnes')",
             optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            "SHEET_CAP", "Sheet-flow cap within the overland part of the flow path (m)",
+            QgsProcessingParameterNumber.Type.Double, defaultValue=100.0, minValue=0.0))
         self.addParameter(QgsProcessingParameterRasterLayer(
             "FILLED", "Filled DEM (optional; ponding depth in the alignment profile)",
             optional=True))
@@ -206,6 +216,8 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         snap_radius = self.parameterAsInt(parameters, SNAP, context)
         snap_threshold = self.parameterAsDouble(parameters, SNAP_THRESHOLD, context)
         local = self.parameterAsBool(parameters, LOCAL, context)
+        sheet_cap = (self.parameterAsDouble(parameters, "SHEET_CAP", context)
+                     if "SHEET_CAP" in parameters else 100.0)
 
         points = self.read_pour_points(parameters, POINTS, context, info, feedback,
                                        id_field=id_field,
@@ -329,7 +341,9 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                 stream_order=stream_order,
                 id_scheme="attribute" if id_field else "sequential",
                 id_prefix=prefix, id_order=order, soil=soil, erosion=erosion,
-                progress=self.make_progress(feedback, weight=0.9))
+                progress=self.make_progress(feedback, weight=0.9),
+                channel_threshold_cells=snap_threshold if snap_threshold > 0 else None,
+                sheet_cap_m=sheet_cap)
         except ExchangeError as e:
             raise QgsProcessingException(str(e))
         for msg in issues:
@@ -352,6 +366,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "stream_threshold_cells": f"{snap_threshold:g}",
             "stream_threshold_km2": f"{snap_threshold * cell_area / 1e6:g}",
             "snap_radius_cells": str(snap_radius),
+            "sheet_cap_m": f"{sheet_cap:g}",
             "snap_strategy": ("none" if snap_radius <= 0 else
                               "nearest_stream" if stream_mask is not None else "max_accumulation"),
             "catchment_mode": "local" if local else "full",
