@@ -72,7 +72,7 @@ class CrossingCandidatesAlgorithm(QehtAlgorithm):
             "<b>Recommendation, not deletion.</b> In each cluster the most "
             "downstream candidate (largest contributing area) gets recommended = 1. "
             "All candidates have status = candidate: set accepted / rejected, then "
-            "run 'Build HEAS exchange package' on this layer. It uses the "
+            "run 'Build design hydrology package' on this layer. It uses the "
             "accepted candidates, or the recommended ones if none is accepted, "
             "numbers crossings along the chainage and takes each outlet cell "
             "exactly as found here (no snapping).\n\n"

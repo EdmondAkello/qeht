@@ -53,7 +53,7 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
         return (
             "Terrain erosion indices, optional RUSLE soil loss and erosion severity "
             "classes, written to one output folder that the corridor sampler and "
-            "the HEAS exchange package read.\n\n"
+            "the design hydrology package read.\n\n"
             "<b>Indices</b> (raw DEM for slope; flow accumulation for area): slope, "
             "specific catchment area A_s = (upslope cells + 1) x cell area / cell "
             "size, SPI = A_s tan(beta), ln(SPI), TWI = ln(A_s / tan(beta)) and the "
