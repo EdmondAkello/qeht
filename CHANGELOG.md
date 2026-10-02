@@ -3,6 +3,26 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.15.0] — unreleased (alignment profile, flow-path segments, soils anywhere, curve numbers)
+### Changed
+- **"Build HEAS exchange package" is now "Build design hydrology package".** The algorithm id `buildheasexchange` and the schema `qeht-heas-1` are unchanged, so saved models and HEAS imports keep working. The field dictionary gains `downstream_use` (plain language) and `heas_field` columns; `heas_target` stays. README: HEAS moves to one optional section.
+- "Soil parameters for catchments" is shown as "Soil and runoff parameters for catchments" (id unchanged); its soil polygons are now optional (other sources below).
+
+### Added
+- **Alignment ground profile** (Road drainage): stations every 10 m with raw and filled DEM (bilinear), ponding depth, contributing area, exact D8 stream crossings with Strahler order and longitudinal slope; CSV and chart. The package writes the same profile as layer `alignment_profile` when a road is given (optional `FILLED`, `PROFILE_STEP`).
+- **Flow-path segments (F2):** `lfp_overland_m` / `_slope`, `lfp_channel_m` / `_slope` / `_slope_1085`, `lfp_sheet_m` (cap, default 100 m), `lfp_shallow_m`, `lfp_threshold_km2`, `lfp_no_channel`, split at the stream threshold.
+- **Basin shape and network (F6):** `perimeter_km` (smoothed outline), `form_factor`, `elongation_ratio`, `circularity_ratio`, `drainage_density`, `stream_frequency`, `max_strahler`.
+- **Soils from any source (G1–G4):** one per-cell soil model (`core/soils/sources.py`) for SOTWIS / SOTER, polygon fields chosen by name (OC % or g/kg), polygons + CSV, a soil unit raster + CSV (e.g. HWSD v2), texture rasters or a SoilGrids 2.0 folder (unit conversion, depth weighting), plus HSG (HYSOGs250m codes, dual groups as D) and K overrides. New catchment fields `soil_hsg`, `hsg_pct_a`…`d`, `hsg_pct_dual`, `soil_hsg_source`, `usle_k_source`. Unit sources reproduce the 0.14 block exactly.
+- **Curve number and Rational C (F1):** land cover (WorldCover) × HSG per cell → CN from TR-55 Table 2-2 (condition fair/good/poor; a proxy match, flagged), `cn_ii`, `cn_export` at AMC I/II/III, coverage, land-cover shares `lc_pct_*`; user CN lookup CSV; Rational C from a user lookup only (none ships). Metadata `runoff_json`.
+- **Sediment transport (STI advisory R1, R2):** `sti_overland.tif` from the erosion tool (Moore & Wilson 1992, overland cells, A_s capped at 100 m; not used in soil loss, classes or composite); per crossing `ero_sti_local` and the deposition indicator `ero_spi_app_near` / `_far`, `ero_dep_ratio`, `ero_dep_flag` (0.7 / 1.3), reach slopes, `ero_dep_note`.
+- **Approach / exit channel slopes (A5):** `ch_slope_us` (main stem) and `ch_slope_ds` (D8 path) over 200 m on every crossing, with the lengths used.
+- README "Data sources by region" (global DEM, soil, HSG, land cover, R and K sources); help text no longer assumes Kenyan data.
+- Tests: test_alignment 15, test_morphometry 22, test_soils_any 18, test_runoff 17, test_channel 16 (new); smoke test 44 (+7). Golden fixture regenerated — new fields and metadata keys only, no existing value changed.
+
+### Notes
+- The TR-55 → WorldCover match and the WorldCover → C lookup are proxies for review. Rational C needs your table (e.g. RDM Part II rows).
+- Not yet: drainage coverage check, sag points and flat stretches (A2, A3), rainfall zones (F3), floodplain width (A4), cross-sections (F5), one-click pipeline and run report (F7, F8), raster quicklooks (A6), corridor STI (R3).
+
 ## [0.14.0] — unreleased (WP-F erosion; slope review)
 ### Changed
 - Documentation: the relief ratio is described as a basin-steepness index (QEHT divides by LFP length, a variant of Schumm's basin-length ratio) and no longer as the Kirpich slope. Kirpich, Bransby-Williams and TRRL use the flow-path slope (`lfp_slope` / `lfp_slope_1085`). Statistics docstring, README, tool help, DOCUMENTATION.md and field dictionary aligned. No values change.

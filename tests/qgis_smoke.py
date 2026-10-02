@@ -61,8 +61,9 @@ def main(in_qgis=False):
         reg.addProvider(QehtProvider())
     algs = sorted(a.id() for a in reg.providerById("qeht").algorithms())
     print("QEHT algorithms:", ", ".join(algs))
-    check("provider loads with 15 algorithms incl. exchange, crossings, burn, relink, soils, erosion",
-          len(algs) == 15 and all(a in algs for a in (
+    check("provider loads with 16 algorithms incl. exchange, crossings, burn, relink, soils, "
+          "erosion, alignment profile",
+          len(algs) == 16 and all(a in algs for a in ("qeht:alignmentprofile",
               "qeht:buildheasexchange", "qeht:crossingcandidates", "qeht:burncrossings",
               "qeht:renumberrelink", "qeht:soilparameters", "qeht:erosionindices",
               "qeht:erosioncorridor")))
@@ -236,8 +237,24 @@ def main(in_qgis=False):
           all(f["status"] == "candidate" and 0 <= f["crossing_angle_deg"] <= 90
               and f["acc_km2"] >= 0.05 for f in feats))
 
+    r = processing.run("qeht:alignmentprofile", {
+        "RAW_DEM": dem, "ROAD": out("road.gpkg"), "FILLED": out("fill.tif"), "FDR": out("fdr.tif"),
+        "FAC": out("fac.tif"), "ORDER": out("ord.tif"), "THRESHOLD": 200, "START": 1000.0,
+        "STEP": 10.0, "PROFILE": out("profile.gpkg"), "CSV": out("profile.csv"),
+        "CHART": out("profile.png")})
+    pl = QgsVectorLayer(r["PROFILE"], "profile", "ogr")
+    pf = list(pl.getFeatures())
+    nst = sum(1 for f in pf if f["stream"] == 1)
+    check("alignment profile: stations from 1000 m every 10 m, ground and fill filled, "
+          "stream crossings flagged, CSV written",
+          len(pf) > 2 and pf[0]["chainage_m"] == 1000.0 and abs(pf[1]["chainage_m"] - 1010.0) < 1e-9
+          and all(f["z_dem_m"] is not None and f["z_fill_m"] >= f["z_dem_m"] - 1e-6 for f in pf)
+          and nst >= 1 and os.path.exists(out("profile.csv")),
+          f"{len(pf)} stations, {nst} stream crossing(s), chart {os.path.exists(out('profile.png'))}")
+
     r = processing.run("qeht:buildheasexchange", {
         "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "ORDER": out("ord.tif"),
+        "FILLED": out("fill.tif"),
         "POINTS": out("cand.gpkg"), "ROAD": out("road.gpkg"), "START": 1000.0,
         "ID_PREFIX": "X", "ID_ORDER": 0, "SNAP": 5, "SNAP_THRESHOLD": 200, "LOCAL": False,
         "OUTPUT": out("cand_exchange.gpkg")})
@@ -248,6 +265,13 @@ def main(in_qgis=False):
     check("exchange from candidates: validates, carries candidates + road layers",
           not errors and "crossing_candidates" in tabs and "road_alignment" in tabs,
           "; ".join(errors))
+    ap = gpkg.read_table(xp2, "alignment_profile", with_geometry=False) \
+        if "alignment_profile" in tabs else []
+    mdp = {row["key"]: row["value"] for row in gpkg.read_table(xp2, "qeht_run_metadata")}
+    check("package carries alignment_profile (same stations as the tool) + metadata",
+          len(ap) == len(pf) and sum(a["stream"] for a in ap) == nst
+          and mdp.get("alignment_step_m") == "10" and mdp.get("alignment_source"),
+          f"{len(ap)} stations")
     check("exchange from candidates: recommended crossings, numbered along chainage",
           len(cr) == len(rec) and [c["outlet_uid"] for c in sorted(cr, key=lambda c: c["chainage_m"])]
           == [f"X{k + 1:03d}" for k in range(len(cr))] and all(c["snap_dist_m"] < 45 for c in cr))
@@ -344,6 +368,63 @@ def main(in_qgis=False):
     k2 = sorted(round(f["usle_k"], 6) for f in QgsVectorLayer(r2["OUTPUT"], "s2", "ogr").getFeatures())
     check("soil parameters from unit polygons + CSV table = same K as attribute polygons",
           k1 == k2, f"{k1} vs {k2}")
+    # v0.15 (G2): any polygon map - fields chosen by name, OC in g/kg, silt derived, HSG field
+    soil3 = QgsVectorLayer(f"Polygon?crs={QgsRasterLayer(dem).crs().authid()}"
+                           "&field=SAND_P:double&field=CLAY_P:double&field=SOC_GKG:double"
+                           "&field=HYD_GRP:string", "soil3", "memory")
+    sf3 = []
+    for (x0, x1), vals in (((xa, xmid), [35.0, 35.0, 18.0, "C"]),
+                           ((xmid, xb), [60.0, 20.0, 9.0, "B/D"])):
+        f = QgsFeature(soil3.fields())
+        f.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(x0, ya), QgsPointXY(x1, ya),
+                                                  QgsPointXY(x1, yb), QgsPointXY(x0, yb)]]))
+        f.setAttributes(vals); sf3.append(f)
+    soil3.dataProvider().addFeatures(sf3)
+    QgsVectorFileWriter.writeAsVectorFormatV3(soil3, out("soil_named.gpkg"),
+                                              QgsCoordinateTransformContext(), opts)
+    r3 = processing.run("qeht:soilparameters", {
+        "CATCHMENTS": out("ch_c.gpkg"), "REF": out("fdr.tif"), "SOIL_POLYGONS": out("soil_named.gpkg"),
+        "SOIL_F_SAND": "SAND_P", "SOIL_F_CLAY": "CLAY_P", "SOIL_F_OC": "SOC_GKG",
+        "SOIL_OC_UNITS": 1, "SOIL_F_HSG_FIELD": "HYD_GRP", "OUTPUT": out("ch_soil_named.gpkg")})
+    f3 = list(QgsVectorLayer(r3["OUTPUT"], "s3", "ogr").getFeatures())
+    k3 = sorted(round(f["usle_k"], 6) for f in f3)
+    check("soils from any polygon map (fields by name, OC g/kg, silt derived) = same K; "
+          "HSG field used",
+          k3 == k1 and all(f["soil_hsg"] in ("C", "D") and abs(f["hsg_pct_c"] + f["hsg_pct_d"] - 100) < 1e-6
+                           and "HYD_GRP" in f["soil_hsg_source"] for f in f3),
+          ", ".join(f"{f['outlet_uid']} HSG {f['soil_hsg']} (C {f['hsg_pct_c']:.0f} / D {f['hsg_pct_d']:.0f}, "
+                    f"dual {f['hsg_pct_dual']:.0f})" for f in f3))
+    # v0.15 (G3/G4): SoilGrids folder (depth layers) + HYSOGs-coded HSG raster on the DEM grid
+    from osgeo import gdal as _g
+    ds0 = _g.Open(dem)
+    gt0, prj0 = ds0.GetGeoTransform(), ds0.GetProjection()
+    ny, nx = ds0.RasterYSize, ds0.RasterXSize
+    ds0 = None
+    xs = gt0[0] + (np.arange(nx) + 0.5) * gt0[1]
+    left = np.tile(xs < xmid, (ny, 1))
+    sgdir = out("soilgrids"); os.makedirs(sgdir, exist_ok=True)
+
+    def _wr(path, arr, dtype=_g.GDT_Float32, nodata=-32768):
+        d = _g.GetDriverByName("GTiff").Create(path, nx, ny, 1, dtype)
+        d.SetGeoTransform(gt0); d.SetProjection(prj0)
+        b = d.GetRasterBand(1); b.SetNoDataValue(nodata); b.WriteArray(arr); d = None
+    for depth in ("0-5", "5-15", "15-30"):
+        for prop, lv, rv in (("sand", 350, 600), ("clay", 350, 200), ("silt", 300, 200),
+                             ("soc", 180, 90)):
+            _wr(os.path.join(sgdir, f"{prop}_{depth}cm_mean.tif"), np.where(left, lv, rv).astype(np.float32))
+    _wr(out("hysogs.tif"), np.where(left, 2, 14).astype(np.uint8), _g.GDT_Byte, 255)
+    r4 = processing.run("qeht:soilparameters", {
+        "CATCHMENTS": out("ch_c.gpkg"), "REF": out("fdr.tif"), "SOIL_SOILGRIDS": sgdir,
+        "SOIL_HSG_R": out("hysogs.tif"), "OUTPUT": out("ch_soil_sg.gpkg"), "K_RASTER": out("k_sg.tif")})
+    f4 = list(QgsVectorLayer(r4["OUTPUT"], "s4", "ogr").getFeatures())
+    k4 = sorted(round(f["usle_k"], 6) for f in f4)
+    check("soils from a SoilGrids folder (3 depth layers, g/kg -> %) = same K; HYSOGs raster "
+          "gives B and dual D shares; K raster written",
+          max(abs(a - b) for a, b in zip(k4, k1)) < 1e-6 and os.path.exists(out("k_sg.tif"))
+          and all(abs(f["hsg_pct_b"] + f["hsg_pct_d"] - 100) < 1e-6
+                  and abs(f["hsg_pct_dual"] - f["hsg_pct_d"]) < 1e-6
+                  and "SoilGrids" in f["soil_dataset"] for f in f4),
+          f"{k4} vs {k1}")
     r = processing.run("qeht:buildheasexchange", {
         "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "POINTS": ptsfile,
         "ID_FIELD": "culvert", "SNAP": 5, "SNAP_THRESHOLD": 200,
@@ -354,6 +435,33 @@ def main(in_qgis=False):
     check("exchange with soils: soil block on catchments, dataset in metadata, validates",
           not errors and all(c["usle_k"] and c["soil_hsg_proxy"] for c in ca)
           and md["soil_depth_cm"] and md["soil_dataset"])
+    # v0.15 (F1): curve number from WorldCover classes x HSG
+    _wr(out("worldcover.tif"), np.where(left, 30, 40).astype(np.uint8), _g.GDT_Byte, 0)
+    r5 = processing.run("qeht:soilparameters", {
+        "CATCHMENTS": out("ch_c.gpkg"), "REF": out("fdr.tif"), "SOIL_HSG_R": out("hysogs.tif"),
+        "LANDCOVER": out("worldcover.tif"), "CN_CONDITION": 0, "CN_AMC": 1,
+        "OUTPUT": out("ch_cn.gpkg")})
+    f5 = list(QgsVectorLayer(r5["OUTPUT"], "s5", "ogr").getFeatures())
+    # left: grassland x B = 69, right: cropland x B/D (as D) = 89 (TR-55 fair)
+    check("curve numbers: grass-B 69 / crops-D 89 mix, AMC III export, shares add up",
+          len(f5) == 3 and all(69 - 1e-6 <= f["cn_ii"] <= 89 + 1e-6 and f["cn_amc"] == "III"
+                               and f["cn_export"] > f["cn_ii"]
+                               and abs(f["lc_pct_grass"] + f["lc_pct_crop"] - 100) < 1e-6
+                               and abs(f["cn_ii"] - (69 * f["lc_pct_grass"] + 89 * f["lc_pct_crop"]) / 100) < 1e-6
+                               for f in f5),
+          ", ".join(f"{f['outlet_uid']} CN {f['cn_ii']:.1f} -> {f['cn_export']:.1f}" for f in f5))
+    r = processing.run("qeht:buildheasexchange", {
+        "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "POINTS": ptsfile,
+        "ID_FIELD": "culvert", "SNAP": 5, "SNAP_THRESHOLD": 200, "SOIL_SOILGRIDS": sgdir,
+        "SOIL_HSG_R": out("hysogs.tif"), "LANDCOVER": out("worldcover.tif"),
+        "OUTPUT": out("soil_sg_exchange.gpkg")})
+    ca = gpkg.read_table(r["OUTPUT"], "catchments", with_geometry=False)
+    md = {row["key"]: row["value"] for row in gpkg.read_table(r["OUTPUT"], "qeht_run_metadata")}
+    errors, _ = validate_exchange(r["OUTPUT"])
+    check("package with SoilGrids + HYSOGs + WorldCover: soil block, HSG, CN, sources in metadata",
+          not errors and all(c["usle_k"] and c["soil_hsg"] for c in ca)
+          and "SoilGrids" in md["soil_dataset"] and "hysogs" in md["soil_hsg_source"].lower()
+          and all(c["cn_export"] for c in ca) and '"cn_proxy": true' in md["runoff_json"])
 
     # ---- v0.14: erosion (WP-F) -------------------------------------------
     import json as _json
@@ -409,6 +517,15 @@ def main(in_qgis=False):
           and all(x["ero_composite"] is not None and x["ero_impact"] for x in cr)
           and "mcdma_weights" in md["erosion_json"],
           ", ".join(f"{x['outlet_uid']} {x['ero_impact']} ({x['ero_composite']:.1f})" for x in cr))
+    check("v0.15: STI raster written; every crossing has channel slopes and a deposition "
+          "indicator (or a note); STI/deposition settings in metadata",
+          os.path.exists(os.path.join(ef, "sti_overland.tif"))
+          and all(x["ch_slope_us"] is not None and x["ch_slope_ds"] is not None
+                  and (x["ero_dep_flag"] in ("deposition-prone", "neutral", "scour-prone")
+                       or x["ero_dep_note"]) for x in cr)
+          and '"deposition"' in md["erosion_json"] and md["channel_slope_m"] == "200",
+          ", ".join(f"{x['outlet_uid']} us {x['ch_slope_us']:.3f} ds {x['ch_slope_ds']:.3f} "
+                    f"{x['ero_dep_flag'] or x['ero_dep_note']}" for x in cr))
 
     print("\n" + ("ALL QGIS SMOKE CHECKS PASSED" if not FAILURES
                   else f"{len(FAILURES)} FAILURE(S): " + "; ".join(FAILURES)))

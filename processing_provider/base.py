@@ -9,6 +9,8 @@ find yourself writing a loop over cells in this package, it belongs in
 core instead.
 """
 
+import os
+
 from qgis.core import (
     QgsProcessingAlgorithm,
     QgsProcessingException,
@@ -201,57 +203,242 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
 
     # -- soils (v0.11) ------------------------------------------------------
 
+    def _advanced(self, param):
+        """Mark a parameter as advanced (QGIS 3.22 - 4)."""
+        try:
+            from qgis.core import Qgis
+            flag = Qgis.ProcessingParameterFlag.Advanced
+        except AttributeError:
+            from qgis.core import QgsProcessingParameterDefinition
+            flag = QgsProcessingParameterDefinition.FlagAdvanced
+        param.setFlags(param.flags() | flag)
+        return param
+
     def add_soil_parameters(self, prefix="SOIL", optional=True):
-        """Standard soil inputs: polygons, optional SOTWIS database, depth."""
+        """Soil inputs (v0.15: any source).
+
+        Units: soil polygons (+ SOTWIS database or CSV table, or texture fields
+        mapped by name), or a soil-unit raster + CSV table. Texture rasters:
+        sand / clay / (silt) / organic carbon (+ bulk density, coarse
+        fragments), or a SoilGrids folder with depth layers. Overrides: a
+        hydrologic soil group raster or field, a K raster or field.
+        """
         from qgis.core import (QgsProcessingParameterFeatureSource, QgsProcessing,
                                QgsProcessingParameterFile, QgsProcessingParameterString,
-                               QgsProcessingParameterNumber)
+                               QgsProcessingParameterNumber, QgsProcessingParameterField,
+                               QgsProcessingParameterRasterLayer, QgsProcessingParameterEnum)
+        P = prefix
         self.addParameter(QgsProcessingParameterFeatureSource(
-            prefix + "_POLYGONS", "Soil map polygons (e.g. SOTWIS KEN_SOTWISv1_t1s1d1)",
+            P + "_POLYGONS", "Soil map polygons (SOTWIS / SOTER, national map, any polygons)",
             [QgsProcessing.SourceType.TypeVectorPolygon], optional=optional))
         self.addParameter(QgsProcessingParameterFile(
-            prefix + "_DB", "SOTWIS SQLite database (optional; full unit composition)",
+            P + "_DB", "SOTWIS / SOTER SQLite database (optional; full unit composition)",
             optional=True, fileFilter="SQLite (*.db *.sqlite)"))
         self.addParameter(QgsProcessingParameterFile(
-            prefix + "_CSV", "Soil table CSV (optional; unit field + sand, silt, clay, oc %, "
+            P + "_CSV", "Soil table CSV (optional; unit field + sand, silt, clay, oc %, "
             "[bulk, cfrag, drain])", optional=True, fileFilter="CSV (*.csv *.txt)"))
         self.addParameter(QgsProcessingParameterString(
-            prefix + "_UNIT_FIELD", "Soil unit field linking polygons to the database or table",
+            P + "_UNIT_FIELD", "Soil unit field linking polygons / unit raster to the database or table",
             defaultValue="NEWSUID", optional=True))
         self.addParameter(QgsProcessingParameterNumber(
-            prefix + "_TOP", "Soil depth from (cm)", QgsProcessingParameterNumber.Type.Double,
+            P + "_TOP", "Soil depth from (cm)", QgsProcessingParameterNumber.Type.Double,
             defaultValue=0.0, minValue=0.0))
         self.addParameter(QgsProcessingParameterNumber(
-            prefix + "_BOTTOM", "Soil depth to (cm)", QgsProcessingParameterNumber.Type.Double,
+            P + "_BOTTOM", "Soil depth to (cm)", QgsProcessingParameterNumber.Type.Double,
             defaultValue=20.0, minValue=1.0))
+        adv = self._advanced
+        # G2 - polygon texture fields by name
+        for key, label in (("SAND", "sand %"), ("SILT", "silt %"), ("CLAY", "clay %"),
+                           ("OC", "organic carbon"), ("BULK", "bulk density g/cm3"),
+                           ("CFRAG", "coarse fragments vol %"), ("DRAIN", "FAO drainage class"),
+                           ("HSG_FIELD", "hydrologic soil group (A, B, C, D, A/D ...)"),
+                           ("K_FIELD", "USLE K, SI units")):
+            self.addParameter(adv(QgsProcessingParameterField(
+                f"{P}_F_{key}", f"Soil polygons: field with {label} (optional)",
+                parentLayerParameterName=P + "_POLYGONS", optional=True)))
+        self.addParameter(adv(QgsProcessingParameterEnum(
+            P + "_OC_UNITS", "Soil polygons: organic carbon field units",
+            options=["percent", "g/kg"], defaultValue=0)))
+        # G3 - rasters
+        self.addParameter(adv(QgsProcessingParameterFile(
+            P + "_SOILGRIDS", "SoilGrids folder (sand/silt/clay/soc/bdod/cfvo_<depth>cm_mean.tif; "
+            "depth-weighted)", behavior=QgsProcessingParameterFile.Behavior.Folder, optional=True)))
+        for key, label in (("SAND_R", "Sand raster"), ("CLAY_R", "Clay raster"),
+                           ("SILT_R", "Silt raster (optional; else 100 - sand - clay)"),
+                           ("OC_R", "Organic carbon raster"), ("BULK_R", "Bulk density raster"),
+                           ("CFRAG_R", "Coarse fragments raster")):
+            self.addParameter(adv(QgsProcessingParameterRasterLayer(
+                f"{P}_{key}", label + " (optional)", optional=True)))
+        self.addParameter(adv(QgsProcessingParameterEnum(
+            P + "_RASTER_UNITS", "Units of the soil rasters",
+            options=["SoilGrids 2.0 (g/kg; soc dg/kg; bdod cg/cm3; cfvo per mille)",
+                     "Percent (sand/silt/clay/oc %), g/cm3, vol %"], defaultValue=0)))
+        self.addParameter(adv(QgsProcessingParameterRasterLayer(
+            P + "_UNIT_RASTER", "Soil unit raster (codes joined to the CSV table, e.g. HWSD v2)",
+            optional=True)))
+        # G4 - direct overrides
+        self.addParameter(adv(QgsProcessingParameterRasterLayer(
+            P + "_HSG_R", "Hydrologic soil group raster (HYSOGs250m codes 1-4, 11-14)",
+            optional=True)))
+        self.addParameter(adv(QgsProcessingParameterRasterLayer(
+            P + "_K_R", "USLE K raster, SI (overrides K computed from texture)", optional=True)))
 
     def load_soil(self, parameters, context, info, feedback, prefix="SOIL"):
-        """Soil inputs -> (unit_grid, index_to_unit, units, info) on the DEM grid,
-        or None when no soil polygons were given.
+        """Soil inputs -> core.soils.sources.SoilGrid on the DEM grid, or None.
 
-        With the SOTWIS database: full component composition per unit
-        (SOTERunitComposition x SOTERparameterEstimates), depth-weighted.
-        Without it: polygon attributes - SOTWIS field names (SDTO, STPC,
-        CLPC, TOTC g/kg, BULK, CFRAG, DRAIN; dominant soil only) or plain
-        names (sand, silt, clay, oc [%], bulk, cfrag, drain).
+        Units (polygons with the SOTWIS database, a CSV table, SOTWIS-named,
+        plain or user-mapped texture fields; or a unit raster + CSV) are
+        painted onto their cells; texture rasters give per-cell values; an
+        HSG raster/field and a K raster/field override the proxies.
         """
+        from ..core.soils.sources import (SoilGrid, hsg_from_codes, soilgrids_layers,
+                                          depth_weighted, SOILGRIDS, SOILGRIDS_FACTORS,
+                                          SOILGRIDS_PROP, HYSOGS)
+        from ..core.raster import warp_to_grid
+        import numpy as np
+        P = prefix
+
+        def has(name):
+            return name in parameters and parameters[name] not in (None, "")
+
+        def rpath(name):
+            if not has(name) or self.parameterAsRasterLayer(parameters, name, context) is None:
+                return None
+            return self.raster_path(parameters, name, context)
+
+        top = self.parameterAsDouble(parameters, P + "_TOP", context)
+        bottom = self.parameterAsDouble(parameters, P + "_BOTTOM", context)
+        if bottom <= top:
+            raise QgsProcessingException("Soil depth 'to' must be greater than 'from'.")
+        unit_field = (self.parameterAsString(parameters, P + "_UNIT_FIELD", context)
+                      or "NEWSUID").strip()
+        csv_path = self.parameterAsFile(parameters, P + "_CSV", context) if has(P + "_CSV") else ""
+        sg = None
+        extra = {}
+
+        src = self.parameterAsSource(parameters, P + "_POLYGONS", context) \
+            if has(P + "_POLYGONS") else None
+        unit_raster = rpath(P + "_UNIT_RASTER")
+        sg_dir = self.parameterAsFile(parameters, P + "_SOILGRIDS", context) \
+            if has(P + "_SOILGRIDS") else ""
+        sand_r = rpath(P + "_SAND_R")
+        if src is not None:
+            sg, extra = self._soil_from_polygons(parameters, context, info, feedback, P, src,
+                                                 unit_field, csv_path, top, bottom)
+        elif unit_raster:
+            if not csv_path:
+                raise QgsProcessingException("A soil unit raster needs the soil table CSV.")
+            from ..core.soils.sotwis import load_csv_units
+            codes, desc = warp_to_grid(unit_raster, info, resampling="near")
+            try:
+                units, sinfo = load_csv_units(csv_path, unit_field)
+            except ValueError as e:
+                raise QgsProcessingException(str(e))
+            keys = {}
+            grid = np.zeros(codes.shape, dtype=np.int32)
+            fin = np.isfinite(codes)
+            for v in np.unique(codes[fin]):
+                key = (str(int(v)) if float(v).is_integer() else str(v))
+                keys[key] = len(keys) + 1
+                grid[fin & (codes == v)] = keys[key]
+            idx = {i: k for k, i in keys.items()}
+            missing = [k for k in keys if k not in units]
+            sinfo = dict(sinfo, soil_dataset=f"{sinfo['soil_dataset']}; units from {desc}",
+                         soil_depth_cm="as tabulated")
+            feedback.pushInfo(f"Soil: {len(keys)} unit code(s) on the grid from {desc}"
+                              + (f"; {len(missing)} without a table row (e.g. {missing[:5]})"
+                                 if missing else ""))
+            sg = SoilGrid.from_units(grid, idx, units, sinfo)
+        elif sg_dir or sand_r:
+            soilgrids_units = self.parameterAsEnum(parameters, P + "_RASTER_UNITS", context) == 0 \
+                if has(P + "_RASTER_UNITS") else True
+            read = lambda p, rs="bilinear": warp_to_grid(p, info, resampling=rs)[0]
+            arrays = {}
+            used = []
+            if sg_dir:
+                layers = soilgrids_layers(sg_dir)
+                if not layers:
+                    raise QgsProcessingException(
+                        f"No SoilGrids files (e.g. sand_0-5cm_mean.tif) found in {sg_dir}.")
+                for prop, lay in layers.items():
+                    a, ints = depth_weighted(lay, top, bottom, read)
+                    if a is not None:
+                        arrays[SOILGRIDS_PROP[prop]] = a / SOILGRIDS_FACTORS[prop]
+                        used.append(f"{prop} {','.join(ints)} cm")
+                label = f"{SOILGRIDS} folder {os.path.basename(os.path.normpath(sg_dir))}"
+                depth = f"{top:g}-{bottom:g}"
+            else:
+                for key, prop, sgk in (("SAND_R", "sand", "sand"), ("CLAY_R", "clay", "clay"),
+                                       ("SILT_R", "silt", "silt"), ("OC_R", "oc_pct", "soc"),
+                                       ("BULK_R", "bulk", "bdod"), ("CFRAG_R", "cfrag", "cfvo")):
+                    path = rpath(f"{P}_{key}")
+                    if path:
+                        a = read(path)
+                        arrays[prop] = a / SOILGRIDS_FACTORS[sgk] if soilgrids_units else a
+                        used.append(os.path.basename(path))
+                label = ((SOILGRIDS + " rasters: ") if soilgrids_units else "soil rasters: ") \
+                    + ", ".join(used)
+                depth = "as supplied"
+            for need in ("sand", "clay"):
+                if need not in arrays:
+                    raise QgsProcessingException(f"Soil rasters: {need} is required.")
+            if "oc_pct" not in arrays:
+                feedback.pushWarning("Soil rasters: no organic carbon - K cannot be computed "
+                                     "(texture and HSG proxy only).")
+            sg = SoilGrid.from_texture(arrays["sand"], arrays["clay"], arrays.get("oc_pct"),
+                                       silt=arrays.get("silt"), bulk=arrays.get("bulk"),
+                                       cfrag=arrays.get("cfrag"),
+                                       info={"soil_dataset": label, "soil_depth_cm": depth})
+            feedback.pushInfo(f"Soil: {label} (depth {depth} cm)")
+
+        hsg_r = rpath(P + "_HSG_R")
+        k_r = rpath(P + "_K_R")
+        if sg is None and (hsg_r or k_r):
+            sg = SoilGrid((info.rows, info.cols), {"soil_dataset": "none (HSG / K only)",
+                                                   "soil_depth_cm": ""})
+        if sg is None:
+            return None
+        if "hsg" in extra:
+            sg.override_hsg(extra["hsg"], extra["hsg_source"])
+        if "k" in extra:
+            sg.override_k(extra["k"], extra["k_source"])
+        if hsg_r:
+            codes, desc = warp_to_grid(hsg_r, info, resampling="near")
+            h = hsg_from_codes(codes, "hysogs")
+            sg.override_hsg(h, f"{HYSOGS if 'hysog' in desc.lower() else 'HSG raster'}: {desc}")
+            feedback.pushInfo(f"Soil: hydrologic soil group from {desc} "
+                              f"({100.0 * (h > 0).mean():.0f}% of the grid known)")
+        if k_r:
+            kk, desc = warp_to_grid(k_r, info)
+            sg.override_k(kk, f"K raster {desc}")
+            feedback.pushInfo(f"Soil: K from {desc}")
+        return sg
+
+    def _soil_from_polygons(self, parameters, context, info, feedback, P, src, unit_field,
+                            csv_path, top, bottom):
+        """Polygon soil sources (v0.11-0.14 paths + G2 field mapping). -> (SoilGrid, extra)."""
         from qgis.core import (QgsCoordinateReferenceSystem, QgsCoordinateTransform,
-                               QgsProject, QgsRectangle, QgsGeometry)
+                               QgsProject, QgsRectangle, QgsGeometry, QgsFeatureRequest)
         from ..core.soils.sotwis import load_sotwis, load_attributes
+        from ..core.soils.sources import SoilGrid, hsg_from_codes
         from ..core.geometry.rasterize import rasterize_polygons
         import numpy as np
-        src = self.parameterAsSource(parameters, prefix + "_POLYGONS", context)
-        if src is None:
-            return None
-        db = self.parameterAsFile(parameters, prefix + "_DB", context)
-        csv_path = self.parameterAsFile(parameters, prefix + "_CSV", context) \
-            if (prefix + "_CSV") in parameters else ""
-        unit_field = (self.parameterAsString(parameters, prefix + "_UNIT_FIELD", context)
-                      or "NEWSUID").strip()
-        top = self.parameterAsDouble(parameters, prefix + "_TOP", context)
-        bottom = self.parameterAsDouble(parameters, prefix + "_BOTTOM", context)
+        db = self.parameterAsFile(parameters, P + "_DB", context) if P + "_DB" in parameters else ""
         names = src.fields().names()
         lower = {n.lower(): n for n in names}
+
+        def fld(key):
+            name = P + "_F_" + key
+            if name not in parameters or not parameters[name]:
+                return None
+            if hasattr(self, "parameterAsStrings"):          # QGIS >= 3.32
+                v = self.parameterAsStrings(parameters, name, context)
+            else:
+                v = self.parameterAsFields(parameters, name, context)
+            return v[0] if v else None
+        mapped = {k: fld(k) for k in ("SAND", "SILT", "CLAY", "OC", "BULK", "CFRAG", "DRAIN",
+                                      "HSG_FIELD", "K_FIELD")}
+        user_map = all(mapped[k] for k in ("SAND", "CLAY", "OC"))
 
         dem_crs = QgsCoordinateReferenceSystem()
         dem_crs.createFromWkt(info.projection_wkt)
@@ -272,15 +459,15 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
             if unit_field not in names:
                 raise QgsProcessingException(
                     f"The soil polygons have no field '{unit_field}' to join to the database.")
-        elif not (sotwis_fields or plain):
+        elif not (user_map or sotwis_fields or plain or mapped["HSG_FIELD"] or mapped["K_FIELD"]):
             raise QgsProcessingException(
-                "Soil polygons need either the SOTWIS database, SOTWIS fields "
-                "(SDTO, STPC, CLPC, TOTC) or fields sand, silt, clay, oc (percent).")
+                "Soil polygons need the SOTWIS database, a soil table CSV, SOTWIS fields "
+                "(SDTO, STPC, CLPC, TOTC), fields sand, silt, clay, oc (percent), or the "
+                "sand / clay / organic carbon fields chosen under the advanced parameters.")
         # Soil maps often carry invalid polygons (the SOTWIS Kenya shapefile
         # does). Processing's default check would abort; the cell-centre
         # even-odd rasteriser handles self-touching rings sensibly, so read
         # them unchecked and report how many there were.
-        from qgis.core import QgsFeatureRequest
         req = QgsFeatureRequest()
         try:
             from qgis.core import Qgis
@@ -295,6 +482,7 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
             from qgis.core import QgsProcessingFeatureSource
             skip = QgsProcessingFeatureSource.Flag.FlagSkipGeometryValidityChecks
         n_invalid = 0
+        hsg_val, k_val = {}, {}
         for feat in src.getFeatures(req, skip):
             g = QgsGeometry(feat.geometry())
             if g is None or g.isEmpty():
@@ -317,6 +505,15 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
                 records.append(rec)
             if key not in index_of:
                 index_of[key] = len(index_of) + 1
+                if mapped["HSG_FIELD"]:
+                    v = feat[mapped["HSG_FIELD"]]
+                    hsg_val[index_of[key]] = None if v is None or str(v) == "NULL" else str(v)
+                if mapped["K_FIELD"]:
+                    v = feat[mapped["K_FIELD"]]
+                    try:
+                        k_val[index_of[key]] = float(v)
+                    except (TypeError, ValueError):
+                        pass
             parts = g.asMultiPolygon() if g.isMultipart() else [g.asPolygon()]
             for part in parts:
                 polys.append(([[(p.x(), p.y()) for p in ring] for ring in part], index_of[key]))
@@ -333,6 +530,22 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
                 units, sinfo = load_csv_units(csv_path, unit_field)
             except ValueError as e:
                 raise QgsProcessingException(str(e))
+        elif user_map:
+            gkg = (self.parameterAsEnum(parameters, P + "_OC_UNITS", context) == 1
+                   if P + "_OC_UNITS" in parameters else False)
+            if not mapped["SILT"]:                # silt = 100 - sand - clay
+                for r in records:
+                    try:
+                        r["__silt"] = max(100.0 - float(r[mapped["SAND"]]) - float(r[mapped["CLAY"]]), 0.0)
+                    except (TypeError, ValueError):
+                        r["__silt"] = None
+            units, sinfo = load_attributes(
+                records, sand=mapped["SAND"], silt=mapped["SILT"] or "__silt",
+                clay=mapped["CLAY"], oc_pct=mapped["OC"], oc_is_gkg=gkg,
+                bulk=mapped["BULK"], cfrag=mapped["CFRAG"], drain=mapped["DRAIN"],
+                label=f"{src.sourceName()} polygon fields "
+                      f"(sand {mapped['SAND']}, clay {mapped['CLAY']}, oc {mapped['OC']}"
+                      f"{' g/kg' if gkg else ' %'})")
         elif sotwis_fields:
             units, sinfo = load_attributes(records, sand="SDTO", silt="STPC", clay="CLPC",
                                            oc_pct="TOTC", oc_is_gkg=True,
@@ -340,19 +553,92 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
                                            cfrag="CFRAG" if "CFRAG" in names else None,
                                            drain="DRAIN" if "DRAIN" in names else None,
                                            label="SOTWIS polygon attributes (dominant soil only)")
-        else:
+        elif plain:
             units, sinfo = load_attributes(records, sand=lower["sand"], silt=lower["silt"],
                                            clay=lower["clay"], oc_pct=lower["oc"],
                                            bulk=lower.get("bulk"), cfrag=lower.get("cfrag"),
                                            drain=lower.get("drain"))
+        else:
+            units, sinfo = {}, {"soil_dataset": f"{src.sourceName()} (HSG / K fields only)",
+                                "soil_depth_cm": ""}
         feedback.setProgressText("Rasterising soil polygons")
         grid = rasterize_polygons(polys, gt, (info.rows, info.cols))
         idx = {v: k for k, v in index_of.items()}
         missing = sum(1 for k in index_of if k not in units)
         feedback.pushInfo(f"Soil: {len(index_of)} unit(s) over the DEM from {sinfo['soil_dataset']}, "
                           f"depth {sinfo['soil_depth_cm']} cm"
-                          + (f"; {missing} unit(s) without data (e.g. water, towns)" if missing else ""))
-        return grid, idx, units, sinfo
+                          + (f"; {missing} unit(s) without data (e.g. water, towns)"
+                             if missing and units else ""))
+        sg = SoilGrid.from_units(grid, idx, units, sinfo)
+        extra = {}
+        n = max(index_of.values(), default=0) + 1
+        if hsg_val:
+            lut = np.zeros(n, dtype=np.int8)
+            for i, v in hsg_val.items():
+                lut[i] = hsg_from_codes(np.array([v], dtype=object), "letters")[0]
+            extra["hsg"] = np.where(grid > 0, lut[np.clip(grid, 0, n - 1)], 0)
+            extra["hsg_source"] = f"{src.sourceName()} field {mapped['HSG_FIELD']}"
+        if k_val:
+            lut = np.full(n, np.nan)
+            for i, v in k_val.items():
+                lut[i] = v
+            extra["k"] = np.where(grid > 0, lut[np.clip(grid, 0, n - 1)], np.nan)
+            extra["k_source"] = f"{src.sourceName()} field {mapped['K_FIELD']}"
+        return sg, extra
+
+    def add_runoff_parameters(self):
+        """Land cover + lookups for the curve number / Rational C block (F1)."""
+        from qgis.core import (QgsProcessingParameterRasterLayer, QgsProcessingParameterEnum,
+                               QgsProcessingParameterFile)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            "LANDCOVER", "Land cover (ESA WorldCover classes; optional, for CN and land-cover "
+            "shares)", optional=True))
+        self.addParameter(QgsProcessingParameterEnum(
+            "CN_CONDITION", "Hydrologic condition for the TR-55 curve numbers",
+            options=["fair", "good", "poor"], defaultValue=0))
+        self.addParameter(QgsProcessingParameterEnum(
+            "CN_AMC", "Antecedent moisture condition of the exported CN",
+            options=["II (average)", "III (wet)", "I (dry)"], defaultValue=0))
+        self.addParameter(self._advanced(QgsProcessingParameterFile(
+            "CN_CSV", "Curve number lookup CSV (class, A, B, C, D; replaces the TR-55 default)",
+            optional=True, fileFilter="CSV (*.csv *.txt)")))
+        self.addParameter(self._advanced(QgsProcessingParameterFile(
+            "RC_CSV", "Rational C lookup CSV (class, A, B, C, D or class, C; none ships)",
+            optional=True, fileFilter="CSV (*.csv *.txt)")))
+
+    def load_runoff(self, parameters, context, info, soil, feedback):
+        """-> core.runoff.curve_number.RunoffInputs or None (no land cover)."""
+        from ..core.runoff.curve_number import RunoffInputs, read_lookup_csv, CONDITIONS, AMC
+        from ..core.raster import warp_to_grid
+        if "LANDCOVER" not in parameters or not parameters["LANDCOVER"] or \
+                self.parameterAsRasterLayer(parameters, "LANDCOVER", context) is None:
+            return None
+        lc, desc = warp_to_grid(self.raster_path(parameters, "LANDCOVER", context), info,
+                                resampling="near")
+        cond = CONDITIONS[self.parameterAsEnum(parameters, "CN_CONDITION", context)] \
+            if "CN_CONDITION" in parameters else "fair"
+        amc = AMC[self.parameterAsEnum(parameters, "CN_AMC", context)] \
+            if "CN_AMC" in parameters else "II"
+        cn_path = self.parameterAsFile(parameters, "CN_CSV", context) if parameters.get("CN_CSV") else ""
+        rc_path = self.parameterAsFile(parameters, "RC_CSV", context) if parameters.get("RC_CSV") else ""
+        try:
+            cn_lut = read_lookup_csv(cn_path, "CN") if cn_path else None
+            rc_lut = read_lookup_csv(rc_path, "C") if rc_path else None
+        except ValueError as e:
+            raise QgsProcessingException(str(e))
+        hsg = soil.hsg if soil is not None else None
+        ro = RunoffInputs(lc, hsg=hsg, condition=cond, amc=amc, cn_lookup=cn_lut,
+                          cn_lookup_path=cn_path or None, rc_lookup=rc_lut,
+                          rc_lookup_path=rc_path or None, lc_dataset=desc)
+        if hsg is None:
+            feedback.pushWarning("Curve numbers need hydrologic soil groups: give a soil source "
+                                 "(or an HSG raster). Land-cover shares only.")
+        else:
+            feedback.pushInfo(f"Curve numbers: {ro.cn_lookup_name}; exported at AMC {amc}"
+                              + ("" if cn_path else " - PROXY lookup, check before design use"))
+        if ro.note:
+            feedback.pushWarning(ro.note)
+        return ro
 
     @staticmethod
     def qgs_field(name, kind):

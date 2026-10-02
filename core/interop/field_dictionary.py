@@ -74,6 +74,35 @@ CROSSINGS = [
     ("ero_impact", "text", "-", "impact level", "<= 2.0 Low, <= 3.0 Moderate, <= 4.0 High, "
      "else Severe", "MCDMA"),
     ("ero_mitigation", "text", "-", "indicative mitigation for the impact level", "", "MCDMA"),
+    # v0.15 - STI advisory R1/R2 (empty without an erosion folder)
+    ("ero_sti_local", "real", "-", "overland sediment transport capacity index, 3x3 mean",
+     "(A_s/22.13)^0.6 (sin b/0.0896)^1.3 (Moore & Wilson 1992), overland cells only; "
+     "NULL on channel cells; relative, not LS", "info"),
+    ("ero_spi_app_near", "real", "m", "median SPI on the main channel 0 - near m upstream",
+     "near/far in erosion_json deposition (default 100 / 500 m)", "deposition screening"),
+    ("ero_spi_app_far", "real", "m", "median SPI on the main channel near - far m upstream", "",
+     "deposition screening"),
+    ("ero_dep_ratio", "real", "-", "ero_spi_app_near / ero_spi_app_far",
+     "below 1 = transport capacity falls into the crossing", "deposition screening"),
+    ("ero_dep_flag", "text", "-", "deposition-prone / neutral / scour-prone",
+     "ratio < 0.7 / 0.7-1.3 / > 1.3 (editable, in erosion_json)", "deposition screening"),
+    ("ero_slope_app_near_pct", "real", "%", "channel slope of the near reach",
+     "drop / length on the raw DEM", "deposition screening"),
+    ("ero_slope_app_far_pct", "real", "%", "channel slope of the far reach", "",
+     "deposition screening"),
+    ("ero_dep_note", "text", "-", "why no ratio was computed (e.g. channel too short)", "", "QA"),
+    # v0.15 - approach / exit channel slopes (A5)
+    ("ch_slope_us", "real", "m/m", "approach channel slope upstream of the crossing",
+     "drop / length over ch_slope_dist_m along the main stem (largest-accumulation donor), raw DEM",
+     "approach channel slope"),
+    ("ch_slope_ds", "real", "m/m", "exit channel slope downstream of the crossing",
+     "drop / length over ch_slope_dist_m along the D8 path, raw DEM", "exit channel slope"),
+    ("ch_len_us_m", "real", "m", "length actually used upstream (shorter near the divide)", "",
+     "provenance"),
+    ("ch_len_ds_m", "real", "m", "length actually used downstream (shorter at the grid edge)", "",
+     "provenance"),
+    ("ch_slope_dist_m", "real", "m", "requested approach / exit length", "default 200 m",
+     "provenance"),
 ]
 
 CATCHMENTS = [
@@ -101,6 +130,23 @@ CATCHMENTS = [
      "later release)", "", "alias"),
     ("slope_relief_ratio", "real", "m/m", "LEGACY alias of catch_relief_ratio "
      "(removed in a later release)", "", "alias"),
+    # basin shape and network indices (v0.15, F6) - information only
+    ("perimeter_km", "real", "km", "catchment outline length",
+     "3x3-smoothed mask contoured at 0.5 (marching squares); not the cell-edge staircase",
+     "morphometry"),
+    ("form_factor", "real", "-", "form factor A / L^2", "Horton (1932); L = LFP length",
+     "morphometry"),
+    ("elongation_ratio", "real", "-", "elongation ratio (2/L) sqrt(A/pi)",
+     "Schumm (1956); L = LFP length", "morphometry"),
+    ("circularity_ratio", "real", "-", "circularity ratio 4 pi A / P^2", "Miller (1953)",
+     "morphometry"),
+    ("drainage_density", "real", "km/km2", "channel length / area",
+     "channel cells at stream_threshold_cells; length along D8 links", "morphometry"),
+    ("stream_frequency", "real", "1/km2", "channel links / area",
+     "a link runs from a source or confluence to the next confluence or the outlet",
+     "morphometry"),
+    ("max_strahler", "int", "-", "highest Strahler order in the catchment",
+     "stream-order raster if given, else computed at the stream threshold", "morphometry"),
 ] + _LINK + [
     # soil block (v0.11, WP-C) - empty when no soil dataset was supplied
     ("soil_sand_pct", "real", "%", "topsoil sand", "area-weighted over soil units; "
@@ -131,6 +177,50 @@ CATCHMENTS = [
     ("soil_dataset", "text", "-", "soil dataset and version", "", "provenance"),
     ("soil_depth_cm", "text", "cm", "depth interval the soil values describe (default 0-20, D6)",
      "", "provenance"),
+    ("soil_hsg", "text", "-", "hydrologic soil group with the largest share (A-D)",
+     "direct HSG input (e.g. HYSOGs250m) where given, else the per-cell texture/drainage proxy; "
+     "see soil_hsg_source", "CN input"),
+    ("hsg_pct_a", "real", "%", "share of the catchment in HSG A", "of cells with a known group",
+     "CN input"),
+    ("hsg_pct_b", "real", "%", "share in HSG B", "", "CN input"),
+    ("hsg_pct_c", "real", "%", "share in HSG C", "", "CN input"),
+    ("hsg_pct_d", "real", "%", "share in HSG D, including dual groups (A/D, B/D, C/D)",
+     "dual groups counted as D (undrained)", "CN input"),
+    ("hsg_pct_dual", "real", "%", "share in dual groups (high runoff unless drained)",
+     "part of hsg_pct_d", "CN input"),
+    ("soil_hsg_source", "text", "-", "source of the HSG values", "direct dataset or "
+     "'proxy: texture and drainage class'", "provenance"),
+    ("usle_k_source", "text", "-", "source of usle_k", "direct K input, or Williams/EPIC "
+     "from the soil dataset", "provenance"),
+] + [
+    # curve number and Rational C (v0.15, F1) - empty without a land-cover raster
+    ("cn_ii", "real", "-", "area-weighted curve number, AMC II",
+     "per cell: land cover x hydrologic soil group lookup (default TR-55 Table 2-2 matched to "
+     "WorldCover - a PROXY; see cn_lookup_id and run metadata runoff_json)", "CN"),
+    ("cn_amc", "text", "-", "antecedent moisture condition of cn_export (I, II, III)", "",
+     "provenance"),
+    ("cn_export", "real", "-", "curve number at cn_amc",
+     "cn_ii converted: CN_III = 23 CN/(10 + 0.13 CN), CN_I = 4.2 CN/(10 - 0.058 CN) "
+     "(Chow et al. 1988)", "CN"),
+    ("cn_coverage_pct", "real", "%", "share of the catchment with a CN (known cover and HSG)",
+     "", "QA"),
+    ("rational_c", "real", "-", "area-weighted Rational runoff coefficient",
+     "user lookup only (no default values ship)", "runoff coefficient"),
+    ("rc_coverage_pct", "real", "%", "share of the catchment with a Rational C", "", "QA"),
+    ("lc_pct_tree", "real", "%", "tree cover share", "WorldCover 10", "land cover"),
+    ("lc_pct_shrub", "real", "%", "shrubland share", "WorldCover 20", "land cover"),
+    ("lc_pct_grass", "real", "%", "grassland share", "WorldCover 30", "land cover"),
+    ("lc_pct_crop", "real", "%", "cropland share", "WorldCover 40", "land cover"),
+    ("lc_pct_built", "real", "%", "built-up share", "WorldCover 50", "land cover"),
+    ("lc_pct_bare", "real", "%", "bare / sparse vegetation share", "WorldCover 60", "land cover"),
+    ("lc_pct_water", "real", "%", "permanent water share", "WorldCover 80", "land cover"),
+    ("lc_pct_wetland", "real", "%", "herbaceous wetland and mangrove share", "WorldCover 90, 95",
+     "land cover"),
+    ("lc_pct_other", "real", "%", "snow / ice and moss / lichen share", "WorldCover 70, 100",
+     "land cover"),
+    ("cn_lookup_id", "text", "-", "CN lookup name and version", "full table in runoff_json",
+     "provenance"),
+    ("lc_dataset", "text", "-", "land-cover dataset", "", "provenance"),
 ] + [
     # erosion block (v0.14, WP-F) - empty when no erosion inputs were supplied
     ("ero_mode", "text", "-", "RUSLE, or LS-only when R, K or C was not supplied",
@@ -208,6 +298,26 @@ FLOWPATHS = [
      "by more than 0.5 m (spike or pit on the path; lfp_slope slightly overstated)", "", "QA"),
     ("area_km2", "real", "km2", "area of the catchment this path belongs to", "",
      "provenance"),
+    # overland / channel split (v0.15, F2)
+    ("lfp_overland_m", "real", "m", "divide -> channel head length",
+     "channel head = first path cell with accumulation >= lfp_threshold_km2",
+     "Kerby overland length"),
+    ("lfp_overland_slope", "real", "m/m", "slope of the overland part",
+     "(z head - z channel head) / lfp_overland_m, raw DEM", "Kerby overland slope"),
+    ("lfp_channel_m", "real", "m", "channel head -> outlet length",
+     "lfp_overland_m + lfp_channel_m = lfp_length_m", "Kirpich / Kerby channel length"),
+    ("lfp_channel_slope", "real", "m/m", "slope of the channel part",
+     "(z channel head - z outlet) / lfp_channel_m", "Kirpich / Kerby channel slope"),
+    ("lfp_channel_slope_1085", "real", "m/m", "10-85 slope of the channel part",
+     "outlet-referenced, as lfp_slope_1085", "channel slope (10-85)"),
+    ("lfp_sheet_m", "real", "m", "sheet-flow part of the overland length",
+     "min(lfp_overland_m, sheet cap; default 100 m, TR-55 practice)", "TR-55 sheet flow"),
+    ("lfp_shallow_m", "real", "m", "shallow concentrated part of the overland length",
+     "lfp_overland_m - lfp_sheet_m", "TR-55 shallow flow"),
+    ("lfp_threshold_km2", "real", "km2", "channel threshold used for the split",
+     "stream threshold x cell area", "provenance"),
+    ("lfp_no_channel", "int", "0/1", "1 when no path cell reaches the threshold "
+     "(whole path overland)", "", "QA"),
 ] + _LINK
 
 LAYERS = {
@@ -217,6 +327,33 @@ LAYERS = {
                    "One catchment per crossing, with morphometry"),
     "flowpaths": ("LINESTRING", FLOWPATHS,
                   "Longest flow path per crossing, digitised divide -> outlet"),
+}
+
+# Optional layers (additive; written only when their input was given). Listed
+# in qeht_field_dictionary so the package still documents itself.
+OPTIONAL_LAYERS = {
+    "alignment_profile": ("POINT", [
+        ("align_name", "text", "-", "alignment identifier", "", "info"),
+        ("chainage_m", "real", "m", "station chainage", "start chainage + distance along the "
+         "alignment, every alignment_step_m", "crossing chainage"),
+        ("x", "real", "m", "station easting (package CRS)", "", "info"),
+        ("y", "real", "m", "station northing (package CRS)", "", "info"),
+        ("z_dem_m", "real", "m", "raw DEM ground at the station", "bilinear between cell centres",
+         "ground profile"),
+        ("z_fill_m", "real", "m", "filled DEM at the station (empty without a filled DEM)",
+         "bilinear", "ground profile"),
+        ("pond_depth_m", "real", "m", "depth the fill raised the ground (ponding)",
+         "max(z_fill_m - z_dem_m, 0)", "ground profile"),
+        ("acc_km2", "real", "km2", "contributing area at the station",
+         "largest (accumulation + 1) x cell area within 1 cell", "ground profile"),
+        ("stream", "int", "0/1", "1 at the station nearest a D8 stream crossing",
+         "exact stream link x alignment intersection at the stream threshold", "ground profile"),
+        ("strahler", "int", "-", "Strahler order of that stream (if an order raster was given)",
+         "", "info"),
+        ("slope_long_pct", "real", "%", "longitudinal ground slope, positive = rising chainage",
+         "centred difference of z_dem_m (one-sided at part ends)", "ground profile"),
+        ("alignment_part", "int", "-", "part of a multi-part alignment", "", "info"),
+    ], "Ground profile along the road alignment (stations)"),
 }
 
 METADATA_KEYS = [
@@ -249,15 +386,89 @@ METADATA_KEYS = [
     ("relinked_from", "package this one was renumbered/relinked from (D3)"),
     ("soil_dataset", "soil dataset used for the soil block (empty = none)"),
     ("soil_depth_cm", "topsoil depth interval of the soil block"),
+    ("soil_hsg_source", "source of the hydrologic soil groups (direct dataset or texture proxy)"),
+    ("runoff_json", "curve number / Rational C inputs: land-cover dataset, condition, AMC, "
+     "proxy flag and the full lookups (empty = no runoff block)"),
+    ("soil_k_source", "source of K in the soil block (direct K or Williams/EPIC)"),
     ("conditioning_burn", "summary of the breach log when one was supplied (layer burn_log)"),
     ("erosion_json", "erosion inputs: mode, factor provenance (source, proxy flags), LS method, "
      "class schemes, MCDMA weights, SDR model (empty = no erosion block)"),
+    ("sheet_cap_m", "sheet-flow cap used for lfp_sheet_m (m)"),
+    ("channel_slope_m", "approach / exit channel length for ch_slope_us / ch_slope_ds (m)"),
+    ("alignment_source", "road alignment layer used for chainage and the ground profile"),
+    ("alignment_step_m", "station spacing of alignment_profile (m)"),
     ("n_crossings", "number of crossings written"),
     ("parameters_json", "full parameter dictionary of the run"),
 ]
 
 FIELD_DICTIONARY_COLUMNS = ("layer", "field", "type", "unit", "meaning",
-                            "method", "heas_target")
+                            "method", "heas_target", "downstream_use", "heas_field")
+
+# Plain-language "downstream use" for each heas_target term (v0.15, §0 of the
+# feature recommendations): the package is for spreadsheets, reports or any
+# design software, not only HEAS. heas_target stays as it was (HEAS reads it;
+# the table is additive under qeht-heas-1); heas_field names the HEAS input
+# only where the target is one.
+DOWNSTREAM_USE = {
+    "link key": "joins crossings, catchments and flow paths",
+    "link registry": "how the feature was linked to its crossing",
+    "crossing ID": "crossing label in schedules and reports",
+    "catchment ID": "catchment label in schedules and reports",
+    "flow path ID": "flow path label in schedules and reports",
+    "crossing chainage": "crossing position along the road",
+    "none": "not for linking (unstable feature id)",
+    "provenance": "record of how the value was produced",
+    "QA": "quality check",
+    "info": "information for the report",
+    "hand check": "lets a reviewer check the value by hand",
+    "alias": "old name kept for one release",
+    "area_km2": "catchment area for any design flood method",
+    "catchment_slope": "mean catchment slope (runoff coefficient / CN tables)",
+    "catchment relief ratio": "basin-steepness index (morphometry; not a Tc input)",
+    "flow_path_km": "time of concentration: flow path length",
+    "flow_path_slope": "time of concentration: flow path slope (drop / length)",
+    "flow_path_slope_10_85": "time of concentration: 10-85 flow path slope",
+    "sediment/CN input": "soil texture for CN and sediment calculations",
+    "sediment input": "soil property for sediment calculations",
+    "CN input (proxy)": "hydrologic soil group for curve numbers (texture proxy)",
+    "CN input": "hydrologic soil group for curve numbers",
+    "CN": "SCS curve number (when the engineer accepts it)",
+    "runoff coefficient": "Rational method runoff coefficient",
+    "land cover": "land-cover share for the report and CN / C checks",
+    "deposition screening": "sediment deposition tendency at the culvert inlet (screening)",
+    "approach channel slope": "approach channel slope (floodplain level, barrel comparison)",
+    "exit channel slope": "exit channel slope (tailwater rating)",
+    "MUSLE K": "soil erodibility for RUSLE / MUSLE",
+    "MUSLE LS": "slope length-steepness factor for RUSLE / MUSLE",
+    "MUSLE C": "cover factor for RUSLE / MUSLE",
+    "MUSLE P": "support practice factor for RUSLE / MUSLE",
+    "MUSLE CFRG": "coarse-fragment factor for MUSLE",
+    "MUSLE CFRG input": "coarse fragments for MUSLE",
+    "MUSLE / sediment": "soil loss for sediment calculations",
+    "alternative K": "alternative soil erodibility",
+    "gully potential": "gully / scour potential at the crossing",
+    "erosion": "erosion severity",
+    "erosion provenance": "how the erosion values were produced",
+    "sediment": "sediment yield to the crossing",
+    "MCDMA": "multi-criteria erosion impact score",
+    "ground profile": "ground profile along the road (provisional levels, DEM check)",
+    "morphometry": "basin shape / network index for the report (information only)",
+    "Kerby overland length": "time of concentration: overland (Kerby) length",
+    "Kerby overland slope": "time of concentration: overland (Kerby) slope",
+    "Kirpich / Kerby channel length": "time of concentration: channel length",
+    "Kirpich / Kerby channel slope": "time of concentration: channel slope",
+    "channel slope (10-85)": "time of concentration: 10-85 channel slope",
+    "TR-55 sheet flow": "segmental Tc: sheet-flow length",
+    "TR-55 shallow flow": "segmental Tc: shallow concentrated flow length",
+}
+
+# heas_target terms that are HEAS input names (written to heas_field)
+HEAS_FIELDS = {"area_km2", "catchment_slope", "flow_path_km", "flow_path_slope",
+               "flow_path_slope_10_85"}
+
+
+def downstream_use(target):
+    return DOWNSTREAM_USE.get(target, target)
 
 
 def field_names(layer):
@@ -269,7 +480,13 @@ def dictionary_rows():
     rows = []
     for layer, (_, fields, _) in LAYERS.items():
         for name, ftype, unit, meaning, method, target in fields:
-            rows.append((layer, name, ftype, unit, meaning, method, target))
+            rows.append((layer, name, ftype, unit, meaning, method, target,
+                         downstream_use(target), target if target in HEAS_FIELDS else ""))
+    for layer, (_, fields, _) in OPTIONAL_LAYERS.items():
+        for name, ftype, unit, meaning, method, target in fields:
+            rows.append((layer, name, ftype, unit, meaning, method, target,
+                         downstream_use(target), ""))
     for key, meaning in METADATA_KEYS:
-        rows.append(("qeht_run_metadata", key, "text", "-", meaning, "", "provenance"))
+        rows.append(("qeht_run_metadata", key, "text", "-", meaning, "", "provenance",
+                     downstream_use("provenance"), ""))
     return rows

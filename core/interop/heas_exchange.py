@@ -127,7 +127,9 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
                            outlets, snap_radius_cells=5, stream_mask=None,
                            local=False, stream_order=None, id_scheme="sequential",
                            id_prefix="X", id_width=3, id_start=1,
-                           id_order="downstream", soil=None, erosion=None, progress=None):
+                           id_order="downstream", soil=None, erosion=None, progress=None,
+                           channel_threshold_cells=None, sheet_cap_m=100.0, runoff=None,
+                           channel_slope_m=200.0):
     """Run snap -> id -> catchment -> LFP -> characteristics for every outlet.
 
     Parameters
@@ -153,9 +155,20 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
     erosion : optional core.erosion.summary.ErosionInputs; adds the ero_*
         blocks to catchments and crossings (bulk density from the soil
         block when present)
-    soil : optional (unit_grid, index_to_unit, units, info) from the soils
-        module; adds the soil block (core.soils.catchment.SOIL_FIELDS) to
-        every catchment
+    soil : optional core.soils.sources.SoilGrid (or the older tuple
+        (unit_grid, index_to_unit, units, info)); adds the soil block
+        (core.soils.catchment.SOIL_FIELDS) to every catchment
+    channel_threshold_cells : accumulation (cells) at which a channel
+        starts (normally the stream threshold). Adds the overland/channel
+        split of each LFP (F2) and the basin shape and network indices (F6,
+        core.watershed.morphometry). None = only the shape ratios that need
+        no channel network.
+    sheet_cap_m : cap on sheet flow within the overland part (F2)
+    channel_slope_m : length of the approach / exit channel for ch_slope_us /
+        ch_slope_ds (A5, core.watershed.channel); main stem upstream, D8
+        path downstream, raw DEM
+    runoff : optional core.runoff.curve_number.RunoffInputs; adds the curve
+        number / Rational C / land-cover block (F1) to every catchment
 
     Returns (crossings, catchments, flowpaths, issues, id_info) where the
     first three are lists of (geometry, attributes) ready for the writer
@@ -222,6 +235,15 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
 
     # 3. catchments
     slope_raster = horn_slope(elevation, valid, cw, ch)
+    from ..watershed.morphometry import lfp_split, shape_indices
+    channel_mask = strahler = None
+    if channel_threshold_cells:
+        channel_mask = valid & (np.nan_to_num(accumulation, nan=-1.0) >= float(channel_threshold_cells))
+        if stream_order is not None:
+            strahler = stream_order
+        else:
+            from ..flow.accumulation import strahler_order
+            strahler = strahler_order(direction, valid, channel_mask).astype(float)
     if local:
         order = sorted(range(len(snapped)), key=lambda i: (snapped[i]["acc_cells"], i))
         labels = delineate_catchment(direction, valid,
@@ -257,9 +279,24 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
             issues.append(f"{s['uid']}: empty catchment (no valid cells); no catchment "
                           "or flow path written.")
             continue
+        if channel_threshold_cells:
+            chs.update(lfp_split(lfp["cells"], elevation, accumulation, channel_threshold_cells,
+                                 cw, ch, sheet_cap_m=sheet_cap_m))
+        chs.update(shape_indices(mask, chs.get("area_km2"), chs.get("lfp_length_m"), cw, ch,
+                                 direction=direction, valid=valid, channel_mask=channel_mask,
+                                 strahler=strahler))
         if soil is not None:
-            from ..soils.catchment import soil_block
-            chs.update(soil_block(mask, soil[0], soil[2], soil[1], soil[3]))
+            if hasattr(soil, "block"):          # core.soils.sources.SoilGrid (v0.15)
+                chs.update(soil.block(mask))
+            else:                               # (unit_grid, index_to_unit, units, info)
+                from ..soils.catchment import soil_block
+                chs.update(soil_block(mask, soil[0], soil[2], soil[1], soil[3]))
+        if runoff is not None:
+            chs.update(runoff.block(mask))
+        from ..watershed.channel import channel_slopes
+        crossings[-1][1].update(channel_slopes(direction, valid, accumulation, elevation,
+                                               s["row"], s["col"], cw, ch,
+                                               distance_m=channel_slope_m))
         if erosion is not None:
             from ..erosion.summary import catchment_erosion, crossing_erosion
             bd = chs.get("soil_bulk_gcm3")
@@ -267,7 +304,9 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
                                    bulk_kgm3=bd * 1000.0 if bd else None)
             chs.update(eb)
             crossings[-1][1].update(crossing_erosion(s["row"], s["col"], mask, direction,
-                                                     erosion, eb))
+                                                     erosion, eb, accumulation=accumulation,
+                                                     valid=valid, elevation=elevation,
+                                                     cell_size=(cw, ch)))
         polys = mask_to_polygons(mask, gt)
         catchments.append((polys, dict(
             chs, **link, outlet_uid=s["uid"], catchment_id=s["uid"],

@@ -3,7 +3,7 @@ name=QEHT Engineering Hydrology
 qgisMinimumVersion=3.22
 qgisMaximumVersion=4.99
 description=In-process terrain, drainage-network and catchment analysis for engineering hydrology. Equivalent to commercial reference hydrology/raster toolsets, with no external executables.
-version=0.14.0
+version=0.15.0
 author=Edmond Akello
 email=francenicklaus@gmail.com
 about=A security-conscious QGIS plugin providing terrain, drainage-network
@@ -19,7 +19,7 @@ about=A security-conscious QGIS plugin providing terrain, drainage-network
     Tools: Fill depressions, D8 flow direction, flow accumulation, stream
     network with Strahler ordering, catchment delineation with pour-point
     snapping, and longest flow path with length/drop/slope for time-of-
-    concentration calculations, and a "Build HEAS exchange package" tool that
+    concentration calculations, and a "Build design hydrology package" tool that
     writes crossings, catchments and longest flow paths linked by a stable
     outlet_uid into one self-describing GeoPackage. Road drainage tools find
     road x drainage crossing candidates with chainage and parallel-flow
@@ -41,4 +41,4 @@ hasProcessingProvider=yes
 homepage=https://github.com/EdmondAkello/qeht
 repository=https://github.com/EdmondAkello/qeht
 tracker=https://github.com/EdmondAkello/qeht/issues
-changelog=0.14.0: erosion (WP-F) - SPI, TWI, LS, RUSLE with source-tagged factors and LS-only fallback, severity classes, corridor sampler, erosion block and crossing impact score in the HEAS exchange; slope documentation (relief ratio is not a Tc input), lfp_z_head_m / lfp_z_outlet_m / lfp_nonmonotonic. 0.13.1: DEM QA warning for nearest-neighbour resampling; flat-method sensitivity check per catchment (area under both methods, flag); ID prefix applies to sequential IDs only. 0.13.0: Barnes 2014 is the default flat method (WP-G benchmark, 80 Kenyan areas x ALOS/FABDEM vs TauDEM, RichDEM, MAS, DDM); Barnes now identical to RichDEM; flats touching the grid edge or NoData drain; hybrid removed; tested on QGIS 4.2.2 and 3.34. 0.12.0: vectorised core (3.6-5.4x faster), Barnes flow-loop fix, hybrid flat resolution, memory estimate. 0.11.0: soil parameters and USLE K (SOTWIS preset). 0.10.0: road crossing candidates, burn crossings, renumber and relink. 0.9.0: HEAS exchange package, stable outlet_uid, outlet-referenced 10-85 slope, overlapping-catchment polygon fix. See CHANGELOG.md
+changelog=0.15.0: 'Build design hydrology package' (was Build HEAS exchange package; id unchanged); alignment ground profile; overland/channel split of the flow path and basin shape indices; soils from any source (SoilGrids, HWSD units, any polygon map, HYSOGs HSG, K rasters); curve number and Rational C from land cover x HSG; overland STI, crossing deposition indicator and approach/exit channel slopes. 0.14.0: erosion (WP-F) - SPI, TWI, LS, RUSLE with source-tagged factors and LS-only fallback, severity classes, corridor sampler, erosion block and crossing impact score in the HEAS exchange; slope documentation (relief ratio is not a Tc input), lfp_z_head_m / lfp_z_outlet_m / lfp_nonmonotonic. 0.13.1: DEM QA warning for nearest-neighbour resampling; flat-method sensitivity check per catchment (area under both methods, flag); ID prefix applies to sequential IDs only. 0.13.0: Barnes 2014 is the default flat method (WP-G benchmark, 80 Kenyan areas x ALOS/FABDEM vs TauDEM, RichDEM, MAS, DDM); Barnes now identical to RichDEM; flats touching the grid edge or NoData drain; hybrid removed; tested on QGIS 4.2.2 and 3.34. 0.12.0: vectorised core (3.6-5.4x faster), Barnes flow-loop fix, hybrid flat resolution, memory estimate. 0.11.0: soil parameters and USLE K (SOTWIS preset). 0.10.0: road crossing candidates, burn crossings, renumber and relink. 0.9.0: HEAS exchange package, stable outlet_uid, outlet-referenced 10-85 slope, overlapping-catchment polygon fix. See CHANGELOG.md

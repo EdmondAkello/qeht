@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.14.0
+**Version:** 0.15.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -45,15 +45,20 @@ qeht/
     watershed/
       delineate.py       streams, snapping, catchments, longest flow path
       statistics.py      catchment and flow-path morphometry, 10-85 slope
+      morphometry.py     overland/channel split of the LFP, basin shape and network indices
+      channel.py         approach / exit channel slopes, crossing deposition indicator
     linking/
       ids.py             outlet_uid generation and uniqueness
       relink.py          renumber_log for renumber-and-relink (D3)
     geometry/
       polygonize.py      cell mask -> OGC-valid (multi)polygon, pure NumPy
     soils/
-      usle_k.py          Williams/EPIC and Dg-based K, CFRG, USDA texture, HSG proxy
-      sotwis.py          SOTWIS SQLite loader, generic attribute loader
-      catchment.py       per-catchment soil block
+      usle_k.py          Williams/EPIC and Dg-based K, CFRG, USDA texture, HSG proxy (scalar + vectorised)
+      sotwis.py          SOTWIS SQLite loader, generic attribute loader, CSV table loader
+      sources.py         SoilGrid: any soil source on one per-cell model; SoilGrids, HYSOGs
+      catchment.py       per-catchment soil block (field list)
+    runoff/
+      curve_number.py    curve number (TR-55 x WorldCover proxy, user lookups), AMC, Rational C
     geometry/
       rasterize.py       polygons -> grid, cell-centre rule
     erosion/
@@ -66,13 +71,14 @@ qeht/
     network/
       alignment.py       linear referencing: chainage, signed offset, intersections
       crossings.py       road x drainage candidates, parallel reaches, clusters
+      profile.py         alignment ground profile
     interop/
       field_dictionary.py  the qeht-heas-1 contract (every exchange field)
       gpkg.py            standard-library GeoPackage 1.2 writer/reader
       heas_exchange.py   pipeline, writer, validator, CSV export
 
   processing_provider/   the only QGIS-aware code
-    provider.py          registers the fifteen algorithms
+    provider.py          registers the sixteen algorithms
     base.py              shared base class and helpers (pour points, IDs)
     alg_*.py             one file per algorithm
 
@@ -83,6 +89,11 @@ qeht/
     test_soils.py        33 checks: USLE K, texture, HSG, SOTWIS and CSV loaders, soil block
     test_flats.py        36 checks: v0.8.3 oracles, Barnes == RichDEM port, edge drains, DEM QA
     test_erosion.py      44 checks: analytic plane/valley, A14 2025 anchors, RUSLE, classes, corridor
+    test_alignment.py    15 checks: ground profile on a plane and a valley
+    test_morphometry.py  22 checks: LFP split, perimeter/shape ratios, drainage density, links
+    test_soils_any.py    18 checks: vectorised = scalar, v0.14 regression, SoilGrids, HYSOGs, overrides
+    test_runoff.py       17 checks: CN mosaic, dual groups, AMC, lookups, pipeline
+    test_channel.py      16 checks: STI identity, channel slopes, deposition ratio
     fixtures/            golden_exchange.gpkg + .json (shared with HEAS)
     qgis_smoke.py        every Processing tool run inside QGIS
 ```
@@ -93,7 +104,7 @@ The dependency direction is strict and one-way: `processing_provider` imports `c
 
 ## 3. Processing algorithms
 
-QEHT registers fifteen algorithms under the "Engineering Hydrology" provider.
+QEHT registers sixteen algorithms under the "Engineering Hydrology" provider.
 
 | Algorithm | Commercial reference analogue |
 |---|---|
@@ -105,13 +116,14 @@ QEHT registers fifteen algorithms under the "Engineering Hydrology" provider.
 | Delineate catchments from pour points | a reference hydrology toolset's `Watershed` / `Batch Watershed Delineation` |
 | Longest flow path | a reference hydrology toolset's `Longest Flow Path` |
 | Catchment and flow path characteristics | a reference hydrology toolset's basin/LFP attribute tools |
-| Build HEAS exchange package | none — one self-describing GeoPackage for HEAS (Section 5.1) |
+| Build design hydrology package (formerly "Build HEAS exchange package") | none — one self-describing GeoPackage of crossings, catchments and flow paths (Section 5.1) |
 | Renumber and relink exchange package | none — gapless re-issue of IDs after edits (Section 5.2) |
 | Road crossing candidates | none — road × drainage crossings (Section 4.11) |
 | Burn crossings through embankments | DEM reconditioning at culverts (Section 4.12) |
-| Soil parameters for catchments | zonal soil statistics and USLE K (Section 4.13) |
+| Soil and runoff parameters for catchments | zonal soil statistics, USLE K, HSG shares, curve number (Sections 4.13, 4.17, 4.18) |
 | Erosion indices and RUSLE soil loss | terrain indices, RUSLE and severity classes (Section 4.14) |
 | Sample erosion along alignment | none — erosion stations and reaches along a road (Section 4.14) |
+| Alignment ground profile | none — ground, fill, area and stream crossings along a road (Section 4.15) |
 
 Each is a `QgsProcessingAlgorithm` registered through a `QgsProcessingProvider`. Exposing the tools this way — rather than as bespoke dialogs — means they gain input validation, batch mode, the Graphical Modeler, the history log, and `processing.run()` scriptability at no additional cost. Chaining tools in the Modeler is much of a commercial hydrology extension's practical value, and this design reproduces it.
 
@@ -246,6 +258,32 @@ At each crossing the breach runs perpendicular to the road between two points `h
 
 **Corridor.** Stations every Δs along the chainage; samples on perpendicular offsets to the half-width each side (nearest cell); per side max and mean of ln(SPI), LS, A and TWI; worst combined score in the buffer; reaches are runs of equal worst score with boundaries half-way between stations, so reach lengths sum to the sampled length.
 
+### 4.15 Alignment ground profile (v0.15)
+
+Stations every Δs (default 10 m) from the start chainage, plus the end. z_dem and z_fill by bilinear interpolation between cell centres (NaN next to NoData); pond depth = max(z_fill − z_dem, 0). Contributing area = largest (accumulation + 1)·cell area within one cell of the station. Stream crossings are the exact intersections of D8 stream links (cell centre to receiver centre, at the stream threshold) with the centreline — the method of 4.11 without a minimum area; each flags the nearest station, which takes the crossing's area if larger and its Strahler order. Longitudinal slope = centred difference of z_dem, one-sided at the ends and within each part of a multi-part alignment. Tested exact on a plane (z, ±2 % with direction, 1.9 % on an oblique line).
+
+### 4.16 Flow-path segments and basin shape (v0.15)
+
+**Segments.** Walking the LFP from the divide, the channel head is the first cell with accumulation ≥ the stream threshold. lfp_overland_m = distance to that cell, lfp_channel_m = the rest (they sum to lfp_length_m); slopes are end-point drops on the raw DEM over each length; lfp_channel_slope_1085 applies 4.10 to the channel part. The overland part is reported as sheet flow up to a cap (default 100 m, TR-55 practice) plus shallow concentrated flow. No channel cell → whole path overland, lfp_no_channel = 1.
+
+**Shape.** perimeter_km from the catchment mask smoothed with a 3×3 mean and contoured at 0.5 by marching squares with interpolation (within ~1 % of a disc's circumference and ~1.5 % of a square's; the cell-edge staircase overstates a round outline by 27 %). form_factor = A/L² (Horton), elongation_ratio = (2/L)√(A/π) (Schumm), circularity_ratio = 4πA/P² (Miller), L = LFP length. drainage_density = channel length along D8 links inside the catchment / A; stream_frequency = links / A with links = sources + confluence cells (Shreve links); max_strahler from the stream-order raster or computed at the threshold.
+
+### 4.17 Soils from any source (v0.15)
+
+Every source is turned into a `SoilGrid`: per-cell sand, silt, clay, organic carbon, bulk density, coarse fragments, K (SI), Dg-K, drainage class and hydrologic soil group on the DEM grid. Unit sources (SOTWIS / SOTER database, polygon attributes or user-named fields, polygons + CSV, unit raster + CSV) paint each unit's description — K still computed per component, then weighted — onto its cells; the catchment block is then identical to 4.13 (tested field by field). Texture rasters give per-cell values with K, texture and HSG proxy computed per cell (vectorised versions of the 4.13 functions, tested equal on 5,000 random textures). SoilGrids 2.0 values are divided by ISRIC's factors (sand/silt/clay g/kg ÷ 10 → %, soc dg/kg ÷ 100 → %, bdod cg/cm³ ÷ 100 → g/cm³, cfvo ‰ ÷ 10 → vol %); depth layers are weighted by their overlap with the chosen interval, per cell over the layers present. Overrides: a hydrologic soil group raster (HYSOGs250m codes 1–4 = A–D, 11–14 = dual groups counted as D, 255 NoData) or polygon field replaces the proxy where known; a K raster or field replaces the computed K where finite. The catchment block adds soil_hsg (largest share), hsg_pct_a…d, hsg_pct_dual, soil_hsg_source and usle_k_source.
+
+### 4.18 Curve number and Rational C (v0.15)
+
+Per cell, land cover (WorldCover, nearest-neighbour onto the DEM grid) × HSG (4.17) → CN (AMC II) from a lookup: by default USDA TR-55 (1986) Table 2-2 with each WorldCover class matched to one cover (tree → woods, shrub → brush, grass → pasture/grassland/range, crop → row crops straight row, built-up → commercial 85 % impervious, bare → fallow bare soil, water → 100; wetland, mangroves, snow and moss have no default), for the chosen condition (fair/good/poor; row crops have no 'fair' row and use 'good'). The match is a proxy and is flagged in `runoff_json`; a user CSV (class, A, B, C, D) replaces it. cn_ii is the cell mean over cells with a CN (cn_coverage_pct reports the rest); cn_export converts it to AMC I or III with CN_I = 4.2CN/(10 − 0.058CN), CN_III = 23CN/(10 + 0.13CN) (Chow, Maidment & Mays 1988). Rational C works the same way from a user lookup only. Land-cover shares are given whenever a land-cover raster is.
+
+### 4.19 STI, deposition at crossings, channel slopes (v0.15)
+
+**STI** (sediment transport capacity index, Moore & Wilson 1992) = (A_s/22.13)^0.6 (sin β/0.0896)^1.3 — the 4.14 LS form with m = 0.6 (tested identical) — on overland cells only, channels NoData and A_s capped at 100 m. A relative indicator; never used in soil loss, classes or the composite.
+
+**Deposition indicator.** The main stem upstream of a crossing is followed by taking, at each cell, the donor with the largest accumulation. On channel cells, median SPI over 0–100 m (near) and 100–500 m (far) upstream; ero_dep_ratio = near / far; below 0.7 deposition-prone, above 1.3 scour-prone (editable). Both reach slopes (drop / length) are exported, because over a short reach the ratio is mostly the slope break — unless the area grows fast along it, which the ratio then includes. Null with a note when the channel upstream is shorter than 90 % of the far distance.
+
+**Channel slopes.** ch_slope_us along the main stem upstream and ch_slope_ds along the D8 receivers downstream, each over 200 m (or less at the divide or grid edge, reported in ch_len_us_m / ch_len_ds_m), from raw-DEM end-point elevations.
+
 ---
 
 ## 5. Data handling and interoperability
@@ -255,9 +293,9 @@ At each crossing the breach runs perpendicular to the road between two points `h
 - **Flow-direction interchange** works in both directions via the standard D8 encoding, so a reference hydrology toolset's grid can be ingested and a QEHT grid exported.
 - **CRS** is carried with each raster and pour points are reprojected into the DEM CRS as needed.
 
-### 5.1 HEAS exchange package (schema `qeht-heas-1`)
+### 5.1 Design hydrology package (schema `qeht-heas-1`)
 
-"Build HEAS exchange package" writes one GeoPackage per run with `crossings` (snapped outlets), `catchments` and `flowpaths`, plus two attribute tables: `qeht_run_metadata` (key/value provenance: QEHT version, run time, CRS, cell size, DEM path and SHA-256, user-declared DEM source, conditioning and flat method, stream threshold, snap radius and strategy, catchment mode, ID scheme, full parameter set) and `qeht_field_dictionary` (field, type, unit, meaning, method and HEAS target for every field — the file documents itself).
+"Build design hydrology package" (named "Build HEAS exchange package" up to 0.14; algorithm id `buildheasexchange` unchanged) writes one GeoPackage per run with `crossings` (snapped outlets), `catchments` and `flowpaths`, plus two attribute tables: `qeht_run_metadata` (key/value provenance: QEHT version, run time, CRS, cell size, DEM path and SHA-256, user-declared DEM source, conditioning and flat method, stream threshold, snap radius and strategy, catchment mode, ID scheme, full parameter set) and `qeht_field_dictionary` (field, type, unit, meaning, method, HEAS target, plain-language downstream use and HEAS field name for every field, including the optional layers — the file documents itself). HEAS, a separate design tool, imports the package directly; it is not required.
 
 - **Linking.** Every feature carries `outlet_uid`, identical across the three layers for one crossing, plus `crossing_id`/`catchment_id`/`flowpath_id` (default = `outlet_uid`), `link_method` (`pour_point`), `link_confidence` (1.0) and `link_note`. IDs come from a chosen pour-point attribute or are sequential with a prefix, numbered downstream-first (largest contributing area = 001) or in layer order. Empty or duplicate IDs, and two pour points snapping to the same cell, stop the run with a list. `outlet_id` (feature id) is kept for backward compatibility and is not stable.
 - **CRS.** A projected, metric CRS is required; a geographic DEM is refused before any computation.
@@ -266,6 +304,7 @@ At each crossing the breach runs perpendicular to the road between two points `h
 - **Evolution.** New fields may be added under `qeht-heas-1`; renaming or removing a field requires `qeht-heas-2`. The validator (also used by the tool after writing) rejects unknown major versions and checks that every catchment and flow path refers to an existing crossing.
 - **Erosion block (v0.14).** With an erosion folder, catchments carry `ero_*` soil loss, LS, ln(SPI), K/C/P, class shares, SDR and sediment fields and crossings carry `ero_*` ln(SPI), local terrain, class and impact fields; `erosion_json` in the metadata records the mode, factor sources and proxy flags, schemes, weights and SDR model. Additive under `qeht-heas-1`.
 - **Burn log (v0.14).** Give the breach log from "Burn crossings through embankments" and the package stores it as layer `burn_log`; `conditioning` appends a summary (breaches cut, volume) to the user-declared text and `conditioning_burn` holds it on its own.
+- **v0.15 additions (all additive).** Crossings: ch_slope_us/ds and lengths; with an erosion folder ero_sti_local and the deposition indicator. Catchments: shape and network indices, HSG shares and sources, curve number / Rational C / land-cover block. Flow paths: overland / channel segments. Layer `alignment_profile` with a road alignment. Metadata: alignment_source, alignment_step_m, sheet_cap_m, channel_slope_m, soil_hsg_source, soil_k_source, runoff_json. The golden fixture was regenerated; no existing value changed.
 - **Road layers.** When built from a candidate layer, the package also holds `crossing_candidates` (every candidate, the audit trail) and, when a road is given, `road_alignment`. The crossings keep each candidate's outlet cell (no snapping), carry `chainage_m`, and are numbered along the chainage. Metadata records `crossing_source` and `chainage_start_m`.
 - **Implementation.** The file is written with the Python standard library (`sqlite3`, `struct`), so it is identical on every platform and testable without GDAL; the test suite validates it with GDAL's GeoPackage validator. `tests/fixtures/golden_exchange.gpkg` (synthetic DEM, three crossings: two nested on one valley, one on a tributary) is the shared contract fixture: QEHT asserts it reproduces the same attributes, HEAS asserts it imports with no field mapping.
 

@@ -129,6 +129,30 @@ def erosion_indices(raw_dem, valid, accumulation, cell_width, cell_height,
     return out
 
 
+STI_CAP_M = 100.0
+
+
+def sti_overland(spec_catch_area, tan_beta, channel, cap_m=STI_CAP_M, beta_min_tan=BETA_MIN_TAN):
+    """Sediment transport capacity index on OVERLAND cells (STI advisory R1, v0.15).
+
+    STI = (A_s / 22.13)^0.6 (sin beta / 0.0896)^1.3 (Moore & Wilson 1992) -
+    the Moore & Burch LS form with m = 0.6. A relative indicator of overland
+    transport capacity: NOT the RUSLE LS factor, never used in soil loss, the
+    classes or the composite score. Valid for overland / rill flow only, so
+    channel cells are NoData and A_s is capped at `cap_m` (about the 100 m
+    slope-length limit of the derivation; 0 = no cap).
+    """
+    a_s = np.asarray(spec_catch_area, dtype=np.float64)
+    if cap_m and cap_m > 0:
+        a_s = np.minimum(a_s, float(cap_m))
+    t = np.maximum(np.nan_to_num(np.asarray(tan_beta, dtype=np.float64), nan=0.0), beta_min_tan)
+    sin_b = np.sin(np.arctan(t))
+    with np.errstate(invalid="ignore"):
+        sti = np.power(a_s / 22.13, 0.6) * np.power(sin_b / 0.0896, 1.3)
+    sti[~np.isfinite(np.asarray(spec_catch_area, float)) | np.asarray(channel, bool)] = np.nan
+    return sti
+
+
 def channel_mask(accumulation, valid, threshold_cells):
     """Cells with at least `threshold_cells` upslope cells (concentrated flow)."""
     acc = np.asarray(accumulation, dtype=np.float64)

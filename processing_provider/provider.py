@@ -30,6 +30,7 @@ from .alg_renumber_relink import RenumberRelinkAlgorithm
 from .alg_soil_parameters import SoilParametersAlgorithm
 from .alg_erosion import ErosionIndicesAlgorithm
 from .alg_erosion_corridor import ErosionCorridorAlgorithm
+from .alg_alignment_profile import AlignmentProfileAlgorithm
 
 
 class QehtProvider(QgsProcessingProvider):
@@ -51,6 +52,7 @@ class QehtProvider(QgsProcessingProvider):
             SoilParametersAlgorithm(),
             ErosionIndicesAlgorithm(),
             ErosionCorridorAlgorithm(),
+            AlignmentProfileAlgorithm(),
         ):
             self.addAlgorithm(alg)
 

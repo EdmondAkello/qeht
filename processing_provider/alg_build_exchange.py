@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 # QEHT - Licensed under the GNU General Public License v2 or later.
-"""Build HEAS exchange package - one self-describing GeoPackage per run."""
+"""Build design hydrology package - one self-describing GeoPackage per run.
+
+Shown as "Build design hydrology package" since 0.15 (was "Build HEAS exchange
+package"); the algorithm id buildheasexchange and the schema qeht-heas-1 are
+unchanged so saved models and HEAS imports keep working.
+"""
 
 import os
 
@@ -41,16 +46,19 @@ ORDER_KEYS = ["auto", "downstream", "input"]
 class BuildHeasExchangeAlgorithm(QehtAlgorithm):
 
     def name(self): return "buildheasexchange"
-    def displayName(self): return "Build HEAS exchange package"
+    def displayName(self): return "Build design hydrology package"
     def group(self): return "Interoperability"
     def groupId(self): return "interop"
 
     def shortHelpString(self):
         return (
-            "Runs snapping, catchment delineation, longest flow path and "
-            "catchment characteristics for every pour point and writes ONE "
-            f"GeoPackage (schema {SCHEMA_VERSION}) that HEAS imports with no field "
-            "mapping.\n\n"
+            "One self-describing GeoPackage of crossings, catchments and flow "
+            "paths linked by outlet_uid, for spreadsheets, reports or design "
+            "software. Runs snapping, catchment delineation, longest flow path and "
+            "catchment characteristics for every pour point.\n\n"
+            f"(Formerly 'Build HEAS exchange package'. HEAS, a separate design tool, "
+            f"imports the package directly - schema {SCHEMA_VERSION} - but it is not "
+            "required.)\n\n"
             "<b>Layers:</b> crossings (snapped outlets), catchments, flowpaths, "
             "plus qeht_run_metadata (DEM, method, thresholds, QEHT version) and "
             "qeht_field_dictionary (meaning, unit and method of every field).\n\n"
@@ -79,9 +87,30 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "length) and lfp_slope_1085 (10-85 along the LFP, measured from the "
             "OUTLET; lfp_L10_m, lfp_L85_m, lfp_z10_m, lfp_z85_m let you check it "
             "by hand).\n\n"
-            "<b>Soils (optional):</b> give soil map polygons (with the SOTWIS SQLite "
-            "database for the full unit composition, or polygons carrying SOTWIS or "
-            "plain sand/silt/clay/oc fields) to add the soil block to every catchment: "
+            "<b>Flow path segments:</b> each flow path is split where it reaches the "
+            "snap-to-stream threshold (the channel head): lfp_overland_m / _slope, "
+            "lfp_channel_m / _slope / _slope_1085, and the overland part as sheet flow "
+            "(up to the cap, default 100 m) plus shallow concentrated flow - inputs for "
+            "Kerby and segmental (TR-55) Tc. <b>Basin shape:</b> perimeter, form factor, "
+            "elongation and circularity ratios, drainage density, stream frequency and "
+            "highest Strahler order, for the report. <b>Channel slopes at each crossing:</b> "
+            "ch_slope_us (main stem upstream) and ch_slope_ds (D8 path downstream) over "
+            "200 m by default. With an erosion folder, each crossing also gets the "
+            "deposition indicator (ero_dep_ratio / ero_dep_flag) and the local overland "
+            "STI.\n\n"
+            "<b>Curve number and Rational C (optional):</b> give a land-cover raster "
+            "(ESA WorldCover classes) with a soil source: per cell land cover x hydrologic "
+            "soil group -> CN from TR-55 Table 2-2 (a PROXY match to WorldCover, condition "
+            "fair/good/poor; replace it with your own lookup CSV), averaged over the "
+            "catchment (cn_ii) and exported at the chosen AMC (cn_export). Rational C needs "
+            "your lookup CSV - none ships. Land-cover shares lc_pct_* are always given.\n\n"
+            "<b>Soils (optional), from any source:</b> soil map polygons (with the SOTWIS / "
+            "SOTER SQLite database, a CSV table, SOTWIS or plain sand/silt/clay/oc fields, "
+            "or your own field names under the advanced parameters); a soil unit raster "
+            "+ CSV (e.g. HWSD v2); texture rasters or a SoilGrids folder (depth-weighted); "
+            "plus an optional hydrologic soil group raster (e.g. HYSOGs250m) or field and "
+            "K raster or field that override the texture-based values. Adds the soil "
+            "block to every catchment: "
             "texture, organic carbon, coarse fragments, USLE K (Williams/EPIC), a "
             "texture-based hydrologic-group PROXY and the share of the catchment "
             "covered. Default depth 0-20 cm.\n\n"
@@ -129,7 +158,20 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         self.addParameter(QgsProcessingParameterString(
             FLAT_METHOD, "Flat resolution used for flow direction (recorded, e.g. 'barnes')",
             optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            "CH_SLOPE_DIST", "Approach / exit channel length for the crossing channel slopes (m)",
+            QgsProcessingParameterNumber.Type.Double, defaultValue=200.0, minValue=1.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            "SHEET_CAP", "Sheet-flow cap within the overland part of the flow path (m)",
+            QgsProcessingParameterNumber.Type.Double, defaultValue=100.0, minValue=0.0))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            "FILLED", "Filled DEM (optional; ponding depth in the alignment profile)",
+            optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            "PROFILE_STEP", "Alignment profile station spacing (m)",
+            QgsProcessingParameterNumber.Type.Double, defaultValue=10.0, minValue=0.5))
         self.add_soil_parameters("SOIL", optional=True)
+        self.add_runoff_parameters()
         from qgis.core import QgsProcessingParameterFeatureSource as _FS, QgsProcessing as _QP
         self.addParameter(_FS(
             "BURN_LOG", "Breach log from 'Burn crossings through embankments' (optional; "
@@ -192,6 +234,8 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         snap_radius = self.parameterAsInt(parameters, SNAP, context)
         snap_threshold = self.parameterAsDouble(parameters, SNAP_THRESHOLD, context)
         local = self.parameterAsBool(parameters, LOCAL, context)
+        sheet_cap = (self.parameterAsDouble(parameters, "SHEET_CAP", context)
+                     if "SHEET_CAP" in parameters else 100.0)
 
         points = self.read_pour_points(parameters, POINTS, context, info, feedback,
                                        id_field=id_field,
@@ -265,6 +309,27 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                   "chainage_to_m": float((alignment.ch0 + alignment.seg_len)[alignment.part == k].max())})
                  for k, part in enumerate(alignment.parts)],
                 "Road alignment used for chainage"))
+            from ..core.network.profile import profile_with_crossings, profile_summary
+            from ..core.interop.field_dictionary import OPTIONAL_LAYERS
+            filled = None
+            if self.parameterAsRasterLayer(parameters, "FILLED", context) is not None:
+                fz, fv, fi = read_dem(self.raster_path(parameters, "FILLED", context))
+                if (fi.rows, fi.cols) != (info.rows, info.cols):
+                    raise QgsProcessingException("The filled DEM is not on the flow-direction grid.")
+                filled = np.where(fv, fz, np.nan)
+            src = self.parameterAsSource(parameters, ROAD, context)
+            align_name = src.sourceName() if src is not None else ""
+            profile_step = self.parameterAsDouble(parameters, "PROFILE_STEP", context)
+            prof, _ = profile_with_crossings(
+                alignment, elevation, info.geotransform, direction=direction, valid=valid,
+                accumulation=accum, filled=filled,
+                stream_threshold_cells=snap_threshold if snap_threshold > 0 else 200.0,
+                stream_order=stream_order, step=profile_step, align_name=align_name)
+            pfields = [(f[0], f[1]) for f in OPTIONAL_LAYERS["alignment_profile"][1]]
+            extra_layers.append(("alignment_profile", "POINT", pfields,
+                                 [((r["x"], r["y"]), r) for r in prof],
+                                 OPTIONAL_LAYERS["alignment_profile"][2]))
+            feedback.pushInfo("Alignment profile: " + profile_summary(prof))
         if order == "auto":
             order = ("chainage" if all(p.get("chainage") is not None for p in points)
                      else "downstream")
@@ -278,6 +343,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                           f"{'local' if local else 'full upstream'} catchments; "
                           f"IDs {'from ' + id_field if id_field else 'sequential ' + (prefix or '') + '001...'}")
         soil = self.load_soil(parameters, context, info, feedback, "SOIL")
+        runoff = self.load_runoff(parameters, context, info, soil, feedback)
         erosion, erosion_run = None, None
         ero_folder = self.parameterAsFile(parameters, "EROSION", context) if "EROSION" in parameters else ""
         if ero_folder:
@@ -294,7 +360,11 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                 stream_order=stream_order,
                 id_scheme="attribute" if id_field else "sequential",
                 id_prefix=prefix, id_order=order, soil=soil, erosion=erosion,
-                progress=self.make_progress(feedback, weight=0.9))
+                progress=self.make_progress(feedback, weight=0.9),
+                channel_threshold_cells=snap_threshold if snap_threshold > 0 else None,
+                sheet_cap_m=sheet_cap, runoff=runoff,
+                channel_slope_m=(self.parameterAsDouble(parameters, "CH_SLOPE_DIST", context)
+                                 if "CH_SLOPE_DIST" in parameters else 200.0))
         except ExchangeError as e:
             raise QgsProcessingException(str(e))
         for msg in issues:
@@ -317,18 +387,27 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "stream_threshold_cells": f"{snap_threshold:g}",
             "stream_threshold_km2": f"{snap_threshold * cell_area / 1e6:g}",
             "snap_radius_cells": str(snap_radius),
+            "sheet_cap_m": f"{sheet_cap:g}",
+            "channel_slope_m": f"{(self.parameterAsDouble(parameters, 'CH_SLOPE_DIST', context) if 'CH_SLOPE_DIST' in parameters else 200.0):g}",
             "snap_strategy": ("none" if snap_radius <= 0 else
                               "nearest_stream" if stream_mask is not None else "max_accumulation"),
             "catchment_mode": "local" if local else "full",
             "id_attribute": id_field or "",
-            "soil_dataset": soil[3]["soil_dataset"] if soil else "",
-            "soil_depth_cm": soil[3]["soil_depth_cm"] if soil else "",
+            "soil_dataset": soil.info["soil_dataset"] if soil else "",
+            "soil_depth_cm": soil.info["soil_depth_cm"] if soil else "",
+            "soil_hsg_source": soil.info.get("hsg_source", "") if soil else "",
+            "soil_k_source": soil.info.get("k_source", "") if soil else "",
+            "runoff_json": runoff.meta_json() if runoff is not None else "",
             "crossing_source": ("crossing candidates" if candidate_mode else "pour points"),
             "chainage_start_m": (f"{alignment.start_chainage:g}" if alignment is not None else ""),
+            "alignment_source": (self.parameterAsSource(parameters, ROAD, context).sourceName()
+                                 if alignment is not None else ""),
+            "alignment_step_m": (f"{self.parameterAsDouble(parameters, 'PROFILE_STEP', context):g}"
+                                 if alignment is not None else ""),
             "parameters_json": {k: str(v) for k, v in parameters.items()},
             "erosion_json": ({k: erosion_run.get(k) for k in (
                 "mode", "factors", "indices", "schemes", "mcdma_weights", "bulk_density_kgm3",
-                "sdr_model", "channel_threshold_cells")} if erosion_run else ""),
+                "sdr_model", "channel_threshold_cells", "sti", "deposition")} if erosion_run else ""),
         })
         try:
             write_exchange(out_path, crossings, catchments, flowpaths, md,

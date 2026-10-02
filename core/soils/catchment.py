@@ -26,6 +26,11 @@ SOIL_FIELDS = [
     ("soil_coverage_pct", "real"), ("soil_dominant_unit", "text"),
     ("soil_units", "int"), ("soil_ttr_main", "text"), ("soil_dataset", "text"),
     ("soil_depth_cm", "text"),
+    # v0.15 (G4): hydrologic soil group shares (direct input or texture proxy) and
+    # the source of K; filled by core.soils.sources.SoilGrid.block
+    ("soil_hsg", "text"), ("hsg_pct_a", "real"), ("hsg_pct_b", "real"), ("hsg_pct_c", "real"),
+    ("hsg_pct_d", "real"), ("hsg_pct_dual", "real"), ("soil_hsg_source", "text"),
+    ("usle_k_source", "text"),
 ]
 
 _MAP = {"soil_sand_pct": "sand", "soil_silt_pct": "silt", "soil_clay_pct": "clay",
