@@ -219,6 +219,33 @@ LAYERS = {
                   "Longest flow path per crossing, digitised divide -> outlet"),
 }
 
+# Optional layers (additive; written only when their input was given). Listed
+# in qeht_field_dictionary so the package still documents itself.
+OPTIONAL_LAYERS = {
+    "alignment_profile": ("POINT", [
+        ("align_name", "text", "-", "alignment identifier", "", "info"),
+        ("chainage_m", "real", "m", "station chainage", "start chainage + distance along the "
+         "alignment, every alignment_step_m", "crossing chainage"),
+        ("x", "real", "m", "station easting (package CRS)", "", "info"),
+        ("y", "real", "m", "station northing (package CRS)", "", "info"),
+        ("z_dem_m", "real", "m", "raw DEM ground at the station", "bilinear between cell centres",
+         "ground profile"),
+        ("z_fill_m", "real", "m", "filled DEM at the station (empty without a filled DEM)",
+         "bilinear", "ground profile"),
+        ("pond_depth_m", "real", "m", "depth the fill raised the ground (ponding)",
+         "max(z_fill_m - z_dem_m, 0)", "ground profile"),
+        ("acc_km2", "real", "km2", "contributing area at the station",
+         "largest (accumulation + 1) x cell area within 1 cell", "ground profile"),
+        ("stream", "int", "0/1", "1 at the station nearest a D8 stream crossing",
+         "exact stream link x alignment intersection at the stream threshold", "ground profile"),
+        ("strahler", "int", "-", "Strahler order of that stream (if an order raster was given)",
+         "", "info"),
+        ("slope_long_pct", "real", "%", "longitudinal ground slope, positive = rising chainage",
+         "centred difference of z_dem_m (one-sided at part ends)", "ground profile"),
+        ("alignment_part", "int", "-", "part of a multi-part alignment", "", "info"),
+    ], "Ground profile along the road alignment (stations)"),
+}
+
 METADATA_KEYS = [
     # key, meaning
     ("schema_version", "exchange schema (qeht-heas-<major>)"),
@@ -252,6 +279,8 @@ METADATA_KEYS = [
     ("conditioning_burn", "summary of the breach log when one was supplied (layer burn_log)"),
     ("erosion_json", "erosion inputs: mode, factor provenance (source, proxy flags), LS method, "
      "class schemes, MCDMA weights, SDR model (empty = no erosion block)"),
+    ("alignment_source", "road alignment layer used for chainage and the ground profile"),
+    ("alignment_step_m", "station spacing of alignment_profile (m)"),
     ("n_crossings", "number of crossings written"),
     ("parameters_json", "full parameter dictionary of the run"),
 ]
@@ -299,6 +328,7 @@ DOWNSTREAM_USE = {
     "erosion provenance": "how the erosion values were produced",
     "sediment": "sediment yield to the crossing",
     "MCDMA": "multi-criteria erosion impact score",
+    "ground profile": "ground profile along the road (provisional levels, DEM check)",
 }
 
 # heas_target terms that are HEAS input names (written to heas_field)
@@ -321,6 +351,10 @@ def dictionary_rows():
         for name, ftype, unit, meaning, method, target in fields:
             rows.append((layer, name, ftype, unit, meaning, method, target,
                          downstream_use(target), target if target in HEAS_FIELDS else ""))
+    for layer, (_, fields, _) in OPTIONAL_LAYERS.items():
+        for name, ftype, unit, meaning, method, target in fields:
+            rows.append((layer, name, ftype, unit, meaning, method, target,
+                         downstream_use(target), ""))
     for key, meaning in METADATA_KEYS:
         rows.append(("qeht_run_metadata", key, "text", "-", meaning, "", "provenance",
                      downstream_use("provenance"), ""))

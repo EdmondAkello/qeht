@@ -137,6 +137,12 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         self.addParameter(QgsProcessingParameterString(
             FLAT_METHOD, "Flat resolution used for flow direction (recorded, e.g. 'barnes')",
             optional=True))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            "FILLED", "Filled DEM (optional; ponding depth in the alignment profile)",
+            optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            "PROFILE_STEP", "Alignment profile station spacing (m)",
+            QgsProcessingParameterNumber.Type.Double, defaultValue=10.0, minValue=0.5))
         self.add_soil_parameters("SOIL", optional=True)
         from qgis.core import QgsProcessingParameterFeatureSource as _FS, QgsProcessing as _QP
         self.addParameter(_FS(
@@ -273,6 +279,27 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                   "chainage_to_m": float((alignment.ch0 + alignment.seg_len)[alignment.part == k].max())})
                  for k, part in enumerate(alignment.parts)],
                 "Road alignment used for chainage"))
+            from ..core.network.profile import profile_with_crossings, profile_summary
+            from ..core.interop.field_dictionary import OPTIONAL_LAYERS
+            filled = None
+            if self.parameterAsRasterLayer(parameters, "FILLED", context) is not None:
+                fz, fv, fi = read_dem(self.raster_path(parameters, "FILLED", context))
+                if (fi.rows, fi.cols) != (info.rows, info.cols):
+                    raise QgsProcessingException("The filled DEM is not on the flow-direction grid.")
+                filled = np.where(fv, fz, np.nan)
+            src = self.parameterAsSource(parameters, ROAD, context)
+            align_name = src.sourceName() if src is not None else ""
+            profile_step = self.parameterAsDouble(parameters, "PROFILE_STEP", context)
+            prof, _ = profile_with_crossings(
+                alignment, elevation, info.geotransform, direction=direction, valid=valid,
+                accumulation=accum, filled=filled,
+                stream_threshold_cells=snap_threshold if snap_threshold > 0 else 200.0,
+                stream_order=stream_order, step=profile_step, align_name=align_name)
+            pfields = [(f[0], f[1]) for f in OPTIONAL_LAYERS["alignment_profile"][1]]
+            extra_layers.append(("alignment_profile", "POINT", pfields,
+                                 [((r["x"], r["y"]), r) for r in prof],
+                                 OPTIONAL_LAYERS["alignment_profile"][2]))
+            feedback.pushInfo("Alignment profile: " + profile_summary(prof))
         if order == "auto":
             order = ("chainage" if all(p.get("chainage") is not None for p in points)
                      else "downstream")
@@ -333,6 +360,10 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "soil_depth_cm": soil[3]["soil_depth_cm"] if soil else "",
             "crossing_source": ("crossing candidates" if candidate_mode else "pour points"),
             "chainage_start_m": (f"{alignment.start_chainage:g}" if alignment is not None else ""),
+            "alignment_source": (self.parameterAsSource(parameters, ROAD, context).sourceName()
+                                 if alignment is not None else ""),
+            "alignment_step_m": (f"{self.parameterAsDouble(parameters, 'PROFILE_STEP', context):g}"
+                                 if alignment is not None else ""),
             "parameters_json": {k: str(v) for k, v in parameters.items()},
             "erosion_json": ({k: erosion_run.get(k) for k in (
                 "mode", "factors", "indices", "schemes", "mcdma_weights", "bulk_density_kgm3",
