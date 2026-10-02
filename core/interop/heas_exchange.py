@@ -128,7 +128,8 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
                            local=False, stream_order=None, id_scheme="sequential",
                            id_prefix="X", id_width=3, id_start=1,
                            id_order="downstream", soil=None, erosion=None, progress=None,
-                           channel_threshold_cells=None, sheet_cap_m=100.0, runoff=None):
+                           channel_threshold_cells=None, sheet_cap_m=100.0, runoff=None,
+                           channel_slope_m=200.0):
     """Run snap -> id -> catchment -> LFP -> characteristics for every outlet.
 
     Parameters
@@ -163,6 +164,9 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
         core.watershed.morphometry). None = only the shape ratios that need
         no channel network.
     sheet_cap_m : cap on sheet flow within the overland part (F2)
+    channel_slope_m : length of the approach / exit channel for ch_slope_us /
+        ch_slope_ds (A5, core.watershed.channel); main stem upstream, D8
+        path downstream, raw DEM
     runoff : optional core.runoff.curve_number.RunoffInputs; adds the curve
         number / Rational C / land-cover block (F1) to every catchment
 
@@ -289,6 +293,10 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
                 chs.update(soil_block(mask, soil[0], soil[2], soil[1], soil[3]))
         if runoff is not None:
             chs.update(runoff.block(mask))
+        from ..watershed.channel import channel_slopes
+        crossings[-1][1].update(channel_slopes(direction, valid, accumulation, elevation,
+                                               s["row"], s["col"], cw, ch,
+                                               distance_m=channel_slope_m))
         if erosion is not None:
             from ..erosion.summary import catchment_erosion, crossing_erosion
             bd = chs.get("soil_bulk_gcm3")
@@ -296,7 +304,9 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
                                    bulk_kgm3=bd * 1000.0 if bd else None)
             chs.update(eb)
             crossings[-1][1].update(crossing_erosion(s["row"], s["col"], mask, direction,
-                                                     erosion, eb))
+                                                     erosion, eb, accumulation=accumulation,
+                                                     valid=valid, elevation=elevation,
+                                                     cell_size=(cw, ch)))
         polys = mask_to_polygons(mask, gt)
         catchments.append((polys, dict(
             chs, **link, outlet_uid=s["uid"], catchment_id=s["uid"],

@@ -93,7 +93,11 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "(up to the cap, default 100 m) plus shallow concentrated flow - inputs for "
             "Kerby and segmental (TR-55) Tc. <b>Basin shape:</b> perimeter, form factor, "
             "elongation and circularity ratios, drainage density, stream frequency and "
-            "highest Strahler order, for the report.\n\n"
+            "highest Strahler order, for the report. <b>Channel slopes at each crossing:</b> "
+            "ch_slope_us (main stem upstream) and ch_slope_ds (D8 path downstream) over "
+            "200 m by default. With an erosion folder, each crossing also gets the "
+            "deposition indicator (ero_dep_ratio / ero_dep_flag) and the local overland "
+            "STI.\n\n"
             "<b>Curve number and Rational C (optional):</b> give a land-cover raster "
             "(ESA WorldCover classes) with a soil source: per cell land cover x hydrologic "
             "soil group -> CN from TR-55 Table 2-2 (a PROXY match to WorldCover, condition "
@@ -154,6 +158,9 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         self.addParameter(QgsProcessingParameterString(
             FLAT_METHOD, "Flat resolution used for flow direction (recorded, e.g. 'barnes')",
             optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            "CH_SLOPE_DIST", "Approach / exit channel length for the crossing channel slopes (m)",
+            QgsProcessingParameterNumber.Type.Double, defaultValue=200.0, minValue=1.0))
         self.addParameter(QgsProcessingParameterNumber(
             "SHEET_CAP", "Sheet-flow cap within the overland part of the flow path (m)",
             QgsProcessingParameterNumber.Type.Double, defaultValue=100.0, minValue=0.0))
@@ -355,7 +362,9 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                 id_prefix=prefix, id_order=order, soil=soil, erosion=erosion,
                 progress=self.make_progress(feedback, weight=0.9),
                 channel_threshold_cells=snap_threshold if snap_threshold > 0 else None,
-                sheet_cap_m=sheet_cap, runoff=runoff)
+                sheet_cap_m=sheet_cap, runoff=runoff,
+                channel_slope_m=(self.parameterAsDouble(parameters, "CH_SLOPE_DIST", context)
+                                 if "CH_SLOPE_DIST" in parameters else 200.0))
         except ExchangeError as e:
             raise QgsProcessingException(str(e))
         for msg in issues:
@@ -379,6 +388,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "stream_threshold_km2": f"{snap_threshold * cell_area / 1e6:g}",
             "snap_radius_cells": str(snap_radius),
             "sheet_cap_m": f"{sheet_cap:g}",
+            "channel_slope_m": f"{(self.parameterAsDouble(parameters, 'CH_SLOPE_DIST', context) if 'CH_SLOPE_DIST' in parameters else 200.0):g}",
             "snap_strategy": ("none" if snap_radius <= 0 else
                               "nearest_stream" if stream_mask is not None else "max_accumulation"),
             "catchment_mode": "local" if local else "full",
@@ -397,7 +407,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "parameters_json": {k: str(v) for k, v in parameters.items()},
             "erosion_json": ({k: erosion_run.get(k) for k in (
                 "mode", "factors", "indices", "schemes", "mcdma_weights", "bulk_density_kgm3",
-                "sdr_model", "channel_threshold_cells")} if erosion_run else ""),
+                "sdr_model", "channel_threshold_cells", "sti", "deposition")} if erosion_run else ""),
         })
         try:
             write_exchange(out_path, crossings, catchments, flowpaths, md,
