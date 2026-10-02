@@ -53,7 +53,7 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
         return (
             "Terrain erosion indices, optional RUSLE soil loss and erosion severity "
             "classes, written to one output folder that the corridor sampler and "
-            "the HEAS exchange package read.\n\n"
+            "the design hydrology package read.\n\n"
             "<b>Indices</b> (raw DEM for slope; flow accumulation for area): slope, "
             "specific catchment area A_s = (upslope cells + 1) x cell area / cell "
             "size, SPI = A_s tan(beta), ln(SPI), TWI = ln(A_s / tan(beta)) and the "
@@ -64,7 +64,8 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
             "value or a dataset, in that order of precedence:\n"
             "• R: raster (e.g. GloREDa 2023 annual erosivity, recommended) or value, "
             "MJ mm/(ha h yr).\n"
-            "• K: raster, value, or the SOTWIS soil map (Williams/EPIC K, 0-20 cm by "
+            "• K: raster, value, or a soil source - SOTWIS, any soil map, a unit raster + "
+            "table or SoilGrids (Williams/EPIC K, 0-20 cm by "
             "default), SI units.\n"
             "• C: raster, value, or ESA WorldCover 2021 through an editable class "
             "lookup (a land-cover PROXY - flagged as such in every output).\n"
@@ -80,7 +81,17 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
             "combined class is the higher of the two severity scores unless you give "
             "a 5 x 5 matrix. class_extents.csv gives area and share per class, split "
             "into channel and hillslope cells. erosion_run.json records every "
-            "factor's source, the schemes and the settings."
+            "factor's source, the schemes and the settings.\n\n"
+            "<b>STI</b> (sti_overland.tif): the sediment transport capacity index "
+            "(A_s/22.13)^0.6 (sin b/0.0896)^1.3 of Moore & Wilson (1992) on OVERLAND "
+            "cells only (channels NoData, A_s capped at 100 m) - a relative indicator "
+            "of where slopes deliver sediment, e.g. to side drains. It is not the "
+            "RUSLE LS factor and is not used in soil loss, classes or the composite.\n"
+            "<b>Deposition at crossings</b> (in the design hydrology package): median "
+            "SPI on the main channel 0-100 m vs 100-500 m upstream of each crossing; "
+            "a ratio below 0.7 means transport capacity falls into the inlet "
+            "(deposition-prone), above 1.3 scour-prone. Distances and breaks are "
+            "recorded in erosion_run.json."
         )
 
     def initAlgorithm(self, config=None):
@@ -127,6 +138,21 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
             QgsProcessingParameterNumber.Type.Double, defaultValue=DEFAULT_BULK_KGM3, minValue=100.0))
         self.addParameter(QgsProcessingParameterString(
             "WEIGHTS", "Crossing impact weights SPI, RUSLE, sediment", defaultValue="0.4,0.3,0.3"))
+        from qgis.core import QgsProcessingParameterBoolean as _B
+        self.addParameter(_B("STI", "Also write the overland sediment transport capacity index "
+                                    "(STI, channels masked)", defaultValue=True))
+        self.addParameter(self._advanced(QgsProcessingParameterNumber(
+            "STI_CAP", "STI: cap on specific catchment area (m; validity ~100 m slope length)",
+            QgsProcessingParameterNumber.Type.Double, defaultValue=100.0, minValue=0.0)))
+        self.addParameter(self._advanced(QgsProcessingParameterNumber(
+            "DEP_NEAR", "Deposition indicator: near reach upstream of a crossing (m)",
+            QgsProcessingParameterNumber.Type.Double, defaultValue=100.0, minValue=1.0)))
+        self.addParameter(self._advanced(QgsProcessingParameterNumber(
+            "DEP_FAR", "Deposition indicator: far reach ends this far upstream (m)",
+            QgsProcessingParameterNumber.Type.Double, defaultValue=500.0, minValue=2.0)))
+        self.addParameter(self._advanced(QgsProcessingParameterString(
+            "DEP_BREAKS", "Deposition indicator breaks (ratio below = deposition-prone, "
+            "above = scour-prone)", defaultValue="0.7,1.3")))
         self.addParameter(QgsProcessingParameterFolderDestination("OUTPUT", "Erosion output folder"))
         self.addOutput(QgsProcessingOutputString("SUMMARY", "Summary"))
 
@@ -153,6 +179,14 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
         ind = erosion_indices(raw, valid, acc, info.cell_width, info.cell_height,
                               ls_method=method, m_exponent=m_exp if m_exp is not None else 0.4)
         chan = channel_mask(acc, valid, self.parameterAsDouble(parameters, "CHANNEL_CELLS", context))
+        sti_cap = self.parameterAsDouble(parameters, "STI_CAP", context) if "STI_CAP" in parameters else 100.0
+        if "STI" not in parameters or self.parameterAsBool(parameters, "STI", context):
+            from ..core.erosion.terrain import sti_overland
+            write_raster(eio.path_of(folder, "sti"),
+                         sti_overland(ind["spec_catch_area"], ind["tan_beta"], chan, cap_m=sti_cap),
+                         info, valid=valid)
+            feedback.pushInfo("STI (overland, channels masked, A_s capped at "
+                              f"{sti_cap:g} m) written - a relative index, not used in soil loss.")
         written = {}
         for key in ("slope_deg", "tan_beta", "spec_catch_area", "spi", "ln_spi", "twi", "ls"):
             written[key] = write_raster(eio.path_of(folder, key), ind[key], info, valid=valid)
@@ -164,15 +198,10 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
         K = self._factor(parameters, context, info, "K", "K", feedback)
         if not K.present:
             soil = self.load_soil(parameters, context, info, feedback)
-            if soil is not None:
-                grid, idx, units, sinfo = soil
-                kg = np.full(grid.shape, np.nan)
-                for i, uid in idx.items():
-                    u = units.get(uid)
-                    if u is not None and u.k_si is not None and np.isfinite(u.k_si):
-                        kg[grid == i] = u.k_si
-                K = Factor("K", grid=kg, source=f"{sinfo.get('soil_dataset')} Williams/EPIC K, "
-                                               f"{sinfo.get('soil_depth_cm')} cm")
+            if soil is not None and np.isfinite(soil.k_grid()).any():
+                K = Factor("K", grid=soil.k_grid(),
+                           source=f"{soil.info.get('soil_dataset')}: {soil.info.get('k_source')}, "
+                                  f"{soil.info.get('soil_depth_cm')} cm")
         C = self._factor(parameters, context, info, "C", "C", feedback)
         wc = None
         if self.parameterAsRasterLayer(parameters, "WORLDCOVER", context) is not None:
@@ -264,6 +293,21 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
             "mcdma_weights": {"spi": w[0], "rusle": w[1], "sediment": w[2]},
             "bulk_density_kgm3": self.parameterAsDouble(parameters, "BULK_DENSITY", context),
             "sdr_model": "0.565 * A_km2^-0.125, capped at 1 (FAO, area-based)",
+            "sti": {"written": bool("STI" not in parameters
+                                    or self.parameterAsBool(parameters, "STI", context)),
+                    "formula": "(A_s/22.13)^0.6 (sin b/0.0896)^1.3 (Moore & Wilson 1992); "
+                               "overland cells only; relative index, not LS",
+                    "a_s_cap_m": sti_cap},
+            "deposition": {
+                "near_m": self.parameterAsDouble(parameters, "DEP_NEAR", context)
+                if "DEP_NEAR" in parameters else 100.0,
+                "far_m": self.parameterAsDouble(parameters, "DEP_FAR", context)
+                if "DEP_FAR" in parameters else 500.0,
+                "breaks": (_floats(self.parameterAsString(parameters, "DEP_BREAKS", context), 2,
+                                   "deposition breaks") if "DEP_BREAKS" in parameters else None)
+                or [0.7, 1.3],
+                "method": "median SPI on the main channel 0-near vs near-far upstream; "
+                          "ratio < low = deposition-prone, > high = scour-prone"},
             "c_lookup": {str(k): v for k, v in WORLDCOVER_C.items()},
             "dem": self.raster_path(parameters, "RAW_DEM", context),
             "grid": {"rows": info.rows, "cols": info.cols, "geotransform": list(gt)},

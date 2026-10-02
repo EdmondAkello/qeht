@@ -295,7 +295,8 @@ def synthetic_run(local=False, pour_order=None):
         pts = [pts[i] for i in pour_order]
     recs = build_exchange_records(direction, valid, accum, dem, gt, pts,
                                   snap_radius_cells=3, stream_mask=streams,
-                                  local=local, stream_order=order, id_prefix="X")
+                                  local=local, stream_order=order, id_prefix="X",
+                                  channel_threshold_cells=100)
     return recs, dict(direction=direction, valid=valid, accum=accum, dem=dem, gt=gt, cs=cs)
 
 
