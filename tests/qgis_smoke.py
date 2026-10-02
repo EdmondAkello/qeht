@@ -61,8 +61,9 @@ def main(in_qgis=False):
         reg.addProvider(QehtProvider())
     algs = sorted(a.id() for a in reg.providerById("qeht").algorithms())
     print("QEHT algorithms:", ", ".join(algs))
-    check("provider loads with 15 algorithms incl. exchange, crossings, burn, relink, soils, erosion",
-          len(algs) == 15 and all(a in algs for a in (
+    check("provider loads with 16 algorithms incl. exchange, crossings, burn, relink, soils, "
+          "erosion, alignment profile",
+          len(algs) == 16 and all(a in algs for a in ("qeht:alignmentprofile",
               "qeht:buildheasexchange", "qeht:crossingcandidates", "qeht:burncrossings",
               "qeht:renumberrelink", "qeht:soilparameters", "qeht:erosionindices",
               "qeht:erosioncorridor")))
@@ -236,8 +237,24 @@ def main(in_qgis=False):
           all(f["status"] == "candidate" and 0 <= f["crossing_angle_deg"] <= 90
               and f["acc_km2"] >= 0.05 for f in feats))
 
+    r = processing.run("qeht:alignmentprofile", {
+        "RAW_DEM": dem, "ROAD": out("road.gpkg"), "FILLED": out("fill.tif"), "FDR": out("fdr.tif"),
+        "FAC": out("fac.tif"), "ORDER": out("ord.tif"), "THRESHOLD": 200, "START": 1000.0,
+        "STEP": 10.0, "PROFILE": out("profile.gpkg"), "CSV": out("profile.csv"),
+        "CHART": out("profile.png")})
+    pl = QgsVectorLayer(r["PROFILE"], "profile", "ogr")
+    pf = list(pl.getFeatures())
+    nst = sum(1 for f in pf if f["stream"] == 1)
+    check("alignment profile: stations from 1000 m every 10 m, ground and fill filled, "
+          "stream crossings flagged, CSV written",
+          len(pf) > 2 and pf[0]["chainage_m"] == 1000.0 and abs(pf[1]["chainage_m"] - 1010.0) < 1e-9
+          and all(f["z_dem_m"] is not None and f["z_fill_m"] >= f["z_dem_m"] - 1e-6 for f in pf)
+          and nst >= 1 and os.path.exists(out("profile.csv")),
+          f"{len(pf)} stations, {nst} stream crossing(s), chart {os.path.exists(out('profile.png'))}")
+
     r = processing.run("qeht:buildheasexchange", {
         "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "ORDER": out("ord.tif"),
+        "FILLED": out("fill.tif"),
         "POINTS": out("cand.gpkg"), "ROAD": out("road.gpkg"), "START": 1000.0,
         "ID_PREFIX": "X", "ID_ORDER": 0, "SNAP": 5, "SNAP_THRESHOLD": 200, "LOCAL": False,
         "OUTPUT": out("cand_exchange.gpkg")})
@@ -248,6 +265,13 @@ def main(in_qgis=False):
     check("exchange from candidates: validates, carries candidates + road layers",
           not errors and "crossing_candidates" in tabs and "road_alignment" in tabs,
           "; ".join(errors))
+    ap = gpkg.read_table(xp2, "alignment_profile", with_geometry=False) \
+        if "alignment_profile" in tabs else []
+    mdp = {row["key"]: row["value"] for row in gpkg.read_table(xp2, "qeht_run_metadata")}
+    check("package carries alignment_profile (same stations as the tool) + metadata",
+          len(ap) == len(pf) and sum(a["stream"] for a in ap) == nst
+          and mdp.get("alignment_step_m") == "10" and mdp.get("alignment_source"),
+          f"{len(ap)} stations")
     check("exchange from candidates: recommended crossings, numbered along chainage",
           len(cr) == len(rec) and [c["outlet_uid"] for c in sorted(cr, key=lambda c: c["chainage_m"])]
           == [f"X{k + 1:03d}" for k in range(len(cr))] and all(c["snap_dist_m"] < 45 for c in cr))
