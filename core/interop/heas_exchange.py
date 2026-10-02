@@ -154,9 +154,9 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
     erosion : optional core.erosion.summary.ErosionInputs; adds the ero_*
         blocks to catchments and crossings (bulk density from the soil
         block when present)
-    soil : optional (unit_grid, index_to_unit, units, info) from the soils
-        module; adds the soil block (core.soils.catchment.SOIL_FIELDS) to
-        every catchment
+    soil : optional core.soils.sources.SoilGrid (or the older tuple
+        (unit_grid, index_to_unit, units, info)); adds the soil block
+        (core.soils.catchment.SOIL_FIELDS) to every catchment
     channel_threshold_cells : accumulation (cells) at which a channel
         starts (normally the stream threshold). Adds the overland/channel
         split of each LFP (F2) and the basin shape and network indices (F6,
@@ -280,8 +280,11 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
                                  direction=direction, valid=valid, channel_mask=channel_mask,
                                  strahler=strahler))
         if soil is not None:
-            from ..soils.catchment import soil_block
-            chs.update(soil_block(mask, soil[0], soil[2], soil[1], soil[3]))
+            if hasattr(soil, "block"):          # core.soils.sources.SoilGrid (v0.15)
+                chs.update(soil.block(mask))
+            else:                               # (unit_grid, index_to_unit, units, info)
+                from ..soils.catchment import soil_block
+                chs.update(soil_block(mask, soil[0], soil[2], soil[1], soil[3]))
         if erosion is not None:
             from ..erosion.summary import catchment_erosion, crossing_erosion
             bd = chs.get("soil_bulk_gcm3")

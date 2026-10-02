@@ -34,13 +34,26 @@ class SoilParametersAlgorithm(QehtAlgorithm):
             "dominant FAO drainage class; USLE K (Williams/EPIC, SI units, plus the "
             "Renard Dg-based alternative); the coarse-fragment factor CFRG; a "
             "texture-based hydrologic soil group PROXY; and the share of the "
-            "catchment covered by soil data.\n\n"
+            "catchment covered by soil data; hydrologic soil group shares "
+            "(hsg_pct_a ... d, soil_hsg).\n\n"
             "<b>SOTWIS:</b> give the polygons (KEN_SOTWISv1_t1s1d1) and the SQLite "
             "database (KEN_SOTWISv1.db - never the .mdb). Each soil unit's "
             "components (up to 10 profiles with their shares) are depth-weighted "
             "over the chosen interval (default 0-20 cm) and K is computed per "
             "component, then weighted. Without the database the polygons' own "
             "attributes are used (dominant soil only).\n\n"
+            "<b>Other sources (advanced parameters):</b>\n"
+            "- polygons of any soil map: choose its sand, clay and organic carbon "
+            "fields (silt = 100 - sand - clay if not given; OC in % or g/kg);\n"
+            "- a soil unit raster with a CSV table joined on the unit field (e.g. "
+            "HWSD v2 mapping units + an exported attribute table);\n"
+            "- texture rasters (sand, clay, silt, organic carbon, bulk density, coarse "
+            "fragments; SoilGrids 2.0 units are converted), or a folder of SoilGrids "
+            "files (sand_0-5cm_mean.tif ...) depth-weighted over the chosen interval;\n"
+            "- a hydrologic soil group raster (HYSOGs250m codes; dual groups A/D, B/D, "
+            "C/D counted as D) or field, and a K raster or field, which override the "
+            "texture-based values. soil_hsg_source and usle_k_source say which was used.\n"
+            "The catchment fields are the same whatever the source.\n\n"
             "The soil map is rasterised on the reference grid (cell-centre rule), "
             "so every catchment is weighted by cells exactly like the hydrology. "
             "Optional rasters: soil unit index and USLE K per cell.\n\n"
@@ -52,7 +65,7 @@ class SoilParametersAlgorithm(QehtAlgorithm):
             CATCHMENTS, "Catchment polygons", [QgsProcessing.SourceType.TypeVectorPolygon]))
         self.addParameter(QgsProcessingParameterRasterLayer(
             REF, "Reference grid (the DEM or flow-direction raster used for the catchments)"))
-        self.add_soil_parameters("SOIL", optional=False)
+        self.add_soil_parameters("SOIL", optional=True)
         self.addParameter(QgsProcessingParameterFeatureSink(
             OUTPUT, "Catchments with soil parameters", QgsProcessing.SourceType.TypeVectorPolygon))
         self.addParameter(QgsProcessingParameterRasterDestination(
@@ -63,7 +76,9 @@ class SoilParametersAlgorithm(QehtAlgorithm):
     def processAlgorithm(self, parameters, context, feedback):
         _, _, info = read_dem(self.raster_path(parameters, REF, context))
         soil = self.load_soil(parameters, context, info, feedback, "SOIL")
-        grid, idx, units, sinfo = soil
+        if soil is None:
+            raise QgsProcessingException("Give a soil source: polygons, a unit raster + table, "
+                                         "texture rasters / a SoilGrids folder, or an HSG / K raster.")
         src = self.parameterAsSource(parameters, CATCHMENTS, context)
         fields = QgsFields(src.fields())
         existing = set(fields.names())
@@ -87,7 +102,7 @@ class SoilParametersAlgorithm(QehtAlgorithm):
             mask = rasterize_polygons(
                 [([[(p.x(), p.y()) for p in ring] for ring in part], 1) for part in parts],
                 info.geotransform, (info.rows, info.cols)) > 0
-            block = soil_block(mask, grid, units, idx, sinfo)
+            block = soil.block(mask)
             out = QgsFeature(fields)
             out.setGeometry(feat.geometry())
             attrs = dict(zip(src.fields().names(), feat.attributes()))
@@ -103,15 +118,14 @@ class SoilParametersAlgorithm(QehtAlgorithm):
         result = {OUTPUT: dest}
         k_out = self.parameterAsOutputLayer(parameters, K_RASTER, context)
         if k_out:
-            kgrid = np.full(grid.shape, np.nan)
-            for i, uid in idx.items():
-                u = units.get(uid)
-                if u is not None and u.k_si is not None and np.isfinite(u.k_si):
-                    kgrid[grid == i] = u.k_si
-            write_raster(k_out, kgrid, info, nodata=-9999.0)
+            write_raster(k_out, np.where(np.isfinite(soil.k_grid()), soil.k_grid(), np.nan), info,
+                         nodata=-9999.0)
             result[K_RASTER] = k_out
         u_out = self.parameterAsOutputLayer(parameters, UNIT_RASTER, context)
         if u_out:
-            write_raster(u_out, grid, info, dtype="int32", nodata=0)
-            result[UNIT_RASTER] = u_out
+            if soil.unit_grid is None:
+                feedback.pushWarning("The soil source is per-cell (rasters): no unit raster to write.")
+            else:
+                write_raster(u_out, soil.unit_grid, info, dtype="int32", nodata=0)
+                result[UNIT_RASTER] = u_out
         return result
