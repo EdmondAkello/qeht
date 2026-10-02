@@ -435,16 +435,33 @@ def main(in_qgis=False):
     check("exchange with soils: soil block on catchments, dataset in metadata, validates",
           not errors and all(c["usle_k"] and c["soil_hsg_proxy"] for c in ca)
           and md["soil_depth_cm"] and md["soil_dataset"])
+    # v0.15 (F1): curve number from WorldCover classes x HSG
+    _wr(out("worldcover.tif"), np.where(left, 30, 40).astype(np.uint8), _g.GDT_Byte, 0)
+    r5 = processing.run("qeht:soilparameters", {
+        "CATCHMENTS": out("ch_c.gpkg"), "REF": out("fdr.tif"), "SOIL_HSG_R": out("hysogs.tif"),
+        "LANDCOVER": out("worldcover.tif"), "CN_CONDITION": 0, "CN_AMC": 1,
+        "OUTPUT": out("ch_cn.gpkg")})
+    f5 = list(QgsVectorLayer(r5["OUTPUT"], "s5", "ogr").getFeatures())
+    # left: grassland x B = 69, right: cropland x B/D (as D) = 89 (TR-55 fair)
+    check("curve numbers: grass-B 69 / crops-D 89 mix, AMC III export, shares add up",
+          len(f5) == 3 and all(69 - 1e-6 <= f["cn_ii"] <= 89 + 1e-6 and f["cn_amc"] == "III"
+                               and f["cn_export"] > f["cn_ii"]
+                               and abs(f["lc_pct_grass"] + f["lc_pct_crop"] - 100) < 1e-6
+                               and abs(f["cn_ii"] - (69 * f["lc_pct_grass"] + 89 * f["lc_pct_crop"]) / 100) < 1e-6
+                               for f in f5),
+          ", ".join(f"{f['outlet_uid']} CN {f['cn_ii']:.1f} -> {f['cn_export']:.1f}" for f in f5))
     r = processing.run("qeht:buildheasexchange", {
         "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "POINTS": ptsfile,
         "ID_FIELD": "culvert", "SNAP": 5, "SNAP_THRESHOLD": 200, "SOIL_SOILGRIDS": sgdir,
-        "SOIL_HSG_R": out("hysogs.tif"), "OUTPUT": out("soil_sg_exchange.gpkg")})
+        "SOIL_HSG_R": out("hysogs.tif"), "LANDCOVER": out("worldcover.tif"),
+        "OUTPUT": out("soil_sg_exchange.gpkg")})
     ca = gpkg.read_table(r["OUTPUT"], "catchments", with_geometry=False)
     md = {row["key"]: row["value"] for row in gpkg.read_table(r["OUTPUT"], "qeht_run_metadata")}
     errors, _ = validate_exchange(r["OUTPUT"])
-    check("package with SoilGrids + HYSOGs: soil block, HSG shares and sources in metadata",
+    check("package with SoilGrids + HYSOGs + WorldCover: soil block, HSG, CN, sources in metadata",
           not errors and all(c["usle_k"] and c["soil_hsg"] for c in ca)
-          and "SoilGrids" in md["soil_dataset"] and "hysogs" in md["soil_hsg_source"].lower())
+          and "SoilGrids" in md["soil_dataset"] and "hysogs" in md["soil_hsg_source"].lower()
+          and all(c["cn_export"] for c in ca) and '"cn_proxy": true' in md["runoff_json"])
 
     # ---- v0.14: erosion (WP-F) -------------------------------------------
     import json as _json

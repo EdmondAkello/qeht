@@ -586,6 +586,60 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
             extra["k_source"] = f"{src.sourceName()} field {mapped['K_FIELD']}"
         return sg, extra
 
+    def add_runoff_parameters(self):
+        """Land cover + lookups for the curve number / Rational C block (F1)."""
+        from qgis.core import (QgsProcessingParameterRasterLayer, QgsProcessingParameterEnum,
+                               QgsProcessingParameterFile)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            "LANDCOVER", "Land cover (ESA WorldCover classes; optional, for CN and land-cover "
+            "shares)", optional=True))
+        self.addParameter(QgsProcessingParameterEnum(
+            "CN_CONDITION", "Hydrologic condition for the TR-55 curve numbers",
+            options=["fair", "good", "poor"], defaultValue=0))
+        self.addParameter(QgsProcessingParameterEnum(
+            "CN_AMC", "Antecedent moisture condition of the exported CN",
+            options=["II (average)", "III (wet)", "I (dry)"], defaultValue=0))
+        self.addParameter(self._advanced(QgsProcessingParameterFile(
+            "CN_CSV", "Curve number lookup CSV (class, A, B, C, D; replaces the TR-55 default)",
+            optional=True, fileFilter="CSV (*.csv *.txt)")))
+        self.addParameter(self._advanced(QgsProcessingParameterFile(
+            "RC_CSV", "Rational C lookup CSV (class, A, B, C, D or class, C; none ships)",
+            optional=True, fileFilter="CSV (*.csv *.txt)")))
+
+    def load_runoff(self, parameters, context, info, soil, feedback):
+        """-> core.runoff.curve_number.RunoffInputs or None (no land cover)."""
+        from ..core.runoff.curve_number import RunoffInputs, read_lookup_csv, CONDITIONS, AMC
+        from ..core.raster import warp_to_grid
+        if "LANDCOVER" not in parameters or not parameters["LANDCOVER"] or \
+                self.parameterAsRasterLayer(parameters, "LANDCOVER", context) is None:
+            return None
+        lc, desc = warp_to_grid(self.raster_path(parameters, "LANDCOVER", context), info,
+                                resampling="near")
+        cond = CONDITIONS[self.parameterAsEnum(parameters, "CN_CONDITION", context)] \
+            if "CN_CONDITION" in parameters else "fair"
+        amc = AMC[self.parameterAsEnum(parameters, "CN_AMC", context)] \
+            if "CN_AMC" in parameters else "II"
+        cn_path = self.parameterAsFile(parameters, "CN_CSV", context) if parameters.get("CN_CSV") else ""
+        rc_path = self.parameterAsFile(parameters, "RC_CSV", context) if parameters.get("RC_CSV") else ""
+        try:
+            cn_lut = read_lookup_csv(cn_path, "CN") if cn_path else None
+            rc_lut = read_lookup_csv(rc_path, "C") if rc_path else None
+        except ValueError as e:
+            raise QgsProcessingException(str(e))
+        hsg = soil.hsg if soil is not None else None
+        ro = RunoffInputs(lc, hsg=hsg, condition=cond, amc=amc, cn_lookup=cn_lut,
+                          cn_lookup_path=cn_path or None, rc_lookup=rc_lut,
+                          rc_lookup_path=rc_path or None, lc_dataset=desc)
+        if hsg is None:
+            feedback.pushWarning("Curve numbers need hydrologic soil groups: give a soil source "
+                                 "(or an HSG raster). Land-cover shares only.")
+        else:
+            feedback.pushInfo(f"Curve numbers: {ro.cn_lookup_name}; exported at AMC {amc}"
+                              + ("" if cn_path else " - PROXY lookup, check before design use"))
+        if ro.note:
+            feedback.pushWarning(ro.note)
+        return ro
+
     @staticmethod
     def qgs_field(name, kind):
         """QgsField for text/int/real that works on QGIS 3.22 and 4."""
