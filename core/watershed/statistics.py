@@ -290,6 +290,14 @@ CATCHMENT_FIELDS = [
     ("lfp_length_km", "float"),
     ("slope_mean", "float"),            # legacy alias of catch_slope_horn
     ("slope_relief_ratio", "float"),    # legacy alias of catch_relief_ratio
+    # basin shape and network indices (v0.15, F6; core/watershed/morphometry.py)
+    ("perimeter_km", "float"),
+    ("form_factor", "float"),
+    ("elongation_ratio", "float"),
+    ("circularity_ratio", "float"),
+    ("drainage_density", "float"),
+    ("stream_frequency", "float"),
+    ("max_strahler", "int"),
 ]
 
 FLOWPATH_FIELDS = [
@@ -309,4 +317,14 @@ FLOWPATH_FIELDS = [
     ("lfp_z_outlet_m", "float"),
     ("lfp_nonmonotonic", "int"),
     ("area_km2", "float"),
+    # overland / channel split (v0.15, F2)
+    ("lfp_overland_m", "float"),
+    ("lfp_overland_slope", "float"),
+    ("lfp_channel_m", "float"),
+    ("lfp_channel_slope", "float"),
+    ("lfp_channel_slope_1085", "float"),
+    ("lfp_sheet_m", "float"),
+    ("lfp_shallow_m", "float"),
+    ("lfp_threshold_km2", "float"),
+    ("lfp_no_channel", "int"),
 ]
