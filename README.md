@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.14.0
+# QEHT — QGIS Engineering Hydrology Toolkit v0.15.0
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -29,10 +29,14 @@ which are C++ libraries already loaded inside the QGIS process. There is no
         watershed/statistics.py morphometry, the four slope domains, 10-85 slope
         linking/ids.py       outlet_uid generation and uniqueness
         geometry/polygonize.py  cell mask -> polygon (pure NumPy)
-        interop/             HEAS exchange: field dictionary, GeoPackage writer
-        network/             road alignment chainage, crossing candidates
+        interop/             design hydrology package: field dictionary, GeoPackage writer
+        network/             road alignment chainage, crossing candidates, ground profile
+        watershed/morphometry.py  flow-path segments, basin shape and network indices
+        watershed/channel.py approach / exit channel slopes, deposition indicator
+        runoff/curve_number.py   curve number and Rational C per catchment
         conditioning/burn.py breach road embankments at crossings
-        soils/               SOTWIS / attribute loaders, USLE K, texture, HSG proxy
+        soils/               soils from any source (SoilGrid), SOTWIS / table / raster loaders,
+                             USLE K, texture, HSG proxy, HYSOGs
         geometry/rasterize.py polygons -> grid (cell-centre rule, pure NumPy)
       processing_provider/   ← the only place QGIS and core meet
       tests/test_core.py     ← runs on bare Python + NumPy
@@ -40,6 +44,8 @@ which are C++ libraries already loaded inside the QGIS process. There is no
       tests/test_crossings.py ← crossing candidates, burn, renumber-and-relink
       tests/test_soils.py    ← USLE K, texture, SOTWIS loader, soil block
       tests/test_flats.py    ← vectorised core == v0.8.3 reference; Barnes == RichDEM port
+      tests/test_alignment.py, test_morphometry.py, test_soils_any.py,
+      test_runoff.py, test_channel.py  ← v0.15 features
       tests/qgis_smoke.py    ← every Processing tool, run inside QGIS
 
 The core is importable without QGIS. That is what makes the hydrology testable:
@@ -50,6 +56,11 @@ The core is importable without QGIS. That is what makes the hydrology testable:
     python -m qeht.tests.test_soils       # 33 checks: soils, USLE K, CSV soil table
     python -m qeht.tests.test_flats       # 36 checks: oracles, Barnes == RichDEM, edge drains, DEM QA
     python -m qeht.tests.test_erosion     # 44 checks: erosion indices, RUSLE, classes, A14 anchors
+    python -m qeht.tests.test_alignment   # 15 checks: alignment ground profile
+    python -m qeht.tests.test_morphometry # 22 checks: overland/channel split, basin shape
+    python -m qeht.tests.test_soils_any   # 18 checks: soils from any source, HSG / K overrides
+    python -m qeht.tests.test_runoff      # 17 checks: curve number, AMC, Rational C
+    python -m qeht.tests.test_channel     # 16 checks: STI, deposition indicator, channel slopes
 
 Run these after any change to the core, and before trusting any output on a
 real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
@@ -66,13 +77,14 @@ real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
 | Stream network to polylines | a hydrology toolset's `Drainage Line Processing` |
 | Longest flow path | a hydrology toolset's `Longest Flow Path` |
 | Catchment and flow path characteristics | a hydrology toolset's `Basin/Longest Flow Path` attributes |
-| Build HEAS exchange package | — (one self-describing GeoPackage for HEAS; see below) |
+| Build design hydrology package | — (one self-describing GeoPackage of crossings, catchments and flow paths; see below) |
 | Renumber and relink exchange package | — (re-issue IDs after editing crossings) |
 | Road crossing candidates | — (road × drainage crossings with chainage, clustering) |
 | Burn crossings through embankments | a DEM-reconditioning "burn culverts" step |
-| Soil parameters for catchments | zonal soil statistics + USLE K |
+| Soil and runoff parameters for catchments | zonal soil statistics, USLE K, HSG shares, curve number |
 | Erosion indices and RUSLE soil loss | SPI, TWI, LS, RUSLE and severity classes |
 | Sample erosion along alignment | — (erosion stations and reaches along a road) |
+| Alignment ground profile | — (ground, fill, area and stream crossings every 10 m along a road) |
 
 For Pairwise Intersect, use the built-in `native:intersection` — it is C++ and
 never spawns anything. There is no reason to wrap it.
@@ -170,28 +182,36 @@ Routing uses the conditioned DEM; reported elevations should come from the raw
 one, or heights inside filled depressions read as fill surface rather than
 ground. The tool takes both and warns if the raw DEM is omitted.
 
-## HEAS exchange package
+## Design hydrology package
 
-**Build HEAS exchange package** writes one GeoPackage per run (schema
-`qeht-heas-1`) that HEAS imports with no field mapping:
+**Build design hydrology package** (called "Build HEAS exchange package" up to
+0.14; the algorithm id `buildheasexchange` is unchanged, so saved models keep
+working) writes one self-describing GeoPackage per run (schema `qeht-heas-1`)
+for spreadsheets, reports or design software:
 
 | Table | Content |
 |---|---|
-| `crossings` | snapped outlet points with `outlet_uid`, input and snapped coordinates, snap distance, contributing area, Strahler order |
+| `crossings` | snapped outlet points with `outlet_uid`, input and snapped coordinates, snap distance, contributing area, Strahler order, approach / exit channel slopes |
 | `catchments` | one polygon per crossing, with all catchment fields |
 | `flowpaths` | longest flow path per crossing, with all flow-path fields |
 | `qeht_run_metadata` | QEHT version, DEM path and SHA-256, CRS, cell size, thresholds, snapping, ID scheme, full parameters |
-| `qeht_field_dictionary` | meaning, unit, method and HEAS target of every field |
+| `qeht_field_dictionary` | meaning, unit, method, plain-language downstream use (and the HEAS field, where there is one) of every field |
+| optional layers | `road_alignment`, `alignment_profile`, `crossing_candidates`, `burn_log`, `renumber_log` when their inputs are given |
 
-The three layers share `outlet_uid`, so HEAS links them by key rather than by
-row order or by position. Rules: a projected, metric CRS is required (a DEM in
-degrees is refused); duplicate or empty IDs stop the run with a list; missing
-values are written as NULL, never 0; schema changes are additive only (a
-rename or removal would be `qeht-heas-2`). An optional CSV per layer carries
+The three layers share `outlet_uid`, so any reader links them by key rather
+than by row order or by position. Rules: a projected, metric CRS is required
+(a DEM in degrees is refused); duplicate or empty IDs stop the run with a list;
+missing values are written as NULL, never 0; schema changes are additive only
+(a rename or removal would be `qeht-heas-2`). An optional CSV per layer carries
 `outlet_uid` for spreadsheet users. The GeoPackage is written with the Python
-standard library and checked against GDAL's GeoPackage validator in the tests;
-`tests/fixtures/golden_exchange.gpkg` is the shared fixture that HEAS imports
-in its own tests.
+standard library and checked against GDAL's GeoPackage validator in the tests.
+
+### Using with HEAS (optional)
+
+HEAS is a separate desktop hydrology–hydraulics design tool that can import
+this package directly; it is not required. `tests/fixtures/golden_exchange.gpkg`
+is the shared fixture HEAS imports in its own tests (regenerated in 0.15 with
+new fields only; no existing value changed).
 
 ## Road drainage workflow (v0.10)
 
@@ -212,7 +232,7 @@ in its own tests.
    downstream, lowered to a straight grade (never raised). Every breach is
    logged (cells, maximum cut, volume). Then fill, flow direction and
    accumulation on the burned DEM.
-3. **Build HEAS exchange package** on the candidate layer — uses the accepted
+3. **Build design hydrology package** on the candidate layer — uses the accepted
    candidates (or the recommended ones), keeps each outlet cell exactly (no
    snapping), numbers `outlet_uid` along the chainage (decision D2), and stores
    the full candidate layer and the road alignment in the package.
@@ -223,8 +243,8 @@ in its own tests.
 
 ## Soils (v0.11)
 
-**Soil parameters for catchments** (and an optional soil input on Build HEAS
-exchange package) adds a soil block to every catchment: area-weighted topsoil
+**Soil and runoff parameters for catchments** (and the optional soil input on
+Build design hydrology package) adds a soil block to every catchment: area-weighted topsoil
 sand, silt, clay, organic carbon, coarse fragments and bulk density; USDA
 texture; dominant FAO drainage class; **USLE K** (Williams/EPIC, SI units
 t·ha·h/(ha·MJ·mm)) plus the Renard Dg-based alternative; the coarse-fragment
@@ -286,7 +306,7 @@ and TWI on each side within a buffer; consecutive stations with the same worst
 class form reaches whose lengths add up to the road length. Optional chainage
 profile chart.
 
-**Build HEAS exchange package** takes the folder as an optional input and adds
+**Build design hydrology package** takes the folder as an optional input and adds
 an erosion block: per catchment the mean and p90 soil loss and LS, channel
 ln(SPI) p90, area-weighted K, C and P, class shares, gross soil loss, sediment
 delivery ratio (SDR = 0.565·A^−0.125) and sediment volume; per crossing the
@@ -295,6 +315,85 @@ impact score 0.4·SPI + 0.3·RUSLE + 0.3·sediment (Low / Moderate / High /
 Severe) with an indicative mitigation. The scheme, weights and C lookup follow
 the published A14 corridor study (Akello & Omosa 2025), whose tables are the
 test anchors.
+
+## v0.15: alignment profile, flow-path segments, soils anywhere, curve numbers
+
+**Alignment ground profile** (Road drainage) stations a road centreline every
+10 m: DEM ground (bilinear), the filled-DEM level and the ponding depth the
+fill removed, contributing area (largest within one cell), the stream crossings
+(the exact D8 link × centreline intersections of Road crossing candidates) with
+their Strahler order, and the longitudinal ground slope. Provisional levels
+before the geometric design exists, and a check on DEM height bias afterwards.
+Build design hydrology package writes the same profile as `alignment_profile`
+when a road alignment is given.
+
+**Flow-path segments.** Each longest flow path is split at the channel head
+(the first cell reaching the stream threshold): `lfp_overland_m` / `_slope`,
+`lfp_channel_m` / `_slope` / `_slope_1085`, and the overland part as sheet flow
+(up to a cap, default 100 m) plus shallow concentrated flow — inputs for Kerby
+and segmental (TR-55) Tc. `lfp_overland_m + lfp_channel_m = lfp_length_m`.
+
+**Basin shape and network** (information only): `perimeter_km` (smoothed
+outline, not the cell staircase), `form_factor`, `elongation_ratio`,
+`circularity_ratio`, `drainage_density`, `stream_frequency`, `max_strahler`.
+
+**Channel slopes at every crossing:** `ch_slope_us` along the main stem
+upstream and `ch_slope_ds` along the D8 path downstream, over 200 m on the raw
+DEM, with the lengths actually used.
+
+**Soils from any source.** Every source becomes the same per-cell description
+on the DEM grid, so the catchment soil fields mean the same thing everywhere:
+
+- SOTWIS / SOTER database, polygon attributes, or polygons + CSV (as before;
+  results identical to 0.14);
+- any soil map: choose its sand, clay and organic carbon fields (OC in % or
+  g/kg; silt = 100 − sand − clay when not given);
+- a soil unit raster + CSV table (e.g. HWSD v2 mapping units with an exported
+  attribute table);
+- texture rasters, or a folder of SoilGrids 2.0 files (`sand_0-5cm_mean.tif`
+  …), converted from SoilGrids units and depth-weighted over the chosen
+  interval;
+- a hydrologic soil group raster (HYSOGs250m codes; dual groups A/D, B/D, C/D
+  counted as D) or field, and a K raster or field, which override the
+  texture-based values. `soil_hsg_source` and `usle_k_source` record which was
+  used; `hsg_pct_a` … `hsg_pct_d` give the shares.
+
+**Curve number and Rational C.** With a land-cover raster (ESA WorldCover
+classes): per cell land cover × hydrologic soil group → CN from TR-55
+Table 2-2 (condition fair / good / poor), averaged over the catchment (`cn_ii`)
+and exported at AMC I, II or III (`cn_export`). The WorldCover → TR-55 match is
+a **proxy**, flagged in `runoff_json`; replace it with your own lookup CSV.
+Rational C comes only from a lookup you supply — none ships. Land-cover shares
+`lc_pct_*` are always given.
+
+**Sediment transport and deposition.** The erosion tool also writes
+`sti_overland.tif`, the sediment transport capacity index of Moore & Wilson
+(1992) on overland cells (channels NoData, A_s capped at 100 m) — a relative
+indicator of where slopes deliver sediment, not the RUSLE LS factor and not used
+in soil loss, the classes or the composite. In the package each crossing gets a
+**deposition indicator**: median SPI on the main channel 0–100 m vs 100–500 m
+upstream; a ratio below 0.7 means transport capacity falls into the inlet
+(deposition-prone), above 1.3 scour-prone.
+
+### Data sources by region
+
+QEHT does not ship data; it reads what you have. Global sources that work
+anywhere (national data is better where it exists):
+
+| Input | Global source | Tool input |
+|---|---|---|
+| DEM | FABDEM, Copernicus GLO-30, ALOS AW3D30 (30 m) | Raw DEM |
+| Soil texture | SoilGrids 2.0 (ISRIC, 250 m, six depths) | SoilGrids folder or texture rasters |
+| Soil units | HWSD v2.0 (FAO/IIASA, ~1 km) | Soil unit raster + CSV |
+| Hydrologic soil group | HYSOGs250m (ORNL DAAC) | HSG raster |
+| Land cover | ESA WorldCover 2021 (10 m) | Land cover / WorldCover |
+| Rainfall erosivity R | GloREDa (ESDAC) | R raster |
+| Soil erodibility K | ESDAC global K, or computed from texture | K raster |
+
+Kenya-specific defaults stay as they were: SOTWIS for soils, the A14 study's
+WorldCover C lookup. The default RUSLE class breaks (5 / 12 / 25 / 50 t/ha/yr)
+come from East African practice — check them against local guidance or give
+your own.
 
 ## Flats and performance (v0.12)
 
