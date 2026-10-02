@@ -94,9 +94,13 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "Kerby and segmental (TR-55) Tc. <b>Basin shape:</b> perimeter, form factor, "
             "elongation and circularity ratios, drainage density, stream frequency and "
             "highest Strahler order, for the report.\n\n"
-            "<b>Soils (optional):</b> give soil map polygons (with the SOTWIS SQLite "
-            "database for the full unit composition, or polygons carrying SOTWIS or "
-            "plain sand/silt/clay/oc fields) to add the soil block to every catchment: "
+            "<b>Soils (optional), from any source:</b> soil map polygons (with the SOTWIS / "
+            "SOTER SQLite database, a CSV table, SOTWIS or plain sand/silt/clay/oc fields, "
+            "or your own field names under the advanced parameters); a soil unit raster "
+            "+ CSV (e.g. HWSD v2); texture rasters or a SoilGrids folder (depth-weighted); "
+            "plus an optional hydrologic soil group raster (e.g. HYSOGs250m) or field and "
+            "K raster or field that override the texture-based values. Adds the soil "
+            "block to every catchment: "
             "texture, organic carbon, coarse fragments, USLE K (Williams/EPIC), a "
             "texture-based hydrologic-group PROXY and the share of the catchment "
             "covered. Default depth 0-20 cm.\n\n"
@@ -371,8 +375,10 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                               "nearest_stream" if stream_mask is not None else "max_accumulation"),
             "catchment_mode": "local" if local else "full",
             "id_attribute": id_field or "",
-            "soil_dataset": soil[3]["soil_dataset"] if soil else "",
-            "soil_depth_cm": soil[3]["soil_depth_cm"] if soil else "",
+            "soil_dataset": soil.info["soil_dataset"] if soil else "",
+            "soil_depth_cm": soil.info["soil_depth_cm"] if soil else "",
+            "soil_hsg_source": soil.info.get("hsg_source", "") if soil else "",
+            "soil_k_source": soil.info.get("k_source", "") if soil else "",
             "crossing_source": ("crossing candidates" if candidate_mode else "pour points"),
             "chainage_start_m": (f"{alignment.start_chainage:g}" if alignment is not None else ""),
             "alignment_source": (self.parameterAsSource(parameters, ROAD, context).sourceName()

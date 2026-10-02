@@ -164,15 +164,10 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
         K = self._factor(parameters, context, info, "K", "K", feedback)
         if not K.present:
             soil = self.load_soil(parameters, context, info, feedback)
-            if soil is not None:
-                grid, idx, units, sinfo = soil
-                kg = np.full(grid.shape, np.nan)
-                for i, uid in idx.items():
-                    u = units.get(uid)
-                    if u is not None and u.k_si is not None and np.isfinite(u.k_si):
-                        kg[grid == i] = u.k_si
-                K = Factor("K", grid=kg, source=f"{sinfo.get('soil_dataset')} Williams/EPIC K, "
-                                               f"{sinfo.get('soil_depth_cm')} cm")
+            if soil is not None and np.isfinite(soil.k_grid()).any():
+                K = Factor("K", grid=soil.k_grid(),
+                           source=f"{soil.info.get('soil_dataset')}: {soil.info.get('k_source')}, "
+                                  f"{soil.info.get('soil_depth_cm')} cm")
         C = self._factor(parameters, context, info, "C", "C", feedback)
         wc = None
         if self.parameterAsRasterLayer(parameters, "WORLDCOVER", context) is not None:

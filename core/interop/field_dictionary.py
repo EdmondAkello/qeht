@@ -148,6 +148,21 @@ CATCHMENTS = [
     ("soil_dataset", "text", "-", "soil dataset and version", "", "provenance"),
     ("soil_depth_cm", "text", "cm", "depth interval the soil values describe (default 0-20, D6)",
      "", "provenance"),
+    ("soil_hsg", "text", "-", "hydrologic soil group with the largest share (A-D)",
+     "direct HSG input (e.g. HYSOGs250m) where given, else the per-cell texture/drainage proxy; "
+     "see soil_hsg_source", "CN input"),
+    ("hsg_pct_a", "real", "%", "share of the catchment in HSG A", "of cells with a known group",
+     "CN input"),
+    ("hsg_pct_b", "real", "%", "share in HSG B", "", "CN input"),
+    ("hsg_pct_c", "real", "%", "share in HSG C", "", "CN input"),
+    ("hsg_pct_d", "real", "%", "share in HSG D, including dual groups (A/D, B/D, C/D)",
+     "dual groups counted as D (undrained)", "CN input"),
+    ("hsg_pct_dual", "real", "%", "share in dual groups (high runoff unless drained)",
+     "part of hsg_pct_d", "CN input"),
+    ("soil_hsg_source", "text", "-", "source of the HSG values", "direct dataset or "
+     "'proxy: texture and drainage class'", "provenance"),
+    ("usle_k_source", "text", "-", "source of usle_k", "direct K input, or Williams/EPIC "
+     "from the soil dataset", "provenance"),
 ] + [
     # erosion block (v0.14, WP-F) - empty when no erosion inputs were supplied
     ("ero_mode", "text", "-", "RUSLE, or LS-only when R, K or C was not supplied",
@@ -313,6 +328,8 @@ METADATA_KEYS = [
     ("relinked_from", "package this one was renumbered/relinked from (D3)"),
     ("soil_dataset", "soil dataset used for the soil block (empty = none)"),
     ("soil_depth_cm", "topsoil depth interval of the soil block"),
+    ("soil_hsg_source", "source of the hydrologic soil groups (direct dataset or texture proxy)"),
+    ("soil_k_source", "source of K in the soil block (direct K or Williams/EPIC)"),
     ("conditioning_burn", "summary of the breach log when one was supplied (layer burn_log)"),
     ("erosion_json", "erosion inputs: mode, factor provenance (source, proxy flags), LS method, "
      "class schemes, MCDMA weights, SDR model (empty = no erosion block)"),
@@ -353,6 +370,7 @@ DOWNSTREAM_USE = {
     "sediment/CN input": "soil texture for CN and sediment calculations",
     "sediment input": "soil property for sediment calculations",
     "CN input (proxy)": "hydrologic soil group for curve numbers (texture proxy)",
+    "CN input": "hydrologic soil group for curve numbers",
     "MUSLE K": "soil erodibility for RUSLE / MUSLE",
     "MUSLE LS": "slope length-steepness factor for RUSLE / MUSLE",
     "MUSLE C": "cover factor for RUSLE / MUSLE",

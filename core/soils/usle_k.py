@@ -141,3 +141,92 @@ def hsg_proxy(texture, drain=None):
     if d == "I" and g in ("A", "B"):
         return "C"
     return g
+
+
+# -- vectorised versions (v0.15, soil rasters) -------------------------------
+# Same formulas as the scalar functions above, on NumPy arrays; NaN where an
+# input is missing. Tested against the scalar versions in tests/test_soils_any.
+
+import numpy as _np
+
+TEXTURES = ("sand", "loamy sand", "sandy loam", "loam", "silt loam", "silt",
+            "sandy clay loam", "clay loam", "silty clay loam", "sandy clay",
+            "silty clay", "clay")
+HSG_CODES = ("A", "B", "C", "D")        # code 1..4; 0 = unknown
+
+
+def _arr(*vals):
+    out = [_np.asarray(v, dtype=float) for v in vals]
+    ok = _np.ones(_np.broadcast(*out).shape, bool)
+    for v in out:
+        ok &= _np.isfinite(v) & (v >= 0)
+    return out, ok
+
+
+def williams_k_arr(sand, silt, clay, oc_pct):
+    """K_SI per cell (Williams/EPIC x 0.1317)."""
+    (sa, si, cl, c), ok = _arr(sand, silt, clay, oc_pct)
+    ok &= (si + cl) > 0
+    with _np.errstate(all="ignore"):
+        f_csand = 0.2 + 0.3 * _np.exp(-0.0256 * sa * (1.0 - si / 100.0))
+        f_clsi = (si / (cl + si)) ** 0.3
+        f_orgc = 1.0 - 0.25 * c / (c + _np.exp(3.72 - 2.95 * c))
+        sn1 = 1.0 - sa / 100.0
+        f_hisand = 1.0 - 0.7 * sn1 / (sn1 + _np.exp(-5.51 + 22.9 * sn1))
+        k = f_csand * f_clsi * f_orgc * f_hisand * K_US_TO_SI
+    return _np.where(ok, k, _np.nan)
+
+
+def dg_k_arr(sand, silt, clay):
+    (sa, si, cl), ok = _arr(sand, silt, clay)
+    tot = sa + si + cl
+    ok &= tot > 0
+    with _np.errstate(all="ignore"):
+        s = (cl / tot * 100.0 * math.log(0.001) + si / tot * 100.0 * math.log(0.026)
+             + sa / tot * 100.0 * math.log(1.025))
+        dg = _np.exp(0.01 * s)
+        k = 0.0034 + 0.0405 * _np.exp(-0.5 * ((_np.log10(dg) + 1.659) / 0.7101) ** 2)
+    return _np.where(ok, k, _np.nan)
+
+
+def usda_texture_arr(sand, silt, clay):
+    """Texture code per cell: 1..12 = TEXTURES index + 1, 0 = unknown."""
+    (sand, silt, clay), ok = _arr(sand, silt, clay)
+    t = sand + silt + clay
+    ok &= t > 0
+    with _np.errstate(all="ignore"):
+        sa, si, cl = 100.0 * sand / t, 100.0 * silt / t, 100.0 * clay / t
+    conds = [
+        si + 1.5 * cl < 15,
+        si + 1.5 * cl < 30,
+        ((7 <= cl) & (cl < 20) & (sa > 52) & (si + 2 * cl >= 30)) | ((cl < 7) & (si < 50) & (si + 2 * cl >= 30)),
+        (7 <= cl) & (cl < 27) & (28 <= si) & (si < 50) & (sa <= 52),
+        ((si >= 50) & (12 <= cl) & (cl < 27)) | ((50 <= si) & (si < 80) & (cl < 12)),
+        (si >= 80) & (cl < 12),
+        (20 <= cl) & (cl < 35) & (si < 28) & (sa > 45),
+        (27 <= cl) & (cl < 40) & (20 < sa) & (sa <= 45),
+        (27 <= cl) & (cl < 40) & (sa <= 20),
+        (cl >= 35) & (sa > 45),
+        (cl >= 40) & (si >= 40),
+        (cl >= 40) & (sa <= 45) & (si < 40),
+    ]
+    code = _np.select(conds, list(range(1, 13)), default=4)     # "loam" (boundary rounding)
+    return _np.where(ok, code, 0).astype(_np.int8)
+
+
+_TEX_HSG = {"sand": 1, "loamy sand": 1, "sandy loam": 2, "loam": 2, "silt loam": 2, "silt": 2,
+            "sandy clay loam": 3, "clay loam": 4, "silty clay loam": 4, "sandy clay": 4,
+            "silty clay": 4, "clay": 4}
+
+
+def hsg_proxy_arr(texture_code, drain=None):
+    """HSG proxy code per cell (1..4 = A..D, 0 unknown) from texture code and
+    an optional array of FAO drainage letters (as single-character strings)."""
+    lut = _np.array([0] + [_TEX_HSG[t] for t in TEXTURES], dtype=_np.int8)
+    g = lut[_np.asarray(texture_code, dtype=_np.int64)]
+    if drain is not None:
+        d = _np.char.upper(_np.char.strip(_np.asarray(drain, dtype=str)))
+        first = _np.array([x[:1] for x in d.ravel()]).reshape(d.shape) if d.size else d
+        g = _np.where((g > 0) & _np.isin(first, ("P", "V")), 4, g)
+        g = _np.where((g > 0) & (g <= 2) & (first == "I"), 3, g)
+    return g.astype(_np.int8)
