@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 # QEHT - Licensed under the GNU General Public License v2 or later.
-"""Build HEAS exchange package - one self-describing GeoPackage per run."""
+"""Build design hydrology package - one self-describing GeoPackage per run.
+
+Shown as "Build design hydrology package" since 0.15 (was "Build HEAS exchange
+package"); the algorithm id buildheasexchange and the schema qeht-heas-1 are
+unchanged so saved models and HEAS imports keep working.
+"""
 
 import os
 
@@ -41,16 +46,19 @@ ORDER_KEYS = ["auto", "downstream", "input"]
 class BuildHeasExchangeAlgorithm(QehtAlgorithm):
 
     def name(self): return "buildheasexchange"
-    def displayName(self): return "Build HEAS exchange package"
+    def displayName(self): return "Build design hydrology package"
     def group(self): return "Interoperability"
     def groupId(self): return "interop"
 
     def shortHelpString(self):
         return (
-            "Runs snapping, catchment delineation, longest flow path and "
-            "catchment characteristics for every pour point and writes ONE "
-            f"GeoPackage (schema {SCHEMA_VERSION}) that HEAS imports with no field "
-            "mapping.\n\n"
+            "One self-describing GeoPackage of crossings, catchments and flow "
+            "paths linked by outlet_uid, for spreadsheets, reports or design "
+            "software. Runs snapping, catchment delineation, longest flow path and "
+            "catchment characteristics for every pour point.\n\n"
+            f"(Formerly 'Build HEAS exchange package'. HEAS, a separate design tool, "
+            f"imports the package directly - schema {SCHEMA_VERSION} - but it is not "
+            "required.)\n\n"
             "<b>Layers:</b> crossings (snapped outlets), catchments, flowpaths, "
             "plus qeht_run_metadata (DEM, method, thresholds, QEHT version) and "
             "qeht_field_dictionary (meaning, unit and method of every field).\n\n"

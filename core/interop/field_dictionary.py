@@ -257,7 +257,57 @@ METADATA_KEYS = [
 ]
 
 FIELD_DICTIONARY_COLUMNS = ("layer", "field", "type", "unit", "meaning",
-                            "method", "heas_target")
+                            "method", "heas_target", "downstream_use", "heas_field")
+
+# Plain-language "downstream use" for each heas_target term (v0.15, §0 of the
+# feature recommendations): the package is for spreadsheets, reports or any
+# design software, not only HEAS. heas_target stays as it was (HEAS reads it;
+# the table is additive under qeht-heas-1); heas_field names the HEAS input
+# only where the target is one.
+DOWNSTREAM_USE = {
+    "link key": "joins crossings, catchments and flow paths",
+    "link registry": "how the feature was linked to its crossing",
+    "crossing ID": "crossing label in schedules and reports",
+    "catchment ID": "catchment label in schedules and reports",
+    "flow path ID": "flow path label in schedules and reports",
+    "crossing chainage": "crossing position along the road",
+    "none": "not for linking (unstable feature id)",
+    "provenance": "record of how the value was produced",
+    "QA": "quality check",
+    "info": "information for the report",
+    "hand check": "lets a reviewer check the value by hand",
+    "alias": "old name kept for one release",
+    "area_km2": "catchment area for any design flood method",
+    "catchment_slope": "mean catchment slope (runoff coefficient / CN tables)",
+    "catchment relief ratio": "basin-steepness index (morphometry; not a Tc input)",
+    "flow_path_km": "time of concentration: flow path length",
+    "flow_path_slope": "time of concentration: flow path slope (drop / length)",
+    "flow_path_slope_10_85": "time of concentration: 10-85 flow path slope",
+    "sediment/CN input": "soil texture for CN and sediment calculations",
+    "sediment input": "soil property for sediment calculations",
+    "CN input (proxy)": "hydrologic soil group for curve numbers (texture proxy)",
+    "MUSLE K": "soil erodibility for RUSLE / MUSLE",
+    "MUSLE LS": "slope length-steepness factor for RUSLE / MUSLE",
+    "MUSLE C": "cover factor for RUSLE / MUSLE",
+    "MUSLE P": "support practice factor for RUSLE / MUSLE",
+    "MUSLE CFRG": "coarse-fragment factor for MUSLE",
+    "MUSLE CFRG input": "coarse fragments for MUSLE",
+    "MUSLE / sediment": "soil loss for sediment calculations",
+    "alternative K": "alternative soil erodibility",
+    "gully potential": "gully / scour potential at the crossing",
+    "erosion": "erosion severity",
+    "erosion provenance": "how the erosion values were produced",
+    "sediment": "sediment yield to the crossing",
+    "MCDMA": "multi-criteria erosion impact score",
+}
+
+# heas_target terms that are HEAS input names (written to heas_field)
+HEAS_FIELDS = {"area_km2", "catchment_slope", "flow_path_km", "flow_path_slope",
+               "flow_path_slope_10_85"}
+
+
+def downstream_use(target):
+    return DOWNSTREAM_USE.get(target, target)
 
 
 def field_names(layer):
@@ -269,7 +319,9 @@ def dictionary_rows():
     rows = []
     for layer, (_, fields, _) in LAYERS.items():
         for name, ftype, unit, meaning, method, target in fields:
-            rows.append((layer, name, ftype, unit, meaning, method, target))
+            rows.append((layer, name, ftype, unit, meaning, method, target,
+                         downstream_use(target), target if target in HEAS_FIELDS else ""))
     for key, meaning in METADATA_KEYS:
-        rows.append(("qeht_run_metadata", key, "text", "-", meaning, "", "provenance"))
+        rows.append(("qeht_run_metadata", key, "text", "-", meaning, "", "provenance",
+                     downstream_use("provenance"), ""))
     return rows

@@ -78,7 +78,7 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
             "tied cells on the drainage line decide where the flow goes, not the "
             "terrain, so verify that catchment against mapped drainage or on site. "
             "Adds about two routing passes of run time.\n\n"
-            "For HEAS, use 'Build HEAS exchange package', which writes the same "
+            "For one linked package, use 'Build design hydrology package', which writes the same "
             "values into one self-describing GeoPackage."
         )
 
