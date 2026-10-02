@@ -82,6 +82,9 @@ class ErosionInputs(object):
         self.rusle_codes = rusle_scheme.classify(base, np.isfinite(base))
         self.combined = combine_scores(spi_scheme.score_of(self.spi_codes),
                                        rusle_scheme.score_of(self.rusle_codes), matrix)
+        # v0.15 (STI advisory): overland STI grid and deposition-indicator settings
+        self.sti = None
+        self.dep_near_m, self.dep_far_m, self.dep_breaks = 100.0, 500.0, (0.7, 1.3)
 
     @property
     def mode(self):
@@ -164,8 +167,14 @@ def approach_cells(direction, mask, channel, r, c, n=APPROACH_CELLS):
     return out
 
 
-def crossing_erosion(r, c, mask, direction, inp, catchment_block=None):
-    """Erosion block for one crossing at outlet cell (r, c)."""
+def crossing_erosion(r, c, mask, direction, inp, catchment_block=None, accumulation=None,
+                     valid=None, elevation=None, cell_size=None):
+    """Erosion block for one crossing at outlet cell (r, c).
+
+    With `accumulation` (and valid, cell_size=(width, height)) the deposition
+    indicator of the STI advisory R2 is added: SPI on the main channel
+    near / far upstream of the crossing (core.watershed.channel).
+    """
     w = _window(inp.ln_spi, r, c)
     out = {"ero_lnspi_max3x3": float(np.nanmax(w)) if np.isfinite(w).any() else None}
     app = approach_cells(direction, mask, inp.channel, r, c)
@@ -178,6 +187,19 @@ def crossing_erosion(r, c, mask, direction, inp, catchment_block=None):
     for key, g in (("ero_ls_local", inp.ls), ("ero_twi_local", inp.twi)):
         ww = _window(g, r, c)
         out[key] = float(np.nanmean(ww)) if np.isfinite(ww).any() else None
+    out["ero_sti_local"] = None
+    if getattr(inp, "sti", None) is not None:
+        sw = _window(inp.sti, r, c)
+        out["ero_sti_local"] = float(np.nanmean(sw)) if np.isfinite(sw).any() else None
+    if accumulation is not None:
+        from ..watershed.channel import main_stem_upstream, deposition_indicator
+        cw_, ch_ = cell_size if cell_size else (1.0, 1.0)
+        up = main_stem_upstream(direction, valid if valid is not None else np.isfinite(inp.ln_spi),
+                                accumulation, r, c, inp.dep_far_m, cw_, ch_, mask)
+        with np.errstate(over="ignore"):
+            spi = np.exp(inp.ln_spi)
+        out.update(deposition_indicator(up, spi, inp.tan_beta, inp.channel, inp.dep_near_m,
+                                        inp.dep_far_m, inp.dep_breaks, elevation))
     spi_val = out["ero_lnspi_max3x3"]
     if spi_val is not None:
         code = int(inp.spi_scheme.classify(np.array([spi_val]), np.array([True]))[0])

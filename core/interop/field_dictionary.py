@@ -74,6 +74,35 @@ CROSSINGS = [
     ("ero_impact", "text", "-", "impact level", "<= 2.0 Low, <= 3.0 Moderate, <= 4.0 High, "
      "else Severe", "MCDMA"),
     ("ero_mitigation", "text", "-", "indicative mitigation for the impact level", "", "MCDMA"),
+    # v0.15 - STI advisory R1/R2 (empty without an erosion folder)
+    ("ero_sti_local", "real", "-", "overland sediment transport capacity index, 3x3 mean",
+     "(A_s/22.13)^0.6 (sin b/0.0896)^1.3 (Moore & Wilson 1992), overland cells only; "
+     "NULL on channel cells; relative, not LS", "info"),
+    ("ero_spi_app_near", "real", "m", "median SPI on the main channel 0 - near m upstream",
+     "near/far in erosion_json deposition (default 100 / 500 m)", "deposition screening"),
+    ("ero_spi_app_far", "real", "m", "median SPI on the main channel near - far m upstream", "",
+     "deposition screening"),
+    ("ero_dep_ratio", "real", "-", "ero_spi_app_near / ero_spi_app_far",
+     "below 1 = transport capacity falls into the crossing", "deposition screening"),
+    ("ero_dep_flag", "text", "-", "deposition-prone / neutral / scour-prone",
+     "ratio < 0.7 / 0.7-1.3 / > 1.3 (editable, in erosion_json)", "deposition screening"),
+    ("ero_slope_app_near_pct", "real", "%", "channel slope of the near reach",
+     "drop / length on the raw DEM", "deposition screening"),
+    ("ero_slope_app_far_pct", "real", "%", "channel slope of the far reach", "",
+     "deposition screening"),
+    ("ero_dep_note", "text", "-", "why no ratio was computed (e.g. channel too short)", "", "QA"),
+    # v0.15 - approach / exit channel slopes (A5)
+    ("ch_slope_us", "real", "m/m", "approach channel slope upstream of the crossing",
+     "drop / length over ch_slope_dist_m along the main stem (largest-accumulation donor), raw DEM",
+     "approach channel slope"),
+    ("ch_slope_ds", "real", "m/m", "exit channel slope downstream of the crossing",
+     "drop / length over ch_slope_dist_m along the D8 path, raw DEM", "exit channel slope"),
+    ("ch_len_us_m", "real", "m", "length actually used upstream (shorter near the divide)", "",
+     "provenance"),
+    ("ch_len_ds_m", "real", "m", "length actually used downstream (shorter at the grid edge)", "",
+     "provenance"),
+    ("ch_slope_dist_m", "real", "m", "requested approach / exit length", "default 200 m",
+     "provenance"),
 ]
 
 CATCHMENTS = [
@@ -365,6 +394,7 @@ METADATA_KEYS = [
     ("erosion_json", "erosion inputs: mode, factor provenance (source, proxy flags), LS method, "
      "class schemes, MCDMA weights, SDR model (empty = no erosion block)"),
     ("sheet_cap_m", "sheet-flow cap used for lfp_sheet_m (m)"),
+    ("channel_slope_m", "approach / exit channel length for ch_slope_us / ch_slope_ds (m)"),
     ("alignment_source", "road alignment layer used for chainage and the ground profile"),
     ("alignment_step_m", "station spacing of alignment_profile (m)"),
     ("n_crossings", "number of crossings written"),
@@ -405,6 +435,9 @@ DOWNSTREAM_USE = {
     "CN": "SCS curve number (when the engineer accepts it)",
     "runoff coefficient": "Rational method runoff coefficient",
     "land cover": "land-cover share for the report and CN / C checks",
+    "deposition screening": "sediment deposition tendency at the culvert inlet (screening)",
+    "approach channel slope": "approach channel slope (floodplain level, barrel comparison)",
+    "exit channel slope": "exit channel slope (tailwater rating)",
     "MUSLE K": "soil erodibility for RUSLE / MUSLE",
     "MUSLE LS": "slope length-steepness factor for RUSLE / MUSLE",
     "MUSLE C": "cover factor for RUSLE / MUSLE",

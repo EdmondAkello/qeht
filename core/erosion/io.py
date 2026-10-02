@@ -21,6 +21,7 @@ FILES = {
     "c": "c_factor.tif", "p": "p_factor.tif", "soil_loss": "rusle_soil_loss_t_ha_yr.tif",
     "spi_class": "spi_class.tif", "rusle_class": "rusle_class.tif", "ls_class": "ls_class.tif",
     "combined_class": "erosion_combined_class.tif", "channel": "channel_mask.tif",
+    "sti": "sti_overland.tif",
 }
 RUN_JSON = "erosion_run.json"
 EXTENTS_CSV = "class_extents.csv"
@@ -54,7 +55,7 @@ def load_erosion_inputs(folder, info, read_grid):
     from .summary import ErosionInputs
     run = read_run(folder)
     grids = {}
-    for key in ("ln_spi", "ls", "twi", "tan_beta", "soil_loss", "k", "c", "p", "channel"):
+    for key in ("ln_spi", "ls", "twi", "tan_beta", "soil_loss", "k", "c", "p", "channel", "sti"):
         p = path_of(folder, key)
         if not os.path.exists(p):
             grids[key] = None
@@ -77,4 +78,9 @@ def load_erosion_inputs(folder, info, read_grid):
                         p=grids["p"], volume_scheme=vol, weights=run.get("mcdma_weights"),
                         bulk_kgm3=run.get("bulk_density_kgm3", 1400.0),
                         matrix=run.get("combination_matrix"))
+    inp.sti = grids.get("sti")
+    dep = run.get("deposition") or {}
+    inp.dep_near_m = float(dep.get("near_m", 100.0))
+    inp.dep_far_m = float(dep.get("far_m", 500.0))
+    inp.dep_breaks = tuple(dep.get("breaks", (0.7, 1.3)))
     return inp, run

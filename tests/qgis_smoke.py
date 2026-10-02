@@ -517,6 +517,15 @@ def main(in_qgis=False):
           and all(x["ero_composite"] is not None and x["ero_impact"] for x in cr)
           and "mcdma_weights" in md["erosion_json"],
           ", ".join(f"{x['outlet_uid']} {x['ero_impact']} ({x['ero_composite']:.1f})" for x in cr))
+    check("v0.15: STI raster written; every crossing has channel slopes and a deposition "
+          "indicator (or a note); STI/deposition settings in metadata",
+          os.path.exists(os.path.join(ef, "sti_overland.tif"))
+          and all(x["ch_slope_us"] is not None and x["ch_slope_ds"] is not None
+                  and (x["ero_dep_flag"] in ("deposition-prone", "neutral", "scour-prone")
+                       or x["ero_dep_note"]) for x in cr)
+          and '"deposition"' in md["erosion_json"] and md["channel_slope_m"] == "200",
+          ", ".join(f"{x['outlet_uid']} us {x['ch_slope_us']:.3f} ds {x['ch_slope_ds']:.3f} "
+                    f"{x['ero_dep_flag'] or x['ero_dep_note']}" for x in cr))
 
     print("\n" + ("ALL QGIS SMOKE CHECKS PASSED" if not FAILURES
                   else f"{len(FAILURES)} FAILURE(S): " + "; ".join(FAILURES)))

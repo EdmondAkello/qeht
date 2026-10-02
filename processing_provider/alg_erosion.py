@@ -80,7 +80,17 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
             "combined class is the higher of the two severity scores unless you give "
             "a 5 x 5 matrix. class_extents.csv gives area and share per class, split "
             "into channel and hillslope cells. erosion_run.json records every "
-            "factor's source, the schemes and the settings."
+            "factor's source, the schemes and the settings.\n\n"
+            "<b>STI</b> (sti_overland.tif): the sediment transport capacity index "
+            "(A_s/22.13)^0.6 (sin b/0.0896)^1.3 of Moore & Wilson (1992) on OVERLAND "
+            "cells only (channels NoData, A_s capped at 100 m) - a relative indicator "
+            "of where slopes deliver sediment, e.g. to side drains. It is not the "
+            "RUSLE LS factor and is not used in soil loss, classes or the composite.\n"
+            "<b>Deposition at crossings</b> (in the design hydrology package): median "
+            "SPI on the main channel 0-100 m vs 100-500 m upstream of each crossing; "
+            "a ratio below 0.7 means transport capacity falls into the inlet "
+            "(deposition-prone), above 1.3 scour-prone. Distances and breaks are "
+            "recorded in erosion_run.json."
         )
 
     def initAlgorithm(self, config=None):
@@ -127,6 +137,21 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
             QgsProcessingParameterNumber.Type.Double, defaultValue=DEFAULT_BULK_KGM3, minValue=100.0))
         self.addParameter(QgsProcessingParameterString(
             "WEIGHTS", "Crossing impact weights SPI, RUSLE, sediment", defaultValue="0.4,0.3,0.3"))
+        from qgis.core import QgsProcessingParameterBoolean as _B
+        self.addParameter(_B("STI", "Also write the overland sediment transport capacity index "
+                                    "(STI, channels masked)", defaultValue=True))
+        self.addParameter(self._advanced(QgsProcessingParameterNumber(
+            "STI_CAP", "STI: cap on specific catchment area (m; validity ~100 m slope length)",
+            QgsProcessingParameterNumber.Type.Double, defaultValue=100.0, minValue=0.0)))
+        self.addParameter(self._advanced(QgsProcessingParameterNumber(
+            "DEP_NEAR", "Deposition indicator: near reach upstream of a crossing (m)",
+            QgsProcessingParameterNumber.Type.Double, defaultValue=100.0, minValue=1.0)))
+        self.addParameter(self._advanced(QgsProcessingParameterNumber(
+            "DEP_FAR", "Deposition indicator: far reach ends this far upstream (m)",
+            QgsProcessingParameterNumber.Type.Double, defaultValue=500.0, minValue=2.0)))
+        self.addParameter(self._advanced(QgsProcessingParameterString(
+            "DEP_BREAKS", "Deposition indicator breaks (ratio below = deposition-prone, "
+            "above = scour-prone)", defaultValue="0.7,1.3")))
         self.addParameter(QgsProcessingParameterFolderDestination("OUTPUT", "Erosion output folder"))
         self.addOutput(QgsProcessingOutputString("SUMMARY", "Summary"))
 
@@ -153,6 +178,14 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
         ind = erosion_indices(raw, valid, acc, info.cell_width, info.cell_height,
                               ls_method=method, m_exponent=m_exp if m_exp is not None else 0.4)
         chan = channel_mask(acc, valid, self.parameterAsDouble(parameters, "CHANNEL_CELLS", context))
+        sti_cap = self.parameterAsDouble(parameters, "STI_CAP", context) if "STI_CAP" in parameters else 100.0
+        if "STI" not in parameters or self.parameterAsBool(parameters, "STI", context):
+            from ..core.erosion.terrain import sti_overland
+            write_raster(eio.path_of(folder, "sti"),
+                         sti_overland(ind["spec_catch_area"], ind["tan_beta"], chan, cap_m=sti_cap),
+                         info, valid=valid)
+            feedback.pushInfo("STI (overland, channels masked, A_s capped at "
+                              f"{sti_cap:g} m) written - a relative index, not used in soil loss.")
         written = {}
         for key in ("slope_deg", "tan_beta", "spec_catch_area", "spi", "ln_spi", "twi", "ls"):
             written[key] = write_raster(eio.path_of(folder, key), ind[key], info, valid=valid)
@@ -259,6 +292,21 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
             "mcdma_weights": {"spi": w[0], "rusle": w[1], "sediment": w[2]},
             "bulk_density_kgm3": self.parameterAsDouble(parameters, "BULK_DENSITY", context),
             "sdr_model": "0.565 * A_km2^-0.125, capped at 1 (FAO, area-based)",
+            "sti": {"written": bool("STI" not in parameters
+                                    or self.parameterAsBool(parameters, "STI", context)),
+                    "formula": "(A_s/22.13)^0.6 (sin b/0.0896)^1.3 (Moore & Wilson 1992); "
+                               "overland cells only; relative index, not LS",
+                    "a_s_cap_m": sti_cap},
+            "deposition": {
+                "near_m": self.parameterAsDouble(parameters, "DEP_NEAR", context)
+                if "DEP_NEAR" in parameters else 100.0,
+                "far_m": self.parameterAsDouble(parameters, "DEP_FAR", context)
+                if "DEP_FAR" in parameters else 500.0,
+                "breaks": (_floats(self.parameterAsString(parameters, "DEP_BREAKS", context), 2,
+                                   "deposition breaks") if "DEP_BREAKS" in parameters else None)
+                or [0.7, 1.3],
+                "method": "median SPI on the main channel 0-near vs near-far upstream; "
+                          "ratio < low = deposition-prone, > high = scour-prone"},
             "c_lookup": {str(k): v for k, v in WORLDCOVER_C.items()},
             "dem": self.raster_path(parameters, "RAW_DEM", context),
             "grid": {"rows": info.rows, "cols": info.cols, "geotransform": list(gt)},
