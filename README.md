@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.17.0
+# QEHT — QGIS Engineering Hydrology Toolkit v0.18.0
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -64,6 +64,8 @@ The core is importable without QGIS. That is what makes the hydrology testable:
     python -m qeht.tests.test_coverage    # 21 checks: missing crossings, sags, flat stretches, proposed crossings
     python -m qeht.tests.test_rainfall    # 35 checks: rainfall zones, mean annual rainfall, R estimate
     python -m qeht.tests.test_report      # 15 checks: characteristics table, run report
+    python -m qeht.tests.test_floodplain  # 19 checks: floodplain widths (profile, HAND)
+    python -m qeht.tests.test_quicklooks  # 14 checks: PNG, world file, legends, downsampling
 
 Run these after any change to the core, and before trusting any output on a
 real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
@@ -400,6 +402,7 @@ Adopt a proposed crossing by setting its `status` to `existing`, delete the ones
 | `layers/` | crossings, catchments, flow paths, streams, crossing candidates, coverage findings, sags, flat stretches, alignment profile (GeoPackage each) |
 | `rasters/` | filled DEM, flow direction, accumulation, streams, Strahler order, `erosion/` |
 | `tables/` | `catchment_characteristics.csv` (one row per crossing: chainage, area, the four slopes, flow-path segments, channel slopes, flat-method check, soils, CN, rainfall, shape, erosion) and one CSV per layer |
+| `quicklooks/` | PNG + world file + legend JSON of the relief, accumulation and erosion rasters (v0.18) |
 | `report/` | `run_report.html`: summary, schematic plan, crossing schedule, DEM checks, flat-method check, coverage findings, inputs and provenance, warnings, CN lookup |
 | `package/` | `design_hydrology.gpkg`, only when *Keep the design hydrology package* is ticked |
 | `settings.json` | every parameter of the run |
@@ -417,6 +420,12 @@ Steps: DEM checks → fill → D8 (Barnes) → accumulation → streams → cand
 - **Zones:** a polygon layer and its name field. Per catchment `rain_zone` (largest share; ties go to the name that sorts first), `rain_zone_pct`, `rain_zones_json` (every zone's share) and `rain_zone_coverage_pct`. A warning lists catchments whose zone covers less than 80 %: pick their design zone by hand.
 - **Mean annual rainfall:** a raster in mm/yr (e.g. a CHIRPS climatology), bilinear to the DEM grid: `map_mm`, `map_coverage_pct`, `map_dataset`. Values that cannot be annual mm (mm/day, tenths of mm, negative) are refused.
 - **R estimate (optional):** `rusle_r` per cell from the rainfall with Renard & Freimund (1994) or Lo et al. (1985), then the catchment mean, labelled an ESTIMATE in `rusle_r_method` and the metadata. Neither relation comes from East Africa; an erosivity raster such as GloREDa is better. The erosion tool can use the same estimate when no R raster or value is given.
+
+## v0.18: floodplain width and raster quicklooks
+
+**Floodplain width indicator (A4).** With a road, *Build design hydrology package* (and the pipeline) measures at every crossing of at least 10 km² how wide the valley floor is along the road: the run of the alignment profile around the lowest ground within 50 m of the crossing where the ground is below bed + 0.5, 1 and 2 m (`fp_w_0p5_m`, `fp_w_1p0_m`, `fp_w_2p0_m`, extent `fp_ch_from_m`–`fp_ch_to_m` at 1 m, `fp_z_bed_m`), and the same by height above nearest drainage (`fp_hand_w_*`). A width that runs off the end of the profile or into NoData is a lower bound and says so in `fp_note`. It informs the split of the check flood between the main structure and relief culverts. It is a terrain indicator, not a flood level.
+
+**Raster quicklooks (A6).** Give a quicklooks folder (the pipeline does by default) and the package writes, for the relief (hillshade over elevation), flow accumulation (log stretch) and the erosion class and STI rasters, a downsampled PNG (≤ 4,096 px), its world file (`.pgw`) and a legend JSON, and indexes them in the table `rasters`. Classified rasters keep their class values (nearest neighbour) and the colours of their `.qml` styles; continuous ones state their ramp and stretch. The run report draws its plan over the terrain.
 
 ### Data sources by region
 

@@ -652,6 +652,24 @@ def main(in_qgis=False):
     check("a land-cover class raster given as the C raster is refused with a hint", refused)
 
 
+
+    # ---- v0.18 (A4): floodplain width indicator -----------------------------
+    r = processing.run("qeht:buildheasexchange", {
+        "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "POINTS": out("cand.gpkg"),
+        "ROAD": out("road.gpkg"), "START": 1000.0, "FILLED": out("fill.tif"), "COVERAGE": False,
+        "FP_MIN_AREA": 1.0, "OUTPUT": out("fp_pkg.gpkg")})
+    crf = gpkg.read_table(r["OUTPUT"], "crossings", with_geometry=False)
+    mdf = {row["key"]: row["value"] for row in gpkg.read_table(r["OUTPUT"], "qeht_run_metadata")}
+    big = [c for c in crf if c["acc_at_outlet_km2"] >= 1.0]
+    check("floodplain width at crossings >= 1 km2: profile + HAND widths grow with dz, "
+          "smaller crossings empty, settings in metadata",
+          big and all(c["fp_method"] == "profile+HAND"
+                      and c["fp_w_0p5_m"] <= c["fp_w_1p0_m"] <= c["fp_w_2p0_m"] for c in big)
+          and all(c["fp_method"] is None for c in crf if c["acc_at_outlet_km2"] < 1.0)
+          and '"min_area_km2": 1.0' in mdf["fp_params_json"],
+          ", ".join(f"{c['outlet_uid']} {c['acc_at_outlet_km2']:.1f} km2: {c['fp_w_1p0_m']:.0f} m "
+                    f"(HAND {c['fp_hand_w_1p0_m'] if c['fp_hand_w_1p0_m'] is None else round(c['fp_hand_w_1p0_m'])})"
+                    for c in big))
     # ---- v0.17 (F7/F8): one-click pipeline and run report --------------------
     import json as _json3
     from ..core.raster import read_dem as _rd3
@@ -715,6 +733,15 @@ def main(in_qgis=False):
     check("run report: title, every crossing, plan, PROXY / ESTIMATE labels, settings path",
           "<h1>full</h1>" in rep and all(c["outlet_uid"] in rep for c in ca3) and "<svg" in rep
           and "PROXY" in rep and "R ESTIMATE" in rep and "settings.json" in rep)
+    ql = gpkg.read_table(pkg3, "rasters", with_geometry=False)
+    check("quicklooks: relief, accumulation and erosion classes as PNG + world file + legend, "
+          "indexed in the package; terrain under the report plan; floodplain widths in the table",
+          {"relief", "flow_accumulation", "spi_class"} <= {q["name"] for q in ql}
+          and all(os.path.exists(os.path.normpath(os.path.join(os.path.dirname(pkg3), q[k])))
+                  for q in ql for k in ("png", "world_file", "legend_json"))
+          and "data:image/png;base64," in rep and "fp_w_1p0_m" in head
+          and not os.path.exists(os.path.join(pf3, "_work_bg")),
+          ", ".join(q["name"] for q in ql))
     pf4 = out("pipe_points")
     r4 = processing.run("qeht:hydrologypipeline", {
         "DEM": dem, "CROSSINGS": ptsfile, "FLAT_METHOD": 0, "STREAM_KM2": km2_200,

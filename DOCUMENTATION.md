@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.17.0
+**Version:** 0.18.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -74,6 +74,7 @@ qeht/
       crossings.py       road x drainage candidates, parallel reaches, clusters
       profile.py         alignment ground profile
       coverage.py        missing crossings, sag points (walled routing), flat stretches
+      floodplain.py      floodplain width at large crossings (profile, HAND)
     interop/
       field_dictionary.py  the qeht-heas-1 contract (every exchange field)
       gpkg.py            standard-library GeoPackage 1.2 writer/reader
@@ -81,6 +82,7 @@ qeht/
     report/
       characteristics.py one row per crossing from a package (the characteristics table)
       run_report.py      HTML run report from a package (nothing recalculated)
+      quicklooks.py      PNG + world file + legend for rasters (pure-Python PNG writer)
 
   processing_provider/   the only QGIS-aware code
     provider.py          registers the nineteen algorithms
@@ -102,6 +104,8 @@ qeht/
     test_coverage.py     21 checks: missing crossings, sags, walled sag areas, flat stretches
     test_rainfall.py     35 checks: zone shares and ties, rainfall mean and units, R relations
     test_report.py       15 checks: characteristics table, run report
+    test_floodplain.py   19 checks: analytic valleys, truncation, HAND on a V valley
+    test_quicklooks.py   14 checks: PNG round trip, world file, legends, downsampling
     fixtures/            golden_exchange.gpkg + .json (shared with HEAS)
     qgis_smoke.py        every Processing tool run inside QGIS
 ```
@@ -318,6 +322,16 @@ The pipeline runs the standalone tools as child algorithms with the parameters b
 
 The **characteristics table** joins crossings, catchments and flow paths on `outlet_uid` (core columns always; groups for flow-path segments, channel slopes, flat check, soils, CN, rainfall, shape and erosion when at least one crossing has a value) and orders rows by chainage when present. The **run report** reads `qeht_run_metadata` and the layers only. Both are pure Python (`core/report`).
 
+### 4.23 Floodplain width indicator (v0.18, A4)
+
+At crossings whose contributing area (acc_at_outlet_km2) is at least the limit (10 km²) and that have a chainage, from the alignment profile (4.15; raw DEM, bilinear, stations every 10 m): z_bed is the lowest z_dem_m within 50 m of the crossing's chainage, at station i₀. For each Δz in 0.5, 1, 2 m the run of stations around i₀ with z ≤ z_bed + Δz is extended both ways; each end is interpolated linearly between the last station inside and the first outside, so a linear bank is measured exactly (a trapezoid with a 40 m floor and 1:20 banks gives 60 / 80 / 120 m). A NoData station or the end of the profile stops the run, and fp_note says the width is a lower bound.
+
+HAND (Rennó et al. 2008; Nobre et al. 2011) is z minus the elevation of the first stream cell (accumulation ≥ the stream threshold) on the cell's D8 path, computed for the whole grid by pointer jumping (each pass doubles the path length followed, so a path of n cells takes log₂ n passes); cells whose path ends without reaching a stream are NoData. HAND is read at the station's cell, and the same contiguous run is taken with HAND ≤ Δz around the station of least HAND within 50 m. HAND follows the drainage, so on a valley that slopes along the road the two methods differ; report both.
+
+### 4.24 Raster quicklooks (v0.18, A6)
+
+Each raster is downsampled by the integer factor k = ⌈long side / limit⌉: classified rasters take the cell nearest each block centre (class values preserved), continuous ones the mean of the block's finite cells. Classified rasters are coloured from their GDAL colour table (the same colours as their .qml) with their category names in the legend; flow accumulation uses a blue ramp on log₁₀(1 + cells) from 0 to the maximum; STI a yellow–red ramp over the 2nd–98th percentile; the relief is a hypsometric tint (2nd–98th percentile of elevation) multiplied by 0.35 + 0.65 × hillshade (Horn, azimuth 315°, altitude 45°). The PNG is RGBA with NoData transparent. The world file holds the pixel size and the centre of the upper-left pixel of the downsampled grid.
+
 ---
 
 ## 5. Data handling and interoperability
@@ -336,6 +350,7 @@ The **characteristics table** joins crossings, catchments and flow paths on `out
 - **Values.** Missing values are NULL, never 0. `acc_at_outlet_km2` is read from the accumulation raster ((accumulation + 1) × cell area) and equals `area_km2` for full catchments — a built-in QA check.
 - **Renumber and relink (5.2).** After crossings are deleted, moved or added in a package, "Renumber and relink exchange package" writes a new package: unmoved crossings keep their outlet cell, moved/added ones are snapped; crossings are ordered by chainage (recomputed from the road for moved/added points) or downstream-first; IDs are re-issued gaplessly with the package's prefix; catchments and flow paths are recomputed; `renumber_log` lists old → new (`unchanged`, `renumbered`, `new`, `deleted`, and `moved_m`). IDs are only re-issued when this tool is run.
 - **v0.17 additions (additive).** Catchments: `rain_zone`, `rain_zone_pct`, `rain_zones_json`, `rain_zone_coverage_pct`, `map_mm`, `map_coverage_pct`, `map_dataset`, `rusle_r`, `rusle_r_method`. Metadata: `rainfall_json`. The golden fixture was regenerated after `golden_diff` showed no existing value changed.
+- **v0.18 additions (additive).** Crossings: the eleven `fp_*` fields (4.23). Table `rasters` (4.24). Metadata: `fp_params_json`, `quicklook_params_json`.
 - **Evolution.** New fields may be added under `qeht-heas-1`; renaming or removing a field requires `qeht-heas-2`. The validator (also used by the tool after writing) rejects unknown major versions and checks that every catchment and flow path refers to an existing crossing.
 - **Erosion block (v0.14).** With an erosion folder, catchments carry `ero_*` soil loss, LS, ln(SPI), K/C/P, class shares, SDR and sediment fields and crossings carry `ero_*` ln(SPI), local terrain, class and impact fields; `erosion_json` in the metadata records the mode, factor sources and proxy flags, schemes, weights and SDR model. Additive under `qeht-heas-1`.
 - **Burn log (v0.14).** Give the breach log from "Burn crossings through embankments" and the package stores it as layer `burn_log`; `conditioning` appends a summary (breaches cut, volume) to the user-declared text and `conditioning_burn` holds it on its own.

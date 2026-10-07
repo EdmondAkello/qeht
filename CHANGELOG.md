@@ -3,6 +3,13 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.18.0] — unreleased (floodplain width, raster quicklooks)
+### Added
+- **Floodplain width indicator** (A4) in *Build design hydrology package* and the pipeline, with a road: at crossings ≥ 10 km² (advanced parameter) the width along the road below bed + 0.5 / 1 / 2 m from the alignment profile (bed = lowest ground within 50 m of the crossing; ends interpolated), the 1 m extent and bed level, and the same widths by HAND (height above nearest drainage, pointer-jumping along D8 to the stream threshold; optional, on by default). Fields `fp_w_0p5_m`, `fp_w_1p0_m`, `fp_w_2p0_m`, `fp_ch_from_m`, `fp_ch_to_m`, `fp_z_bed_m`, `fp_hand_w_0p5_m`, `fp_hand_w_1p0_m`, `fp_hand_w_2p0_m`, `fp_method`, `fp_note` on crossings (proposed ones too); metadata `fp_params_json`. In the characteristics table.
+- **Raster quicklooks** (A6): PNG (pure-Python writer) + world file + legend JSON for the relief, flow accumulation, SPI / RUSLE / LS / combined classes and STI; classified rasters by nearest neighbour with their colour table and class names, continuous by block mean with a stated ramp and stretch; table `rasters` in the package (paths relative to the package); metadata `quicklook_params_json`. Package parameters *Raster quicklooks folder* and size; pipeline option (on by default) writing `quicklooks/`.
+- **Run report plan over the terrain**: the pipeline embeds a 1,400 px relief quicklook under the schematic plan.
+- Tests: test_floodplain 19 and test_quicklooks 14 (new); smoke 62 (+2). Golden fixture regenerated: eleven crossing fields and two metadata keys added, no existing value changed.
+
 ## [0.17.0] — unreleased (one-click pipeline, run report, rainfall)
 ### Added
 - **Run hydrology pipeline (one click)** (F7, group Workflow). Runs DEM checks → fill → D8 → accumulation → streams → crossing candidates → (burn + second routing) → erosion → package → coverage check → flat-method check, each step as the standalone tool (child algorithm). Fixed output folder `layers/`, `rasters/`, `tables/`, `report/`, `settings.json`; the design hydrology package is kept only when asked (`package/`).

@@ -51,12 +51,14 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
             "candidates and the QA layers), <b>rasters/</b> (filled DEM, flow direction, "
             "accumulation, streams, Strahler order, erosion), <b>tables/</b> (the catchment "
             "characteristics table - one row per crossing, ready for a spreadsheet - and one "
-            "CSV per layer), <b>report/run_report.html</b> and <b>settings.json</b>.\n\n"
+            "CSV per layer), <b>quicklooks/</b> (PNG + world file + legend of the rasters, for "
+            "viewing without a GIS), <b>report/run_report.html</b> and <b>settings.json</b>.\n\n"
             "<b>Steps:</b> DEM checks (NoData, nearest-neighbour resampling) → fill → D8 "
             "(Barnes by default) → accumulation → streams → with a road: crossing candidates "
             "(optionally burnt through the embankment, then routed again) → erosion "
             "indices / RUSLE → crossings, catchments and flow paths with soils, curve number, "
-            "rainfall and erosion blocks → drainage coverage check → flat-method check → "
+            "rainfall and erosion blocks → drainage coverage check → floodplain width at large "
+            "crossings → quicklooks → flat-method check → "
             "tables and report. Each step is the stand-alone tool of the same name.\n\n"
             "<b>Crossings:</b> with a road and no crossing layer, the recommended candidates "
             "are used. To review them first, choose 'Stop after crossing candidates': edit "
@@ -121,6 +123,9 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
             QgsProcessingParameterNumber.Type.Double, optional=True, minValue=0.0))
         self.addParameter(QgsProcessingParameterBoolean(
             "COVERAGE", "Drainage coverage check along the road", defaultValue=True))
+        self.addParameter(QgsProcessingParameterBoolean(
+            "QUICKLOOKS", "Raster quicklooks (PNG + world file + legend, for viewing without a GIS)",
+            defaultValue=True))
         self.addParameter(QgsProcessingParameterBoolean(
             "PACKAGE", "Keep the design hydrology package (GeoPackage for design software)",
             defaultValue=False))
@@ -334,6 +339,8 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
             bp.update({"ROAD": road, "START": p.get("START", 0.0), "REVERSE": p.get("REVERSE", False)})
         if ero_folder:
             bp["EROSION"] = ero_folder
+        if self.parameterAsBool(p, "QUICKLOOKS", context) if "QUICKLOOKS" in p else True:
+            bp["QUICKLOOKS"] = os.path.join(folder, "quicklooks")
         if burn_log:
             bp["BURN_LOG"] = burn_log
         bp.update({k: v for k, v in p.items() if k.startswith(PASS_PREFIXES) and v not in (None, "")})
@@ -378,6 +385,8 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
         chars, n_rows = write_characteristics_csv(
             package, os.path.join(d["tables"], "catchment_characteristics.csv"), flat)
         outputs["Catchment characteristics"] = chars
+        if os.path.isdir(os.path.join(folder, "quicklooks")):
+            outputs["Quicklooks"] = os.path.join(folder, "quicklooks")
 
         # 9. report -------------------------------------------------------------------
         fb.setCurrentStep(9)
@@ -386,6 +395,13 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
                   [f"{md['n_proposed']} proposed crossing(s) from the coverage check - adopt or "
                    "delete them, then use Renumber and relink."] or []):
             warn(w)
+        background = None
+        try:
+            from ..core.report.quicklooks import make_quicklook, standard_items
+            bg = make_quicklook(standard_items(raw)[0], os.path.join(folder, "_work_bg"), 1400)
+            background = {"png": bg["png"], "extent": [bg["xmin"], bg["ymin"], bg["xmax"], bg["ymax"]]}
+        except Exception as e:                  # noqa: BLE001 - the report works without it
+            feedback.pushInfo(f"No terrain background for the report plan: {e}")
         from ..core.report.run_report import write_report
         report = os.path.join(d["report"], "run_report.html")
         outputs["Settings"] = settings_path
@@ -393,8 +409,9 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
             outputs["Design hydrology package"] = package
         write_report(package, report, title=p.get("RUN_NAME") or "QEHT hydrology run",
                      extra={"warnings": warnings, "dem_audit": audit, "flat_check": flat,
-                            "settings_path": settings_path,
+                            "settings_path": settings_path, "background": background,
                             "outputs": {k: os.path.relpath(v, folder) for k, v in outputs.items()}})
+        shutil.rmtree(os.path.join(folder, "_work_bg"), ignore_errors=True)
         if not keep:
             shutil.rmtree(pdir, ignore_errors=True)
 

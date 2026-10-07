@@ -113,6 +113,27 @@ CROSSINGS = [
      "provenance"),
     ("ch_slope_dist_m", "real", "m", "requested approach / exit length", "default 200 m",
      "provenance"),
+    # floodplain width indicator at large crossings (v0.18, A4) - terrain only, not a flood level
+    ("fp_w_0p5_m", "real", "m", "width along the road with ground below bed + 0.5 m",
+     "alignment profile (raw DEM) around the lowest ground within 50 m of the crossing; ends "
+     "interpolated", "floodplain width"),
+    ("fp_w_1p0_m", "real", "m", "width along the road below bed + 1.0 m", "as fp_w_0p5_m",
+     "floodplain width"),
+    ("fp_w_2p0_m", "real", "m", "width along the road below bed + 2.0 m", "as fp_w_0p5_m",
+     "floodplain width"),
+    ("fp_ch_from_m", "real", "m", "start chainage of the bed + 1.0 m extent", "", "floodplain width"),
+    ("fp_ch_to_m", "real", "m", "end chainage of the bed + 1.0 m extent", "", "floodplain width"),
+    ("fp_z_bed_m", "real", "m", "lowest ground on the profile within 50 m of the crossing", "",
+     "floodplain width"),
+    ("fp_hand_w_0p5_m", "real", "m", "width along the road with HAND below 0.5 m",
+     "height above nearest drainage along the D8 path (stream threshold), nearest cell at "
+     "each station", "floodplain width"),
+    ("fp_hand_w_1p0_m", "real", "m", "width with HAND below 1.0 m", "", "floodplain width"),
+    ("fp_hand_w_2p0_m", "real", "m", "width with HAND below 2.0 m", "", "floodplain width"),
+    ("fp_method", "text", "-", "profile or profile+HAND (empty: crossing below the area limit "
+     "or no road)", "see run metadata fp_params_json", "provenance"),
+    ("fp_note", "text", "-", "truncation at the end of the profile or NoData (width is a lower "
+     "bound)", "", "QA"),
 ]
 
 CATCHMENTS = [
@@ -418,6 +439,25 @@ OPTIONAL_LAYERS = {
         ("n_crossings_within", "int", "-", "existing crossings inside the stretch", "", "QA"),
         ("uids_within", "text", "-", "their outlet_uids", "", "QA"),
     ], "Flat / floodplain stretches where relief culverts for sheet flow may be needed"),
+    "rasters": (None, [
+        ("name", "text", "-", "raster id", "", "quicklook"),
+        ("title", "text", "-", "display title", "", "quicklook"),
+        ("png", "text", "-", "quicklook PNG, relative to the package", "downsampled; classes by "
+         "nearest neighbour, continuous by block mean", "quicklook"),
+        ("world_file", "text", "-", "world file (.pgw) of the PNG, relative to the package", "",
+         "quicklook"),
+        ("legend_json", "text", "-", "legend: classes and colours, or ramp and stretch", "",
+         "quicklook"),
+        ("crs_epsg", "text", "-", "EPSG code of the PNG georeference", "", "quicklook"),
+        ("xmin", "real", "m", "extent", "", "quicklook"),
+        ("ymin", "real", "m", "extent", "", "quicklook"),
+        ("xmax", "real", "m", "extent", "", "quicklook"),
+        ("ymax", "real", "m", "extent", "", "quicklook"),
+        ("px_size_m", "real", "m", "PNG pixel size", "", "quicklook"),
+        ("source_tool", "text", "-", "tool that wrote the full-resolution raster", "", "provenance"),
+        ("source_raster", "text", "-", "full-resolution GeoTIFF", "", "provenance"),
+        ("kind", "text", "-", "classified or continuous", "", "quicklook"),
+    ], "Raster quicklooks (PNG + world file + legend) for viewing outside a GIS"),
 }
 
 METADATA_KEYS = [
@@ -463,6 +503,9 @@ METADATA_KEYS = [
     ("channel_slope_m", "approach / exit channel length for ch_slope_us / ch_slope_ds (m)"),
     ("alignment_source", "road alignment layer used for chainage and the ground profile"),
     ("alignment_step_m", "station spacing of alignment_profile (m)"),
+    ("fp_params_json", "floodplain width indicator settings: area limit, dz values, bed window, "
+     "HAND on/off (empty = no road)"),
+    ("quicklook_params_json", "raster quicklook settings: folder, maximum size (empty = none)"),
     ("coverage_params_json", "coverage check, sag and flat-stretch settings (empty = not run)"),
     ("n_proposed", "number of proposed crossings added by the coverage check"),
     ("n_crossings", "number of crossings written"),
@@ -503,6 +546,9 @@ DOWNSTREAM_USE = {
     "CN": "SCS curve number (when the engineer accepts it)",
     "runoff coefficient": "Rational method runoff coefficient",
     "land cover": "land-cover share for the report and CN / C checks",
+    "floodplain width": "floodplain width along the road: split of the check flood between the "
+                        "main structure and relief culverts (terrain indicator, not a flood level)",
+    "quicklook": "picture of a raster for viewing without a GIS (not for analysis)",
     "rainfall zone": "design rainfall zone of the catchment (zone-based storm methods)",
     "rainfall": "mean annual rainfall for the report and erosivity checks",
     "crossing status": "existing vs proposed crossing (adopt or delete proposed ones)",

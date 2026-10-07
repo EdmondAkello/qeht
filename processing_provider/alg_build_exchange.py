@@ -104,6 +104,11 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "fair/good/poor; replace it with your own lookup CSV), averaged over the "
             "catchment (cn_ii) and exported at the chosen AMC (cn_export). Rational C needs "
             "your lookup CSV - none ships. Land-cover shares lc_pct_* are always given.\n\n"
+            "<b>Floodplain width indicator (with a road):</b> at crossings of at least 10 km2 "
+            "the width along the road where the ground is below the bed + 0.5, 1 and 2 m "
+            "(fp_w_*), from the alignment profile, and the same by height above nearest "
+            "drainage (fp_hand_w_*). A terrain indicator for the split of the check flood "
+            "between the main structure and relief culverts - not a flood level.\n\n"
             "<b>Rainfall (optional):</b> rainfall zone polygons give each catchment its "
             "dominant zone (rain_zone, rain_zone_pct, all shares in rain_zones_json; a "
             "warning when the dominant zone covers less than 80 %); a mean annual rainfall "
@@ -199,6 +204,18 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         self.addParameter(QgsProcessingParameterRasterLayer(
             "FILLED", "Filled DEM (optional; ponding depth in the alignment profile)",
             optional=True))
+        from qgis.core import QgsProcessingParameterFolderDestination as _FD
+        self.addParameter(_FD("QUICKLOOKS", "Raster quicklooks folder (PNG + world file + legend; "
+                              "optional)", optional=True, createByDefault=False))
+        self.addParameter(self._advanced(QgsProcessingParameterNumber(
+            "QL_MAX_PX", "Quicklook size, long side (pixels)",
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=4096, minValue=64)))
+        self.addParameter(self._advanced(QgsProcessingParameterNumber(
+            "FP_MIN_AREA", "Floodplain width indicator: crossings of at least (km2)",
+            QgsProcessingParameterNumber.Type.Double, defaultValue=10.0, minValue=0.0)))
+        self.addParameter(self._advanced(QgsProcessingParameterBoolean(
+            "FP_HAND", "Floodplain width indicator: also by height above nearest drainage (HAND)",
+            defaultValue=True)))
         self.addParameter(QgsProcessingParameterNumber(
             "PROFILE_STEP", "Alignment profile station spacing (m)",
             QgsProcessingParameterNumber.Type.Double, defaultValue=10.0, minValue=0.5))
@@ -465,6 +482,72 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             for _, a in cov["coverage"]:
                 feedback.pushInfo(f"  ch {a['chainage_m']:,.0f}: {a['issue']} - {a['note']}")
 
+        # -- floodplain width indicator at large crossings (A4) ----------------
+        fp_md = ""
+        if alignment is not None and prof:
+            from ..core.network.floodplain import floodplain_block, hand_grid
+            import json as _jfp
+            fp_min = self.parameterAsDouble(parameters, "FP_MIN_AREA", context) \
+                if "FP_MIN_AREA" in parameters else 10.0
+            use_hand = self.parameterAsBool(parameters, "FP_HAND", context) \
+                if "FP_HAND" in parameters else True
+            big = [a for _, a in crossings if (a.get("acc_at_outlet_km2") or 0) >= fp_min]
+            hs = None
+            if big and use_hand:
+                hmask = extract_streams(accum, valid, threshold_cells=snap_threshold
+                                        if snap_threshold > 0 else 200.0)
+                hg = hand_grid(direction, valid, elevation, hmask)
+                gt_ = info.geotransform
+                rr = [min(max(int((r["y"] - gt_[3]) // gt_[5]), 0), info.rows - 1) for r in prof]
+                cc = [min(max(int((r["x"] - gt_[0]) // gt_[1]), 0), info.cols - 1) for r in prof]
+                hs = hg[rr, cc]
+            for (_, a), b in zip(crossings, floodplain_block([a for _, a in crossings], prof,
+                                                            min_area_km2=fp_min,
+                                                            hand_at_stations=hs)):
+                a.update(b)
+            fp_md = _jfp.dumps({"min_area_km2": fp_min, "dz_m": [0.5, 1.0, 2.0],
+                                "bed_window_m": 50.0, "hand": bool(use_hand),
+                                "note": "terrain indicator only; not a flood level"})
+            if big:
+                feedback.pushInfo(f"Floodplain width indicator at {len(big)} crossing(s) of "
+                                  f">= {fp_min:g} km2 (profile{' + HAND' if use_hand else ''}).")
+                for _, a in crossings:
+                    if a.get("fp_method"):
+                        feedback.pushInfo(
+                            f"  {a['outlet_uid']}: width at bed + 1 m "
+                            f"{a['fp_w_1p0_m'] if a['fp_w_1p0_m'] is None else round(a['fp_w_1p0_m'])} m"
+                            + (f" (HAND {round(a['fp_hand_w_1p0_m'])} m)"
+                               if a.get("fp_hand_w_1p0_m") is not None else "")
+                            + (f" - {a['fp_note']}" if a.get("fp_note") else ""))
+
+        # -- raster quicklooks (A6) ---------------------------------------------
+        extra_tables, ql_md = [], ""
+        ql_dir = self.parameterAsString(parameters, "QUICKLOOKS", context) \
+            if parameters.get("QUICKLOOKS") not in (None, "") else ""
+        if ql_dir:
+            from ..core.report.quicklooks import make_quicklook, standard_items, INDEX_FIELDS
+            from ..core.interop.field_dictionary import OPTIONAL_LAYERS
+            import json as _jql
+            ql_dir = self.parameterAsFileOutput(parameters, "QUICKLOOKS", context) or ql_dir
+            max_px = self.parameterAsInt(parameters, "QL_MAX_PX", context) \
+                if "QL_MAX_PX" in parameters else 4096
+            base_dir = os.path.dirname(os.path.abspath(out_path))
+            qrows = []
+            for item in standard_items(raw_path, self.raster_path(parameters, FAC, context),
+                                       ero_folder or None):
+                try:
+                    row = make_quicklook(item, ql_dir, max_px)
+                except (ValueError, RuntimeError) as e:
+                    feedback.pushWarning(f"Quicklook {item['name']}: {e}")
+                    continue
+                for k in ("png", "world_file", "legend_json"):
+                    row[k] = os.path.relpath(row[k], base_dir).replace(os.sep, "/")
+                qrows.append(row)
+            extra_tables.append(("rasters", INDEX_FIELDS, qrows, OPTIONAL_LAYERS["rasters"][2]))
+            ql_md = _jql.dumps({"folder": ql_dir, "max_px": max_px,
+                                "rasters": [r["name"] for r in qrows]})
+            feedback.pushInfo(f"Quicklooks: {len(qrows)} raster(s) in {ql_dir}")
+
         from ..core.raster import raster_tags
         tags_fdr = raster_tags(fdr_path)
         tags_fill = raster_tags(self.raster_path(parameters, "FILLED", context)) \
@@ -502,6 +585,8 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "runoff_json": runoff.meta_json() if runoff is not None else "",
             "rainfall_json": rainfall.meta_json() if rainfall is not None else "",
             "coverage_params_json": coverage_md,
+            "fp_params_json": fp_md,
+            "quicklook_params_json": ql_md,
             "n_proposed": str(n_proposed),
             "crossing_source": ("crossing candidates" if candidate_mode else "pour points"),
             "chainage_start_m": (f"{alignment.start_chainage:g}" if alignment is not None else ""),
@@ -520,7 +605,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                            crs_name=dem_crs.description() if dem_crs.isValid() else "",
                            csv_dir=(os.path.splitext(out_path)[0] + "_csv")
                            if self.parameterAsBool(parameters, CSV, context) else None,
-                           extra_layers=extra_layers)
+                           extra_layers=extra_layers, extra_tables=extra_tables)
         except ExchangeError as e:
             raise QgsProcessingException(str(e))
 

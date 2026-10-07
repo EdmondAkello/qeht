@@ -103,7 +103,7 @@ def _lines(geom):
     return out
 
 
-def plan_svg(package_path, tables, width=1040, height=560):
+def plan_svg(package_path, tables, width=1040, height=560, background=None):
     """Schematic plan: catchment outlines, longest flow paths, road and
     crossings (existing blue, proposed orange), north arrow and scale bar."""
     layers = {}
@@ -128,6 +128,19 @@ def plan_svg(package_path, tables, width=1040, height=560):
         return "M" + " L".join(xy(p) for p in seq) + (" Z" if close else "")
     out = [f'<svg viewBox="0 0 {width} {height}" width="100%" role="img" '
            f'aria-label="Schematic plan">', f'<rect width="{width}" height="{height}" fill="#fff"/>']
+    if background and background.get("png") and background.get("extent"):
+        import base64
+        bx0, by0, bx1, by1 = background["extent"]
+        try:
+            with open(background["png"], "rb") as f:
+                data = base64.b64encode(f.read()).decode("ascii")
+            px0, py0 = (float(v) for v in xy((bx0, by1)).split(","))
+            px1, py1 = (float(v) for v in xy((bx1, by0)).split(","))
+            out.append(f'<image href="data:image/png;base64,{data}" x="{px0:.1f}" y="{py0:.1f}" '
+                       f'width="{px1 - px0:.1f}" height="{py1 - py0:.1f}" '
+                       'preserveAspectRatio="none" opacity="0.85"/>')
+        except OSError:
+            pass
     for r in sorted(layers.get("catchments", []), key=lambda r: -(r.get("area_km2") or 0)):
         prop = r.get("status") == "proposed"
         for ring in _lines(r.get("_geom")):
@@ -211,11 +224,12 @@ def build_report(package_path, title=None, extra=None):
         f"<div class='card'><div class='k'>{k}</div><div class='v'>{v}</div></div>"
         for k, v in cards) + "</div>")
 
-    svg = plan_svg(package_path, tables)
+    svg = plan_svg(package_path, tables, background=extra.get("background"))
     if svg:
         P.append("<h2>Plan</h2><figure>" + svg + "<figcaption>Schematic plan from the package "
                  "geometry: catchments (blue; proposed orange), longest flow paths, road and "
-                 "crossings. Drawn to scale with no background map.</figcaption></figure>")
+                 "crossings" + (" over the terrain (hillshade of the DEM)" if extra.get("background")
+                                else "") + ". Drawn to scale.</figcaption></figure>")
 
     # crossing schedule
     show = [c for c in ("outlet_uid", "status", "chainage_m", "area_km2", "lfp_length_m",
