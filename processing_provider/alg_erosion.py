@@ -67,8 +67,11 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
             "• K: raster, value, or a soil source - SOTWIS, any soil map, a unit raster + "
             "table or SoilGrids (Williams/EPIC K, 0-20 cm by "
             "default), SI units.\n"
-            "• C: raster, value, or ESA WorldCover 2021 through an editable class "
-            "lookup (a land-cover PROXY - flagged as such in every output).\n"
+            "• C: raster of C values (0-1), value, or ESA WorldCover 2021 through an "
+            "editable class lookup (a land-cover PROXY - flagged as such in every "
+            "output). A land-cover CLASS raster goes in the WorldCover input, not the "
+            "C raster: QEHT refuses C or P outside 0-1, K in US units and R out of "
+            "range, and warns when R looks too low.\n"
             "• P: raster, value (default 1.0 = no support practice), or the WorldCover "
             "P lookup of the A14 study.\n"
             "Rasters on other grids are resampled in-process onto the DEM grid "
@@ -226,6 +229,14 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
         else:
             P = Factor("P", value=self.parameterAsDouble(parameters, "P_VALUE", context),
                        source="single value")
+        from ..core.erosion.rusle import check_factor, FactorError
+        for f in (R, K, C, P):
+            if f.present:
+                try:
+                    for w in check_factor(f.name, f.grid, f.value):
+                        feedback.pushWarning(w)
+                except FactorError as e:
+                    raise QgsProcessingException(str(e))
         a, finfo = rusle(ind["ls"], valid, R, K, C, P)
         for key, f in (("r", R), ("k", K), ("c", C), ("p", P)):
             if f.present:

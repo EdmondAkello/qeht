@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.15.0
+# QEHT — QGIS Engineering Hydrology Toolkit v0.15.1
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -52,10 +52,10 @@ The core is importable without QGIS. That is what makes the hydrology testable:
 
     python -m qeht.tests.test_core        # 47 analytic checks
     python -m qeht.tests.test_interop     # 77 checks incl. the golden fixture
-    python -m qeht.tests.test_crossings   # 43 checks: road crossings, burn, relink
+    python -m qeht.tests.test_crossings   # 45 checks: road crossings, burn, relink
     python -m qeht.tests.test_soils       # 33 checks: soils, USLE K, CSV soil table
     python -m qeht.tests.test_flats       # 36 checks: oracles, Barnes == RichDEM, edge drains, DEM QA
-    python -m qeht.tests.test_erosion     # 44 checks: erosion indices, RUSLE, classes, A14 anchors
+    python -m qeht.tests.test_erosion     # 50 checks: erosion indices, RUSLE, classes, A14 anchors
     python -m qeht.tests.test_alignment   # 15 checks: alignment ground profile
     python -m qeht.tests.test_morphometry # 22 checks: overland/channel split, basin shape
     python -m qeht.tests.test_soils_any   # 18 checks: soils from any source, HSG / K overrides

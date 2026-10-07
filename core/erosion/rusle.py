@@ -71,12 +71,78 @@ class Factor(object):
     def describe(self):
         kind = "raster" if self.grid is not None else ("value" if self.value is not None else "missing")
         d = {"factor": self.name, "kind": kind, "source": self.source,
-             "basis": "class proxy" if self.proxy else ("measured/derived" if self.present else "missing")}
+             "basis": ("class proxy" if self.proxy else "user value" if kind == "value"
+                       else "raster as supplied" if self.present else "missing")}
         if self.value is not None:
             d["value"] = self.value
         if self.note:
             d["note"] = self.note
         return d
+
+
+WORLDCOVER_CODES = frozenset(WORLDCOVER_C)
+# plausible ranges (SI units). Outside them the factor is refused or flagged.
+FACTOR_RANGES = {"R": (0.0, 30000.0), "K": (0.0, 0.1), "C": (0.0, 1.0), "P": (0.0, 1.0)}
+
+
+class FactorError(ValueError):
+    """A RUSLE factor is outside its physical range (wrong units or wrong raster)."""
+
+
+def check_factor(name, grid=None, value=None):
+    """Range check of one RUSLE factor; returns a list of warnings, raises
+    FactorError when the factor cannot be right.
+
+    Catches the common mistakes: a land-cover CLASS raster (codes 10-100)
+    given as C or P; K in US units (x 7.59 of SI) or in percent; R or K
+    of the wrong order of magnitude.
+    """
+    lo, hi = FACTOR_RANGES[name]
+    if grid is not None:
+        g = np.asarray(grid, dtype=np.float64)
+        v = g[np.isfinite(g)]
+        if v.size == 0:
+            raise FactorError(f"{name}: the raster has no data over the DEM.")
+        vmin, vmax = float(v.min()), float(np.percentile(v, 99.5))
+        what = "raster"
+    elif value is not None:
+        vmin = vmax = float(value)
+        v = np.array([vmin])
+        what = "value"
+    else:
+        return []
+    warnings = []
+    if vmin < lo - 1e-9:
+        raise FactorError(f"{name}: negative values in the {what} ({vmin:g}).")
+    if name in ("C", "P") and vmax > hi + 1e-6:
+        sub = v[:: max(1, v.size // 200000)]
+        codes = np.isin(sub, sorted(WORLDCOVER_CODES))       # exact class codes
+        sample = np.unique(sub[codes])
+        # a class raster resampled bilinearly still has mostly exact codes
+        if grid is not None and codes.mean() >= 0.8:
+            raise FactorError(
+                f"{name}: the raster holds land-cover class codes "
+                f"({', '.join(str(int(x)) for x in sample[:8])}), not {name} values (0-1). "
+                f"Give it as the 'ESA WorldCover' input instead - QEHT then applies the "
+                f"class lookup with nearest-neighbour resampling.")
+        raise FactorError(f"{name}: values up to {vmax:g}, but {name} lies between 0 and 1. "
+                          "Check the raster / value.")
+    if name == "K" and vmax > hi:
+        if vmax <= 0.8:
+            raise FactorError(
+                f"K: values up to {vmax:g} look like US customary units "
+                "(t.ac.h/(100.ac.ft.tonf.in)). Multiply by 0.1317 for SI t.ha.h/(ha.MJ.mm).")
+        raise FactorError(f"K: values up to {vmax:g} are far outside 0-0.1 (SI). Check the units.")
+    if name == "R" and vmax > hi:
+        raise FactorError(f"R: values up to {vmax:g} exceed any observed annual erosivity "
+                          f"(< {hi:g} MJ.mm/(ha.h.yr)). Check the units.")
+    if name == "R" and float(np.median(v)) < 200:
+        warnings.append(f"R: median {float(np.median(v)):g} MJ.mm/(ha.h.yr) is very low for "
+                        "most climates (Kenya about 1,000-6,000). US units? multiply by 17.02. "
+                        "Soil loss scales directly with R.")
+    if name == "K" and vmax < 0.001:
+        warnings.append(f"K: values up to {vmax:g} are unusually small for SI units.")
+    return warnings
 
 
 def c_from_worldcover(classes, valid=None, lookup=None):

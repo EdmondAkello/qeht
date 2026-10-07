@@ -267,6 +267,29 @@ def test_corridor():
     check("left/right statistics present", "ln_spi_L_max" in st[0] and "ls_R_mean" in st[0])
 
 
+def test_factor_checks():
+    print("\n7. RUSLE factor range checks (v0.15.1, Site C run)")
+    from ..core.erosion.rusle import check_factor, FactorError
+    def refused(name, g=None, v=None, word=""):
+        try:
+            check_factor(name, g, v)
+            return False
+        except FactorError as e:
+            return word in str(e)
+    wc = np.where(np.arange(400)[None, :] % 3 == 0, 40, 30) * np.ones((50, 1))
+    wc_bil = wc.astype(float); wc_bil[::7, 1::5] = 35.0      # bilinear mixing at edges
+    check("WorldCover classes as C refused with a hint (also after bilinear resampling)",
+          refused("C", wc, word="class codes") and refused("C", wc_bil, word="class codes"))
+    check("C or P above 1 refused", refused("C", np.array([[0.2, 3.0]])) and refused("P", v=1.5))
+    check("K in US units refused with the 0.1317 factor", refused("K", np.array([[0.32]]), word="0.1317"))
+    check("negative values refused", refused("R", v=-5.0))
+    w = check_factor("R", value=100.0)
+    check("R = 100 accepted with a warning (too low / US units?)", len(w) == 1 and "17.02" in w[0])
+    check("plausible factors pass silently",
+          check_factor("R", value=3500.0) == [] and check_factor("K", np.array([[0.02, 0.04]])) == []
+          and check_factor("C", np.array([[0.01, 0.3]])) == [] and check_factor("P", value=1.0) == [])
+
+
 def main():
     test_plane()
     test_valley()
@@ -274,6 +297,7 @@ def main():
     test_rusle_and_classes()
     test_blocks()
     test_corridor()
+    test_factor_checks()
     print("\n" + "=" * 62)
     if FAILURES:
         print(f"{len(FAILURES)} FAILURE(S):")

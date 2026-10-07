@@ -229,7 +229,7 @@ def profile_chart(path, rows, title="Alignment ground profile", max_labels=12):
         for n, i in enumerate(idx):
             a = rows[i]["acc_km2"]
             if True:
-                ax.annotate(f"{a:.2g} km²", (ch[i], z[i]), textcoords="offset points",
+                ax.annotate((f"{a:.0f}" if a >= 10 else f"{a:.2g}") + " km²", (ch[i], z[i]), textcoords="offset points",
                             xytext=(0, -14 - 10 * (n % 2)), ha="center", fontsize=7, color="#1f78b4")
     ax.set_xlabel("Chainage (km)")
     ax.set_ylabel("Elevation (m)")

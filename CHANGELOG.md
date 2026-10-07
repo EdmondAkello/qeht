@@ -3,6 +3,23 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.15.1] — unreleased (fixes from the Site C test run)
+### Fixed
+- **Vector outputs honour the file extension.** Choosing `.shp` (or `.geojson` …) wrote a GeoPackage under that name, which other software could not open. All vector writers now pick the OGR driver from the extension (GeoPackage otherwise) and set fields by index, so 10-character shapefile names work.
+- **Candidate layers saved as shapefiles are read back.** Truncated field names (`recommende`, `outlet_row` …) are matched, so "Build design hydrology package" no longer stops with "No candidate is accepted or recommended".
+- **Run metadata records layer files, not project layer ids** (`parameters_json`), and empty inputs as ''.
+
+### Added
+- **RUSLE factor range checks.** A land-cover class raster given as the C (or P) raster is refused with a hint to use the WorldCover input. That was the mistake behind C ≈ 30 and soil loss two orders too high in the test run. Also refused: C or P outside 0–1, K in US units (with the 0.1317 factor), negative values, R out of range. R below 200 MJ·mm/(ha·h·yr) gives a warning. Single values are labelled "user value" in `erosion_run.json`.
+- **Rasters record how they were made.** Fill writes `QEHT_CONDITIONING` and D8 flow direction writes `QEHT_FLAT_METHOD` as GeoTIFF metadata. The package fills `conditioning` and `flat_method` from them when the fields are left blank. `dem_source` defaults to the DEM file name.
+- **Automatic merge of near-duplicate crossings.** Consecutive candidates closer than two cell diagonals whose areas agree within 5 % (one stream crossing a winding centreline twice, 1.8 m apart on the corridor) share a cluster, so only one is recommended.
+- **Catchment characteristics takes a crossing-candidate layer** (recommended / accepted outlets, no snapping), like the package.
+- The flat-method check reads the largest area within one cell of each outlet under each method, so a drainage line routed one cell apart is not reported as a change.
+- Tests: crossings 45 (+2), erosion 50 (+6), smoke 49 (+5).
+
+### Notes
+- On the Site C DEM (FABDEM reprojected with nearest neighbour: 1.5 % repeated rows, 14 % tied neighbours) the flat-method check still flags every crossing; toward-lower routing moves the main river between crossings. This is the 0.13.1 Site C finding again. Re-export the DEM with bilinear resampling, or use native-resolution FABDEM, before relying on flat-sensitive areas.
+
 ## [0.15.0] — unreleased (alignment profile, flow-path segments, soils anywhere, curve numbers)
 ### Changed
 - **"Build HEAS exchange package" is now "Build design hydrology package".** The algorithm id `buildheasexchange` and the schema `qeht-heas-1` are unchanged, so saved models and HEAS imports keep working. The field dictionary gains `downstream_use` (plain language) and `heas_field` columns; `heas_target` stays. README: HEAS moves to one optional section.

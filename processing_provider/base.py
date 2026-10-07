@@ -161,8 +161,10 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
             rec = {"x": pt.x(), "y": pt.y(), "fid": int(feature.id()), "source_id": sid}
             names = feature.fields().names()
             for f in extra_fields:
-                if f in names:
-                    v = feature[f]
+                # a shapefile truncates field names to 10 characters
+                src_name = f if f in names else (f[:10] if f[:10] in names else None)
+                if src_name is not None:
+                    v = feature[src_name]
                     rec["attr_" + f] = None if v is None or str(v) == "NULL" else v
             points.append(rec)
         if not points:
@@ -202,6 +204,46 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
         return uids
 
     # -- soils (v0.11) ------------------------------------------------------
+
+    def parameters_record(self, parameters, context):
+        """Parameters for the run metadata, with layers recorded by their file
+        source (not the project layer id) and empty inputs as ''."""
+        out = {}
+        for k, v in parameters.items():
+            text = "" if v is None else str(v)
+            if text in ("NULL", "None"):
+                text = ""
+            d = self.parameterDefinition(k)
+            kind = d.type() if d is not None else ""
+            if text and kind == "raster":
+                lyr = self.parameterAsRasterLayer(parameters, k, context)
+                text = lyr.source() if lyr is not None else text
+            elif text and kind in ("source", "vector"):
+                lyr = self.parameterAsVectorLayer(parameters, k, context)
+                text = lyr.source() if lyr is not None else text
+            out[k] = text
+        return out
+
+    def candidate_selection(self, points, feedback):
+        """Pour points read from a 'Road crossing candidates' layer: keep the
+        accepted candidates (or the recommended ones), each at its own outlet
+        cell (no snapping) with its chainage. Returns (points, is_candidate_layer,
+        all_points). Other layers pass through unchanged."""
+        from ..core.network.crossings import select_crossings
+        is_cand = any("attr_status" in p and "attr_outlet_x" in p for p in points)
+        if not is_cand:
+            return points, False, points
+        idx, rule = select_crossings([{"status": p.get("attr_status"),
+                                       "recommended": p.get("attr_recommended")} for p in points])
+        chosen = [points[k] for k in idx]
+        if not chosen:
+            raise QgsProcessingException(
+                "No candidate is accepted or recommended - nothing to export.")
+        for p in chosen:
+            p["outlet_x"], p["outlet_y"] = p.get("attr_outlet_x"), p.get("attr_outlet_y")
+            p["chainage"] = p.get("attr_chainage_m")
+        feedback.pushInfo(f"Candidate layer: {len(chosen)} of {len(points)} crossing(s) used ({rule}).")
+        return chosen, True, points
 
     def _advanced(self, param):
         """Mark a parameter as advanced (QGIS 3.22 - 4)."""
@@ -657,7 +699,8 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
 
     @staticmethod
     def write_vector(path, layer_name, projection_wkt, geom_kind, fields, rows):
-        """Write (geometry, attrs) rows to a GeoPackage layer with OGR.
+        """Write (geometry, attrs) rows to a vector file with OGR (format from
+        the extension: .shp, .geojson ... else GeoPackage).
 
         geom_kind: 'point' ((x, y)), 'line' ([(x, y), ...]) or
         'multipolygon' (core polygonize output). fields: [(name, type)] with
@@ -676,7 +719,8 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
         srs = None
         if projection_wkt:
             srs = osr.SpatialReference(); srs.ImportFromWkt(projection_wkt)
-        drv = ogr.GetDriverByName("GPKG")
+        from ..core.raster import ogr_driver_for
+        drv = ogr_driver_for(path)
         if os.path.exists(path):
             drv.DeleteDataSource(path)
         ds = drv.CreateDataSource(path)
@@ -684,19 +728,20 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
         for fname, ftype in fields:
             layer.CreateField(ogr.FieldDefn(fname, otype[ftype]))
         defn = layer.GetLayerDefn()
+        # by index: a shapefile truncates names to 10 characters
         for geom, attrs in rows:
             feat = ogr.Feature(defn)
-            for fname, ftype in fields:
+            for i, (fname, ftype) in enumerate(fields):
                 val = attrs.get(fname)
                 if val is None or (ftype in ("int", "real", "float")
                                    and not math.isfinite(float(val))):
-                    feat.SetFieldNull(fname)
+                    feat.SetFieldNull(i)
                 elif ftype == "int":
-                    feat.SetField(fname, int(val))
+                    feat.SetField(i, int(val))
                 elif ftype in ("real", "float"):
-                    feat.SetField(fname, float(val))
+                    feat.SetField(i, float(val))
                 else:
-                    feat.SetField(fname, str(val))
+                    feat.SetField(i, str(val))
             feat.SetGeometry(ogr.CreateGeometryFromWkb(to_wkb(geom)))
             layer.CreateFeature(feat)
             feat = None

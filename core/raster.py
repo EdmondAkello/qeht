@@ -18,6 +18,34 @@ import os
 import numpy as np
 
 
+_OGR_BY_EXT = {".shp": "ESRI Shapefile", ".geojson": "GeoJSON", ".json": "GeoJSON",
+               ".gml": "GML", ".kml": "KML", ".sqlite": "SQLite", ".fgb": "FlatGeobuf"}
+
+
+def raster_tags(path):
+    """GeoTIFF metadata of a raster as a dict ({} if unreadable)."""
+    try:
+        from osgeo import gdal
+        ds = gdal.Open(str(path))
+        md = dict(ds.GetMetadata() or {}) if ds is not None else {}
+        ds = None
+        return md
+    except Exception:
+        return {}
+
+
+def ogr_driver_for(path):
+    """OGR driver matching the output file's extension (GeoPackage otherwise).
+
+    Processing passes the file name the user chose; writing a GeoPackage into a
+    file called .shp (QEHT <= 0.15) produced files other software could not open.
+    """
+    from osgeo import ogr
+    import os
+    ext = os.path.splitext(str(path))[1].lower()
+    return ogr.GetDriverByName(_OGR_BY_EXT.get(ext, "GPKG"))
+
+
 class RasterError(Exception):
     """Raised when a raster cannot be used for hydrological analysis."""
 
@@ -208,8 +236,13 @@ def read_dem(path, band=1, nodata_override=None):
 
 
 def write_raster(path, array, info, dtype=None, nodata=-9999.0,
-                 valid=None, compress=True):
-    """Write a NumPy array as a GeoTIFF using the georeferencing in `info`."""
+                 valid=None, compress=True, metadata=None):
+    """Write a NumPy array as a GeoTIFF using the georeferencing in `info`.
+
+    `metadata`: optional {key: value} written as GeoTIFF metadata (QEHT_*
+    tags record how a raster was made, e.g. the flat method; the design
+    hydrology package reads them back when the user leaves the fields blank).
+    """
     from osgeo import gdal
     gdal.UseExceptions()
 
@@ -238,6 +271,8 @@ def write_raster(path, array, info, dtype=None, nodata=-9999.0,
     ds.SetGeoTransform(info.geotransform)
     if info.projection_wkt:
         ds.SetProjection(info.projection_wkt)
+    if metadata:
+        ds.SetMetadata({str(k): str(v) for k, v in metadata.items()})
     band = ds.GetRasterBand(1)
     band.WriteArray(out)
     band.SetNoDataValue(float(nodata))
@@ -279,7 +314,7 @@ def polygonize(label_array, info, output_path, layer_name="catchments",
         srs = osr.SpatialReference()
         srs.ImportFromWkt(info.projection_wkt)
 
-    drv = ogr.GetDriverByName("GPKG")
+    drv = ogr_driver_for(output_path)
     import os
     if os.path.exists(output_path):
         drv.DeleteDataSource(output_path)
@@ -354,7 +389,7 @@ def polyline_from_cells(cells, info, output_path, layer_name="flowpath",
         srs = osr.SpatialReference()
         srs.ImportFromWkt(info.projection_wkt)
 
-    drv = ogr.GetDriverByName("GPKG")
+    drv = ogr_driver_for(output_path)
     if os.path.exists(output_path):
         drv.DeleteDataSource(output_path)
     vds = drv.CreateDataSource(output_path)

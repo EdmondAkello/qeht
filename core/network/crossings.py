@@ -19,7 +19,10 @@ Method
    are traced downstream into runs. A run at least `min_parallel_m` long
    is a parallel reach (exported as a line - a side-drain hint). All
    candidates touching the same connected parallel system share a
-   cluster; so do candidates closer than `merge_distance_m` in chainage.
+   cluster; so do candidates closer than `merge_distance_m` in chainage,
+   and (always, v0.15.1) consecutive candidates closer than two cell
+   diagonals whose areas agree within 5 % - one drainage line crossing a
+   winding centreline twice.
 4. Recommendation, not deletion (decision D3): in each cluster the most
    downstream candidate (largest contributing area) gets recommended = 1.
    Every candidate is written with status = 'candidate'; the engineer sets
@@ -259,6 +262,16 @@ def find_crossing_candidates(direction, valid, accumulation, stream_mask, geotra
                     uf.union(q, comp_first[cp])
                 else:
                     comp_first[cp] = q
+    # the same drainage line crossing a winding centreline twice within a
+    # couple of cells (e.g. 1.8 m apart on the Site C corridor, 0.15) is one
+    # crossing: merge when closer than 2 cell diagonals and the areas agree
+    # within 5 %
+    auto_m = 2.0 * math.hypot(cw, chh)
+    for q in range(1, n):
+        a0, a1 = raw[q - 1]["acc_km2"], raw[q]["acc_km2"]
+        if raw[q]["chainage_m"] - raw[q - 1]["chainage_m"] < auto_m and \
+                abs(a1 - a0) <= 0.05 * max(a0, a1):
+            uf.union(q, q - 1)
     if merge_distance_m and merge_distance_m > 0:
         for q in range(1, n):
             if raw[q]["chainage_m"] - raw[q - 1]["chainage_m"] < float(merge_distance_m):

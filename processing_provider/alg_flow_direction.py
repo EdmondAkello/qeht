@@ -113,5 +113,7 @@ class FlowDirectionAlgorithm(QehtAlgorithm):
                 "If this DEM was not conditioned, run Fill depressions first.")
 
         d8 = encode_d8(direction, valid)
-        write_raster(out_path, d8, info, dtype="int32", nodata=-1, valid=valid)
+        write_raster(out_path, d8, info, dtype="int32", nodata=-1, valid=valid,
+                     metadata={"QEHT_FLAT_METHOD": (flat_method if resolve else "none (flats not resolved)"),
+                               "QEHT_TOOL": "D8 flow direction"})
         return {OUTPUT: out_path}

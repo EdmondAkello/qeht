@@ -136,7 +136,8 @@ class LongestFlowPathAlgorithm(QehtAlgorithm):
         srs = None
         if info.projection_wkt:
             srs = osr.SpatialReference(); srs.ImportFromWkt(info.projection_wkt)
-        drv = ogr.GetDriverByName("GPKG")
+        from ..core.raster import ogr_driver_for
+        drv = ogr_driver_for(out_path)
         if os.path.exists(out_path):
             drv.DeleteDataSource(out_path)
         vds = drv.CreateDataSource(out_path)

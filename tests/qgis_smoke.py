@@ -24,6 +24,8 @@ import os
 import sys
 import tempfile
 
+import numpy as np
+
 FAILURES = []
 
 
@@ -526,6 +528,51 @@ def main(in_qgis=False):
           and '"deposition"' in md["erosion_json"] and md["channel_slope_m"] == "200",
           ", ".join(f"{x['outlet_uid']} us {x['ch_slope_us']:.3f} ds {x['ch_slope_ds']:.3f} "
                     f"{x['ero_dep_flag'] or x['ero_dep_note']}" for x in cr))
+
+    # ---- v0.15.1: real-data findings (Site C corridor) ----------------------
+    import json as _json2
+    r = processing.run("qeht:crossingcandidates", {
+        "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "STREAMS": out("str.tif"),
+        "ROAD": out("road.gpkg"), "START": 0.0, "MIN_AREA": 0.05,
+        "CANDIDATES": out("cand_shp.shp"), "PARALLEL": out("par_shp.shp")})
+    with open(out("cand_shp.shp"), "rb") as fh:
+        magic = fh.read(4)
+    check("a .shp output is a real shapefile (not a GeoPackage named .shp)",
+          magic == b"\x00\x00\x27\x0a" and os.path.exists(out("cand_shp.dbf")))
+    r = processing.run("qeht:buildheasexchange", {
+        "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "POINTS": out("cand_shp.shp"),
+        "ROAD": out("road.gpkg"), "FILLED": out("fill.tif"), "SNAP": 5, "SNAP_THRESHOLD": 200,
+        "OUTPUT": out("cand_shp_pkg.gpkg")})
+    md = {row["key"]: row["value"] for row in gpkg.read_table(r["OUTPUT"], "qeht_run_metadata")}
+    check("candidates read back from a shapefile (10-character field names); layer sources "
+          "and raster tags recorded",
+          "crossing_candidates" in dict(gpkg.list_tables(r["OUTPUT"]))
+          and _json2.loads(md["parameters_json"])["FDR"].endswith("fdr.tif")
+          and md["flat_method"] in ("barnes", "toward") and "fill" in md["conditioning"],
+          f"flat {md['flat_method']}, conditioning {md['conditioning']}")
+    r = processing.run("qeht:catchmentcharacteristics", {
+        "FDR": out("fdr.tif"), "DEM": out("fill.tif"), "RAW_DEM": dem, "FAC": out("fac.tif"),
+        "POINTS": out("cand_shp.shp"), "CATCH_OUT": out("cc.shp"), "PATH_OUT": out("cc_lfp.shp")})
+    check("characteristics takes a candidate layer (recommended outlets, no snapping) and "
+          "writes shapefiles",
+          QgsVectorLayer(out("cc.shp"), "cc", "ogr").featureCount() ==
+          sum(1 for f in QgsVectorLayer(out("cand_shp.shp"), "c", "ogr").getFeatures()
+              if f["recommende"] == 1))
+    from osgeo import gdal as _g2
+    _ds = _g2.Open(out("fill.tif"))
+    _wc = _g2.GetDriverByName("GTiff").Create(out("wc_classes.tif"), _ds.RasterXSize, _ds.RasterYSize, 1, _g2.GDT_Byte)
+    _wc.SetGeoTransform(_ds.GetGeoTransform()); _wc.SetProjection(_ds.GetProjection())
+    _wc.GetRasterBand(1).WriteArray(np.where(np.arange(_ds.RasterXSize)[None, :] % 2 == 0, 30, 40)
+                                    * np.ones((_ds.RasterYSize, 1), np.uint8))
+    _wc = None; _ds = None
+    try:
+        processing.run("qeht:erosionindices", {"RAW_DEM": dem, "FAC": out("fac.tif"),
+                                               "R_VALUE": 3000.0, "K_VALUE": 0.03,
+                                               "C_RASTER": out("wc_classes.tif"), "OUTPUT": out("ero_bad")})
+        refused = False
+    except Exception as e:
+        refused = "class codes" in str(e)
+    check("a land-cover class raster given as the C raster is refused with a hint", refused)
 
     print("\n" + ("ALL QGIS SMOKE CHECKS PASSED" if not FAILURES
                   else f"{len(FAILURES)} FAILURE(S): " + "; ".join(FAILURES)))

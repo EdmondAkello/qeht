@@ -84,6 +84,9 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
             "overland lengths. Catchments also carry perimeter, form factor, "
             "elongation and circularity ratios, drainage density, stream frequency "
             "and highest Strahler order.\n\n"
+            "A layer from 'Road crossing candidates' can be given as the pour points: "
+            "the accepted (else recommended) candidates are used at their own outlet "
+            "cells, without snapping.\n\n"
             "For one linked package, use 'Build design hydrology package', which writes the same "
             "values into one self-describing GeoPackage."
         )
@@ -164,7 +167,10 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
         stream_mask=None
         if snap_threshold>0:
             stream_mask=extract_streams(accum,valid,threshold_cells=snap_threshold)
-        points=self.read_pour_points(parameters,POINTS,context,info,feedback,id_field=id_field)
+        from ..core.network.crossings import CANDIDATE_FIELDS
+        points=self.read_pour_points(parameters,POINTS,context,info,feedback,id_field=id_field,
+                                     extra_fields=[f for f,_ in CANDIDATE_FIELDS])
+        points,_,_=self.candidate_selection(points,feedback)
 
         try:
             crossings,catchments,flowpaths,issues,_=build_exchange_records(
@@ -182,10 +188,11 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
         srs=None
         if info.projection_wkt:
             srs=osr.SpatialReference(); srs.ImportFromWkt(info.projection_wkt)
-        drv=ogr.GetDriverByName("GPKG")
+        from ..core.raster import ogr_driver_for
         otype={"int":ogr.OFTInteger,"float":ogr.OFTReal,"text":ogr.OFTString}
 
         def write(path,lname,gtype,fields,rows,to_wkb):
+            drv=ogr_driver_for(path)
             if os.path.exists(path): drv.DeleteDataSource(path)
             ds=drv.CreateDataSource(path)
             layer=ds.CreateLayer(lname,srs=srs,geom_type=gtype)
@@ -194,13 +201,13 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
             defn=layer.GetLayerDefn()
             for geom,attrs in rows:
                 feat=ogr.Feature(defn)
-                for fname,ftype in fields:
+                for i,(fname,ftype) in enumerate(fields):   # by index (.shp truncates names)
                     val=attrs.get(fname)
                     if val is None or (ftype!="text" and not np.isfinite(float(val))):
-                        feat.SetFieldNull(fname)       # never write NaN as 0
-                    elif ftype=="int": feat.SetField(fname,int(val))
-                    elif ftype=="float": feat.SetField(fname,float(val))
-                    else: feat.SetField(fname,str(val))
+                        feat.SetFieldNull(i)       # never write NaN as 0
+                    elif ftype=="int": feat.SetField(i,int(val))
+                    elif ftype=="float": feat.SetField(i,float(val))
+                    else: feat.SetField(i,str(val))
                 feat.SetGeometry(ogr.CreateGeometryFromWkb(to_wkb(geom)))
                 layer.CreateFeature(feat); feat=None
             ds=None

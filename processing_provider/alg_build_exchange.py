@@ -241,24 +241,13 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                                        id_field=id_field,
                                        extra_fields=[f for f, _ in CANDIDATE_FIELDS])
         extra_layers = []
-        candidate_mode = any("attr_status" in p and "attr_outlet_x" in p for p in points)
+        points, candidate_mode, all_points = self.candidate_selection(points, feedback)
         if candidate_mode:
             extra_layers.append(("crossing_candidates", "POINT", CANDIDATE_FIELDS,
                                  [((p["x"], p["y"]), {f: p.get("attr_" + f)
                                                       for f, _ in CANDIDATE_FIELDS})
-                                  for p in points],
+                                  for p in all_points],
                                  "All crossing candidates (audit trail)"))
-            idx, rule = select_crossings([{"status": p.get("attr_status"),
-                                           "recommended": p.get("attr_recommended")}
-                                          for p in points])
-            points = [points[k] for k in idx]
-            if not points:
-                raise QgsProcessingException(
-                    "No candidate is accepted or recommended - nothing to export.")
-            for p in points:
-                p["outlet_x"], p["outlet_y"] = p.get("attr_outlet_x"), p.get("attr_outlet_y")
-                p["chainage"] = p.get("attr_chainage_m")
-            feedback.pushInfo(f"Candidate layer: {len(points)} crossing(s) selected ({rule}).")
 
         burn_summary = ""
         burn_src = self.parameterAsSource(parameters, "BURN_LOG", context) \
@@ -370,6 +359,10 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         for msg in issues:
             feedback.pushWarning(msg)
 
+        from ..core.raster import raster_tags
+        tags_fdr = raster_tags(fdr_path)
+        tags_fill = raster_tags(self.raster_path(parameters, "FILLED", context)) \
+            if self.parameterAsRasterLayer(parameters, "FILLED", context) is not None else {}
         cell_area = info.cell_width * info.cell_height
         md = dict(id_info)
         md.update({
@@ -377,12 +370,15 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "cell_size_m": f"{info.cell_width:g} x {info.cell_height:g}",
             "dem_path": fdr_path, "raw_dem_path": raw_path,
             "dem_sha256": file_fingerprint(raw_path),
-            "dem_source": self.parameterAsString(parameters, DEM_SOURCE, context) or "",
+            "dem_source": (self.parameterAsString(parameters, DEM_SOURCE, context)
+                           or f"file {os.path.basename(raw_path)} (not described by the user)"),
             "conditioning": "; ".join(x for x in (
-                self.parameterAsString(parameters, CONDITIONING, context) or "",
+                self.parameterAsString(parameters, CONDITIONING, context)
+                or tags_fill.get("QEHT_CONDITIONING", ""),
                 burn_summary) if x) or "not recorded",
             "conditioning_burn": burn_summary,
-            "flat_method": self.parameterAsString(parameters, FLAT_METHOD, context) or "not recorded",
+            "flat_method": (self.parameterAsString(parameters, FLAT_METHOD, context)
+                            or tags_fdr.get("QEHT_FLAT_METHOD") or "not recorded"),
             "tie_rule": "QEHT D8: steepest drop/distance; ties by lowest internal index",
             "stream_threshold_cells": f"{snap_threshold:g}",
             "stream_threshold_km2": f"{snap_threshold * cell_area / 1e6:g}",
@@ -404,7 +400,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                                  if alignment is not None else ""),
             "alignment_step_m": (f"{self.parameterAsDouble(parameters, 'PROFILE_STEP', context):g}"
                                  if alignment is not None else ""),
-            "parameters_json": {k: str(v) for k, v in parameters.items()},
+            "parameters_json": self.parameters_record(parameters, context),
             "erosion_json": ({k: erosion_run.get(k) for k in (
                 "mode", "factors", "indices", "schemes", "mcdma_weights", "bulk_density_kgm3",
                 "sdr_model", "channel_threshold_cells", "sti", "deposition")} if erosion_run else ""),
@@ -421,7 +417,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
 
         feedback.pushInfo(
             f"QEHT {plugin_version()} \u00b7 flat method "
-            f"{self.parameterAsString(parameters, FLAT_METHOD, context) or 'not recorded'} "
+            f"{md['flat_method']} "
             f"\u00b7 10-85 reference outlet")
         errors, warnings = validate_exchange(out_path)
         for w in warnings:

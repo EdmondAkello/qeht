@@ -173,7 +173,7 @@ class RenumberRelinkAlgorithm(QehtAlgorithm):
                    "crossing_source": "relinked package",
                    "raw_dem_path": raw_path, "dem_sha256": file_fingerprint(raw_path),
                    "catchment_mode": "local" if local else "full",
-                   "parameters_json": {k: str(v) for k, v in parameters.items()}})
+                   "parameters_json": self.parameters_record(parameters, context)})
         try:
             write_exchange(out_path, cr, ca, fp, md, info.projection_wkt, crs_epsg=epsg,
                            extra_tables=[("renumber_log", LOG_FIELDS, log,

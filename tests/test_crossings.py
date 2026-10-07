@@ -148,6 +148,24 @@ def test_close_tributaries():
           len({c[1]["cluster_id"] for c in c2}) == 1 and sum(c[1]["recommended"] for c in c2) == 1)
 
 
+def test_winding_double_crossing():
+    print("\n4b. A winding centreline crossing one stream link twice within metres (v0.15.1)")
+    rows, cols, cs = 80, 70, 10.0
+    dem = valley_dem([[(305, 800), (305, 0)]], rows, cols, cs)
+    v, f, d, a, st = route(dem, cs)
+    gt = gt_for(rows, cs)
+    al = Alignment([[(0, 401), (312, 401), (312, 403), (298, 403), (298, 404.5), (700, 404.5)]])
+    c, _, _ = find_crossing_candidates(d, v, a, st, gt, al, min_area_km2=0.05)
+    check("three intersections, one cluster, one recommended (auto merge < 2 cell diagonals)",
+          len(c) == 3 and len({x[1]["cluster_id"] for x in c}) == 1
+          and sum(x[1]["recommended"] for x in c) == 1,
+          f"{len(c)} candidates, clusters {[x[1]['cluster_id'] for x in c]}")
+    two, _, _ = find_crossing_candidates(d, v, a, st, gt,
+                                         Alignment([[(0, 401), (700, 401)], [(0, 395), (700, 395)]]),
+                                         min_area_km2=0.05)
+    check("separate parts far apart in chainage stay separate", len({x[1]["cluster_id"] for x in two}) == 2)
+
+
 def test_selection_and_exchange():
     print("\n5. Candidates -> crossings -> exchange records")
     feats = [{"status": "candidate", "recommended": 1}, {"status": "accepted", "recommended": 0},
@@ -259,6 +277,7 @@ def main(argv=None):
     test_perpendicular_and_angle()
     test_parallel_flow()
     test_close_tributaries()
+    test_winding_double_crossing()
     test_selection_and_exchange()
     test_burn()
     test_relink()

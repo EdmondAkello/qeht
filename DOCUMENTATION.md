@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.15.0
+**Version:** 0.15.1
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -85,10 +85,10 @@ qeht/
   tests/
     test_core.py         47 analytic checks, runnable without QGIS
     test_interop.py      77 checks: outlet_uid, slopes, exchange, golden fixture
-    test_crossings.py    43 checks: alignment, candidates, clusters, burn, relink
+    test_crossings.py    45 checks: alignment, candidates, clusters, burn, relink
     test_soils.py        33 checks: USLE K, texture, HSG, SOTWIS and CSV loaders, soil block
     test_flats.py        36 checks: v0.8.3 oracles, Barnes == RichDEM port, edge drains, DEM QA
-    test_erosion.py      44 checks: analytic plane/valley, A14 2025 anchors, RUSLE, classes, corridor
+    test_erosion.py      50 checks: analytic plane/valley, A14 2025 anchors, RUSLE, classes, corridor
     test_alignment.py    15 checks: ground profile on a plane and a valley
     test_morphometry.py  22 checks: LFP split, perimeter/shape ratios, drainage density, links
     test_soils_any.py    18 checks: vectorised = scalar, v0.14 regression, SoilGrids, HYSOGs, overrides

@@ -92,7 +92,9 @@ class FillDepressionsAlgorithm(QehtAlgorithm):
                 100.0 * n_filled / max(1, int(valid.sum())),
         })
 
-        write_raster(out_path, filled, info, valid=valid)
+        write_raster(out_path, filled, info, valid=valid,
+                     metadata={"QEHT_CONDITIONING": f"QEHT priority-flood fill, min_slope {min_slope:g}",
+                               "QEHT_TOOL": "Fill depressions"})
         results = {OUTPUT: out_path}
 
         if depth_path:
