@@ -63,9 +63,9 @@ def main(in_qgis=False):
         reg.addProvider(QehtProvider())
     algs = sorted(a.id() for a in reg.providerById("qeht").algorithms())
     print("QEHT algorithms:", ", ".join(algs))
-    check("provider loads with 16 algorithms incl. exchange, crossings, burn, relink, soils, "
+    check("provider loads with 17 algorithms incl. exchange, crossings, burn, relink, soils, "
           "erosion, alignment profile",
-          len(algs) == 16 and all(a in algs for a in ("qeht:alignmentprofile",
+          len(algs) == 17 and all(a in algs for a in ("qeht:alignmentprofile", "qeht:drainagecoverage",
               "qeht:buildheasexchange", "qeht:crossingcandidates", "qeht:burncrossings",
               "qeht:renumberrelink", "qeht:soilparameters", "qeht:erosionindices",
               "qeht:erosioncorridor")))
@@ -274,9 +274,31 @@ def main(in_qgis=False):
           len(ap) == len(pf) and sum(a["stream"] for a in ap) == nst
           and mdp.get("alignment_step_m") == "10" and mdp.get("alignment_source"),
           f"{len(ap)} stations")
+    crx = [c for c in cr if c["status"] == "existing"]
+    crp = [c for c in cr if c["status"] == "proposed"]
     check("exchange from candidates: recommended crossings, numbered along chainage",
-          len(cr) == len(rec) and [c["outlet_uid"] for c in sorted(cr, key=lambda c: c["chainage_m"])]
-          == [f"X{k + 1:03d}" for k in range(len(cr))] and all(c["snap_dist_m"] < 45 for c in cr))
+          len(crx) == len(rec) and [c["outlet_uid"] for c in sorted(crx, key=lambda c: c["chainage_m"])]
+          == [f"X{k + 1:03d}" for k in range(len(crx))] and all(c["snap_dist_m"] < 45 for c in crx))
+    cov = gpkg.read_table(xp2, "coverage_check", with_geometry=False) if "coverage_check" in tabs else []
+    cat_p = [c for c in gpkg.read_table(xp2, "catchments", with_geometry=False) if c["status"] == "proposed"]
+    check("v0.16 coverage check in the package: coverage_check / sag_points / flat_stretches "
+          "layers; proposed crossings P001.. delineated with catchments",
+          all(t in tabs for t in ("coverage_check", "sag_points", "flat_stretches"))
+          and len(cat_p) == len(crp)
+          and sorted(c["outlet_uid"] for c in crp) == [f"P{k + 1:03d}" for k in range(len(crp))]
+          and all(c["proposed_reason"] in ("uncovered_stream", "sag_point") for c in crp)
+          and mdp.get("n_proposed") == str(len(crp)),
+          f"{len(crp)} proposed ({sorted(set(c['proposed_reason'] for c in crp))}), "
+          f"{len(cov)} findings: {sorted(set(c['issue'] for c in cov))}")
+    r = processing.run("qeht:drainagecoverage", {
+        "RAW_DEM": dem, "FILLED": out("fill.tif"), "FDR": out("fdr.tif"), "FAC": out("fac.tif"),
+        "ROAD": out("road.gpkg"), "CROSSINGS": out("cand.gpkg"), "START": 1000.0,
+        "COVERAGE_OUT": out("cov.gpkg"), "SAGS_OUT": out("sags.gpkg"), "FLATS_OUT": out("flats.gpkg")})
+    cv = list(QgsVectorLayer(r["COVERAGE_OUT"], "cv", "ogr").getFeatures())
+    check("standalone coverage tool: same missing crossings as the package",
+          sum(1 for f in cv if f["issue"] == "missing_crossing")
+          == sum(1 for c in cov if c["issue"] == "missing_crossing"),
+          f"{len(cv)} findings")
 
     r = processing.run("qeht:burncrossings", {
         "DEM": dem, "CROSSINGS": out("cand.gpkg"), "HALF": 30.0, "SEARCH": 2,
@@ -314,6 +336,14 @@ def main(in_qgis=False):
     log = gpkg.read_table(rel, "renumber_log")
     changes = sorted(x["change"] for x in log)
     new_ids = sorted(x["new_uid"] for x in log if x["new_uid"])
+    rel_cr = gpkg.read_table(rel, "crossings", with_geometry=False)
+    xs = sorted(c["outlet_uid"] for c in rel_cr if c["status"] != "proposed")
+    ps = sorted(c["outlet_uid"] for c in rel_cr if c["status"] == "proposed")
+    check("relink keeps status: proposed stay P (gapless), the rest X (gapless)",
+          xs == [f"X{k + 1:03d}" for k in range(len(xs))]
+          and ps == [f"P{k + 1:03d}" for k in range(len(ps))] and len(ps) == len(crp),
+          f"{len(xs)} X, {len(ps)} P")
+    new_ids = [u for u in new_ids if u.startswith("X")]
     check("renumber and relink: validates, logs deleted + new, gapless ids",
           not errors and "deleted" in changes and "new" in changes
           and new_ids == [f"X{k + 1:03d}" for k in range(len(new_ids))]

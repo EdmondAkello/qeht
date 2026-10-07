@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.15.1
+**Version:** 0.16.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -72,13 +72,14 @@ qeht/
       alignment.py       linear referencing: chainage, signed offset, intersections
       crossings.py       road x drainage candidates, parallel reaches, clusters
       profile.py         alignment ground profile
+      coverage.py        missing crossings, sag points (walled routing), flat stretches
     interop/
       field_dictionary.py  the qeht-heas-1 contract (every exchange field)
       gpkg.py            standard-library GeoPackage 1.2 writer/reader
       heas_exchange.py   pipeline, writer, validator, CSV export
 
   processing_provider/   the only QGIS-aware code
-    provider.py          registers the sixteen algorithms
+    provider.py          registers the seventeen algorithms
     base.py              shared base class and helpers (pour points, IDs)
     alg_*.py             one file per algorithm
 
@@ -94,6 +95,7 @@ qeht/
     test_soils_any.py    18 checks: vectorised = scalar, v0.14 regression, SoilGrids, HYSOGs, overrides
     test_runoff.py       17 checks: CN mosaic, dual groups, AMC, lookups, pipeline
     test_channel.py      16 checks: STI identity, channel slopes, deposition ratio
+    test_coverage.py     21 checks: missing crossings, sags, walled sag areas, flat stretches
     fixtures/            golden_exchange.gpkg + .json (shared with HEAS)
     qgis_smoke.py        every Processing tool run inside QGIS
 ```
@@ -104,7 +106,7 @@ The dependency direction is strict and one-way: `processing_provider` imports `c
 
 ## 3. Processing algorithms
 
-QEHT registers sixteen algorithms under the "Engineering Hydrology" provider.
+QEHT registers seventeen algorithms under the "Engineering Hydrology" provider.
 
 | Algorithm | Commercial reference analogue |
 |---|---|
@@ -124,6 +126,7 @@ QEHT registers sixteen algorithms under the "Engineering Hydrology" provider.
 | Erosion indices and RUSLE soil loss | terrain indices, RUSLE and severity classes (Section 4.14) |
 | Sample erosion along alignment | none — erosion stations and reaches along a road (Section 4.14) |
 | Alignment ground profile | none — ground, fill, area and stream crossings along a road (Section 4.15) |
+| Drainage coverage check along a road | none — missing crossings, sags, flat stretches (Section 4.20) |
 
 Each is a `QgsProcessingAlgorithm` registered through a `QgsProcessingProvider`. Exposing the tools this way — rather than as bespoke dialogs — means they gain input validation, batch mode, the Graphical Modeler, the history log, and `processing.run()` scriptability at no additional cost. Chaining tools in the Modeler is much of a commercial hydrology extension's practical value, and this design reproduces it.
 
@@ -283,6 +286,10 @@ Per cell, land cover (WorldCover, nearest-neighbour onto the DEM grid) × HSG (4
 **Deposition indicator.** The main stem upstream of a crossing is followed by taking, at each cell, the donor with the largest accumulation. On channel cells, median SPI over 0–100 m (near) and 100–500 m (far) upstream; ero_dep_ratio = near / far; below 0.7 deposition-prone, above 1.3 scour-prone (editable). Both reach slopes (drop / length) are exported, because over a short reach the ratio is mostly the slope break — unless the area grows fast along it, which the ratio then includes. Null with a note when the channel upstream is shorter than 90 % of the far distance.
 
 **Channel slopes.** ch_slope_us along the main stem upstream and ch_slope_ds along the D8 receivers downstream, each over 200 m (or less at the divide or grid edge, reported in ch_len_us_m / ch_len_ds_m), from raw-DEM end-point elevations.
+
+### 4.20 Drainage coverage check (v0.16)
+
+From the alignment profile (4.15). **Missing crossings:** stations with stream = 1 and area ≥ the minimum (default the stream threshold) merged within 30 m into one point at the largest area; uncovered when no existing crossing lies within 50 m of chainage. The package builds each uncovered point as a proposed crossing (snapped within 2 cells to the stream) with the full pipeline (4.8–4.19), IDs P001… gapless along the chainage, `nearest_uid` / `nearest_m` recorded. **Sags:** local minima of the profile smoothed by a 30 m moving average whose prominence (the lower of the highest smoothed ground on each side before the profile drops below the minimum again) is ≥ 0.3 m, with no stream station or crossing within 50 m. On the filled DEM the centreline cells are raised 1,000 m (diagonal gaps closed; wall removed within one cell of existing and stream crossings) and D8 is computed without refilling; the sag area on each side is the largest accumulation among pit cells (no receiver) within two cells of a point 1.5 cells off the centreline. Sags of ≥ 0.05 km² become proposed crossings delineated on that walled routing. **Flat stretches:** runs of stations with |longitudinal slope| and the steeper cross-fall over 100 m both below 0.5 %, boundaries half-way between stations, ≥ 300 m long.
 
 ---
 

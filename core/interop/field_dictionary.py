@@ -27,6 +27,16 @@ _LINK = [
     ("link_note", "text", "-", "free-text note on the link", "", "link registry"),
 ]
 
+_STATUS = [
+    ("status", "text", "-", "existing = in the design input; proposed = found by the coverage check "
+     "and delineated in this run, not yet adopted", "coverage check (A2/A3)", "crossing status"),
+    ("proposed_reason", "text", "-", "uncovered_stream / sag_point (proposed crossings only)", "",
+     "crossing status"),
+    ("nearest_uid", "text", "-", "nearest existing crossing (proposed crossings only)",
+     "by chainage", "QA"),
+    ("nearest_m", "real", "m", "chainage distance to nearest_uid", "", "QA"),
+]
+
 CROSSINGS = [
     ("outlet_uid", "text", "-", "stable crossing/outlet identifier; identical on the "
      "crossing, its catchment and its longest flow path",
@@ -52,7 +62,7 @@ CROSSINGS = [
     ("chainage_m", "real", "m", "position along the road alignment (from the crossing-"
      "candidate tool; empty for hand-placed pour points)", "linear referencing",
      "crossing chainage"),
-] + _LINK + [
+] + _LINK + _STATUS + [
     # erosion block at the crossing (v0.14, WP-F)
     ("ero_lnspi_max3x3", "real", "ln(m)", "highest ln(SPI) in the 3x3 cells at the outlet", "",
      "gully potential"),
@@ -147,7 +157,7 @@ CATCHMENTS = [
      "morphometry"),
     ("max_strahler", "int", "-", "highest Strahler order in the catchment",
      "stream-order raster if given, else computed at the stream threshold", "morphometry"),
-] + _LINK + [
+] + _LINK + _STATUS + [
     # soil block (v0.11, WP-C) - empty when no soil dataset was supplied
     ("soil_sand_pct", "real", "%", "topsoil sand", "area-weighted over soil units; "
      "component-weighted within a unit; depth-weighted over soil_depth_cm", "sediment/CN input"),
@@ -318,7 +328,7 @@ FLOWPATHS = [
      "stream threshold x cell area", "provenance"),
     ("lfp_no_channel", "int", "0/1", "1 when no path cell reaches the threshold "
      "(whole path overland)", "", "QA"),
-] + _LINK
+] + _LINK + _STATUS
 
 LAYERS = {
     "crossings": ("POINT", CROSSINGS,
@@ -354,6 +364,41 @@ OPTIONAL_LAYERS = {
          "centred difference of z_dem_m (one-sided at part ends)", "ground profile"),
         ("alignment_part", "int", "-", "part of a multi-part alignment", "", "info"),
     ], "Ground profile along the road alignment (stations)"),
+    "coverage_check": ("POINT", [
+        ("issue", "text", "-", "missing_crossing / sag_point / flat_stretch / small_area", "",
+         "coverage QA"),
+        ("chainage_m", "real", "m", "location (start of a stretch)", "", "coverage QA"),
+        ("chainage_to_m", "real", "m", "end of a flat stretch", "", "coverage QA"),
+        ("area_km2", "real", "km2", "contributing area (sag: local area against the embankment)",
+         "", "coverage QA"),
+        ("uid", "text", "-", "outlet_uid of the proposed (or flagged) crossing", "", "coverage QA"),
+        ("nearest_uid", "text", "-", "nearest existing crossing", "", "coverage QA"),
+        ("nearest_m", "real", "m", "chainage distance to it", "", "coverage QA"),
+        ("note", "text", "-", "plain-language finding", "", "coverage QA"),
+    ], "Drainage coverage findings along the road (A2/A3; flat stretches at their mid-point)"),
+    "sag_points": ("POINT", [
+        ("chainage_m", "real", "m", "chainage of the low point", "", "relief / equaliser"),
+        ("z_dem_m", "real", "m", "ground level", "", "relief / equaliser"),
+        ("sag_depth_m", "real", "m", "depth of the sag (prominence of the smoothed minimum)",
+         "smoothing over sag_params_json smooth_m", "relief / equaliser"),
+        ("sag_area_km2", "real", "km2", "local area draining to the sag (larger side)",
+         "D8 on the filled DEM with the centreline as a wall", "relief / equaliser"),
+        ("sag_area_left_km2", "real", "km2", "area on the left of the alignment", "", "info"),
+        ("sag_area_right_km2", "real", "km2", "area on the right", "", "info"),
+        ("side", "text", "-", "contributing side (left / right of increasing chainage)", "", "info"),
+        ("pond_depth_m", "real", "m", "fill depth at the station", "", "info"),
+        ("uid", "text", "-", "proposed crossing created for the sag (if any)", "", "info"),
+    ], "Low points of the ground profile along the road"),
+    "flat_stretches": ("LINESTRING", [
+        ("chainage_m", "real", "m", "start", "", "nominal reliefs"),
+        ("chainage_to_m", "real", "m", "end", "", "nominal reliefs"),
+        ("length_m", "real", "m", "length", "", "nominal reliefs"),
+        ("slope_long_pct", "real", "%", "mean |longitudinal slope|", "", "nominal reliefs"),
+        ("crossfall_pct", "real", "%", "mean cross-fall (steeper side) over crossfall_m", "",
+         "nominal reliefs"),
+        ("n_crossings_within", "int", "-", "existing crossings inside the stretch", "", "QA"),
+        ("uids_within", "text", "-", "their outlet_uids", "", "QA"),
+    ], "Flat / floodplain stretches where relief culverts for sheet flow may be needed"),
 }
 
 METADATA_KEYS = [
@@ -397,6 +442,8 @@ METADATA_KEYS = [
     ("channel_slope_m", "approach / exit channel length for ch_slope_us / ch_slope_ds (m)"),
     ("alignment_source", "road alignment layer used for chainage and the ground profile"),
     ("alignment_step_m", "station spacing of alignment_profile (m)"),
+    ("coverage_params_json", "coverage check, sag and flat-stretch settings (empty = not run)"),
+    ("n_proposed", "number of proposed crossings added by the coverage check"),
     ("n_crossings", "number of crossings written"),
     ("parameters_json", "full parameter dictionary of the run"),
 ]
@@ -435,6 +482,10 @@ DOWNSTREAM_USE = {
     "CN": "SCS curve number (when the engineer accepts it)",
     "runoff coefficient": "Rational method runoff coefficient",
     "land cover": "land-cover share for the report and CN / C checks",
+    "crossing status": "existing vs proposed crossing (adopt or delete proposed ones)",
+    "coverage QA": "missing culverts, sags and flat stretches along the road",
+    "relief / equaliser": "relief culvert / equaliser at a low point (designed downstream)",
+    "nominal reliefs": "nominal relief culverts for sheet flow (placed and sized downstream)",
     "deposition screening": "sediment deposition tendency at the culvert inlet (screening)",
     "approach channel slope": "approach channel slope (floodplain level, barrel comparison)",
     "exit channel slope": "exit channel slope (tailwater rating)",

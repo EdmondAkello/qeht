@@ -37,6 +37,11 @@ class RenumberRelinkAlgorithm(QehtAlgorithm):
 
     def shortHelpString(self):
         return (
+            "Proposed crossings (from the coverage check): set status to 'existing' (or "
+            "'adopted') to adopt one - it then gets the package prefix - delete it to drop it, "
+            "or leave it 'proposed' to keep it numbered with the proposed prefix (P001...). "
+            "Sag-point crossings are recomputed with the alignment as a wall, so give the road "
+            "alignment when the package has any.\n\n"
             "After editing the <i>crossings</i> layer of an exchange package in QGIS "
             "- deleting, moving or adding points - run this to bring the package "
             "back into a consistent state:\n"
@@ -70,6 +75,9 @@ class RenumberRelinkAlgorithm(QehtAlgorithm):
             REVERSE, "Reverse chainage direction", defaultValue=False))
         self.addParameter(QgsProcessingParameterString(
             PREFIX, "ID prefix (blank = keep the package's prefix)", optional=True))
+        self.addParameter(QgsProcessingParameterString(
+            "PROPOSED_PREFIX", "Prefix for crossings still proposed", defaultValue="P",
+            optional=True))
         self.addParameter(QgsProcessingParameterNumber(
             SNAP, "Snap radius for moved/added points (cells)",
             QgsProcessingParameterNumber.Type.Integer, defaultValue=5, minValue=0, maxValue=100))
@@ -115,7 +123,9 @@ class RenumberRelinkAlgorithm(QehtAlgorithm):
             unmoved = (ox is not None and oy is not None
                        and abs(ox - x) < 1e-6 and abs(oy - y) < 1e-6)
             o = {"x": x, "y": y, "fid": fid, "source_id": None,
-                 "chainage": get("chainage_m") if unmoved else None}
+                 "chainage": get("chainage_m") if unmoved else None,
+                 "status": (get("status") or "existing").strip().lower(),
+                 "reason": get("proposed_reason") or None}
             if unmoved:
                 o["outlet_x"], o["outlet_y"] = ox, oy
             outlets.append(o)
@@ -154,14 +164,70 @@ class RenumberRelinkAlgorithm(QehtAlgorithm):
         prefix = (self.parameterAsString(parameters, PREFIX, context) or "").strip() \
             or old_md.get("id_prefix", "X")
         local = self.parameterAsBool(parameters, LOCAL, context)
-        try:
-            cr, ca, fp, issues, id_info = build_exchange_records(
-                direction, valid, accum, elevation, info.geotransform, outlets,
-                snap_radius_cells=snap, stream_mask=stream_mask, local=local,
-                stream_order=stream_order, id_prefix=prefix, id_order=order,
-                progress=self.make_progress(feedback, weight=0.9))
-        except ExchangeError as e:
-            raise QgsProcessingException(str(e))
+        # v0.16: existing (or adopted) crossings keep the package prefix, proposed
+        # ones keep theirs (default P); each set is numbered gaplessly along the
+        # chainage (else downstream-first). Sag-point crossings are recomputed
+        # with the alignment as a wall, as the coverage check made them.
+        pprefix = (self.parameterAsString(parameters, "PROPOSED_PREFIX", context) or "P").strip() \
+            if "PROPOSED_PREFIX" in parameters else "P"
+        rows_, cols_ = accum.shape
+        gt_ = info.geotransform
+
+        def acc_at(o):
+            c_ = int((o["x"] - gt_[0]) // gt_[1]); r_ = int((o["y"] - gt_[3]) // gt_[5])
+            return float(accum[r_, c_]) if 0 <= r_ < rows_ and 0 <= c_ < cols_ else 0.0
+        for pre, members in ((prefix, [o for o in outlets if o["status"] != "proposed"]),
+                             (pprefix, [o for o in outlets if o["status"] == "proposed"])):
+            if order == "chainage":
+                members.sort(key=lambda o: o["chainage"])
+            else:
+                members.sort(key=lambda o: -acc_at(o))
+            for n, o in enumerate(members, start=1):
+                o["source_id"] = f"{pre}{n:03d}"
+        walled = [o for o in outlets if o.get("reason") == "sag_point"]
+        normal = [o for o in outlets if o.get("reason") != "sag_point"]
+        cr, ca, fp, issues, id_info = [], [], [], [], {}
+        groups = [(normal, direction, accum, snap, stream_mask)]
+        if walled:
+            if alignment is None:
+                raise QgsProcessingException(
+                    "The package has sag-point crossings: give the road alignment so they can be "
+                    "recomputed with the embankment as a wall.")
+            from ..core.network.coverage import alignment_wall
+            from ..core.conditioning.fill import fill_depressions
+            from ..core.flow.direction import d8_direction
+            from ..core.flow.accumulation import flow_accumulation
+            fz, _, _ = fill_depressions(np.nan_to_num(elevation, nan=0.0), raw_valid & valid,
+                                        cell_width=info.cell_width, cell_height=info.cell_height)
+            wall = alignment_wall(alignment, fz.shape, info.geotransform,
+                                  gaps=[(o.get("outlet_x") or o["x"], o.get("outlet_y") or o["y"])
+                                        for o in normal])
+            zw = np.where(wall, fz + 1000.0, fz)
+            wdir, _ = d8_direction(zw, valid & raw_valid, info.cell_width, info.cell_height,
+                                   resolve_flats=True, flat_method="barnes")
+            wacc, _ = flow_accumulation(wdir, valid & raw_valid)
+            groups.append((walled, wdir, wacc, 0, None))
+        for members, dgrid, agrid, snp, smask in groups:
+            if not members:
+                continue
+            try:
+                c1, a1, f1, iss, info_ = build_exchange_records(
+                    dgrid, valid, agrid, elevation, info.geotransform, members,
+                    snap_radius_cells=snp, stream_mask=smask, local=local,
+                    stream_order=stream_order, id_scheme="attribute", id_prefix="",
+                    progress=self.make_progress(feedback, weight=0.9))
+            except ExchangeError as e:
+                raise QgsProcessingException(str(e))
+            by_fid = {o["fid"]: o for o in members}
+            for lst in (c1, a1, f1):
+                for _, a in lst:
+                    o = by_fid.get(a.get("outlet_id"), {})
+                    a["status"] = o.get("status") or "existing"
+                    a["proposed_reason"] = o.get("reason")
+            cr += c1; ca += a1; fp += f1; issues += iss; id_info = info_
+        id_info = dict(id_info, id_scheme="sequential", id_prefix=prefix, id_order=order)
+        key = lambda t: (t[1].get("status") == "proposed", t[1]["outlet_uid"])
+        cr.sort(key=key); ca.sort(key=key); fp.sort(key=key)
         for m in issues:
             feedback.pushWarning(m)
 

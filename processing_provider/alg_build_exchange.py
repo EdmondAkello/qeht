@@ -104,6 +104,14 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "fair/good/poor; replace it with your own lookup CSV), averaged over the "
             "catchment (cn_ii) and exported at the chosen AMC (cn_export). Rational C needs "
             "your lookup CSV - none ships. Land-cover shares lc_pct_* are always given.\n\n"
+            "<b>Coverage check (with a road alignment):</b> every place a stream of at least "
+            "the stream-threshold area crosses the road with no crossing within 50 m becomes "
+            "a PROPOSED crossing (status = proposed, IDs P001...), delineated and "
+            "characterised like the others; low points of the ground profile (sags) with "
+            "enough local area against the embankment become proposed crossings too; flat "
+            "stretches where relief culverts for sheet flow may be needed are listed. "
+            "Layers coverage_check, sag_points, flat_stretches. Adopt, move or delete the "
+            "proposed crossings, then run 'Renumber and relink'.\n\n"
             "<b>Soils (optional), from any source:</b> soil map polygons (with the SOTWIS / "
             "SOTER SQLite database, a CSV table, SOTWIS or plain sand/silt/clay/oc fields, "
             "or your own field names under the advanced parameters); a soil unit raster "
@@ -158,6 +166,25 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         self.addParameter(QgsProcessingParameterString(
             FLAT_METHOD, "Flat resolution used for flow direction (recorded, e.g. 'barnes')",
             optional=True))
+        self.addParameter(QgsProcessingParameterBoolean(
+            "COVERAGE", "Coverage check with a road alignment: missing crossings, sags and flat "
+            "stretches; delineate proposed crossings", defaultValue=True))
+        for key, label, default in (
+                ("COV_MIN_AREA", "Coverage: smallest stream area to need a crossing (km2; 0 = stream threshold)", 0.0),
+                ("COV_SEARCH", "Coverage: an existing crossing within this chainage covers a stream (m)", 50.0),
+                ("COV_MERGE", "Coverage: merge stream stations within (m)", 30.0),
+                ("COV_SMALL", "Coverage: flag existing crossings smaller than (km2)", 0.01),
+                ("SAG_SMOOTH", "Sags: smoothing window along the profile (m)", 30.0),
+                ("SAG_DEPTH", "Sags: minimum depth (m)", 0.3),
+                ("SAG_MIN_AREA", "Sags: area that makes a sag a proposed crossing (km2)", 0.05),
+                ("FLAT_SLOPE", "Flat stretches: slope below (%)", 0.5),
+                ("FLAT_CROSSFALL", "Flat stretches: cross-fall measured over (m)", 100.0),
+                ("FLAT_MIN_LEN", "Flat stretches: minimum length (m)", 300.0)):
+            self.addParameter(self._advanced(QgsProcessingParameterNumber(
+                key, label, QgsProcessingParameterNumber.Type.Double, defaultValue=default,
+                minValue=0.0)))
+        self.addParameter(self._advanced(QgsProcessingParameterString(
+            "PROPOSED_PREFIX", "Prefix for proposed crossings", defaultValue="P", optional=True)))
         self.addParameter(QgsProcessingParameterNumber(
             "CH_SLOPE_DIST", "Approach / exit channel length for the crossing channel slopes (m)",
             QgsProcessingParameterNumber.Type.Double, defaultValue=200.0, minValue=1.0))
@@ -359,6 +386,70 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         for msg in issues:
             feedback.pushWarning(msg)
 
+        # -- drainage coverage check: missing crossings, sags, flat stretches (A2/A3)
+        coverage_md, n_proposed = "", 0
+        if alignment is not None and self.parameterAsBool(parameters, "COVERAGE", context):
+            from ..core.network.coverage import run_coverage, COVERAGE_FIELDS, SAG_FIELDS, FLAT_FIELDS
+            from ..core.interop.field_dictionary import OPTIONAL_LAYERS
+            import json as _json
+            fill_for_wall = filled
+            if fill_for_wall is None:
+                from ..core.conditioning.fill import fill_depressions
+                feedback.pushInfo("Coverage check: no filled DEM given - filling the raw DEM for the "
+                                  "sag areas.")
+                fz, _, _ = fill_depressions(np.nan_to_num(elevation, nan=0.0), raw_valid & valid,
+                                            cell_width=info.cell_width, cell_height=info.cell_height)
+                fill_for_wall = np.where(raw_valid, fz, np.nan)
+            cp = {k: self.parameterAsDouble(parameters, key, context) for k, key in (
+                ("merge_m", "COV_MERGE"), ("search_m", "COV_SEARCH"), ("small_area_km2", "COV_SMALL"),
+                ("sag_smooth_m", "SAG_SMOOTH"), ("sag_min_depth_m", "SAG_DEPTH"),
+                ("sag_min_area_km2", "SAG_MIN_AREA"), ("flat_slope_pct", "FLAT_SLOPE"),
+                ("crossfall_m", "FLAT_CROSSFALL"), ("flat_min_len_m", "FLAT_MIN_LEN"))
+                if key in parameters}
+            min_a = self.parameterAsDouble(parameters, "COV_MIN_AREA", context) \
+                if "COV_MIN_AREA" in parameters else 0.0
+            pprefix = (self.parameterAsString(parameters, "PROPOSED_PREFIX", context) or "P").strip() \
+                if "PROPOSED_PREFIX" in parameters else "P"
+            try:
+                cov = run_coverage(
+                    direction, valid, accum, elevation, fill_for_wall, info.geotransform, alignment,
+                    prof, crossings,
+                    build_kwargs=dict(local=False, stream_order=stream_order, soil=soil,
+                                      erosion=erosion, runoff=runoff,
+                                      channel_threshold_cells=snap_threshold if snap_threshold > 0 else None,
+                                      sheet_cap_m=sheet_cap,
+                                      channel_slope_m=(self.parameterAsDouble(parameters, "CH_SLOPE_DIST", context)
+                                                       if "CH_SLOPE_DIST" in parameters else 200.0)),
+                    min_area_km2=min_a if min_a > 0 else None, proposed_prefix=pprefix,
+                    stream_threshold_cells=snap_threshold if snap_threshold > 0 else 200.0, **cp)
+            except ExchangeError as e:
+                raise QgsProcessingException(str(e))
+            for msg in cov["issues"]:
+                feedback.pushWarning(msg)
+            crossings += cov["crossings"]; catchments += cov["catchments"]; flowpaths += cov["flowpaths"]
+            n_proposed = len(cov["crossings"])
+            extra_layers.append(("coverage_check", "POINT", COVERAGE_FIELDS, cov["coverage"],
+                                 OPTIONAL_LAYERS["coverage_check"][2]))
+            extra_layers.append(("sag_points", "POINT", SAG_FIELDS,
+                                 [((s_["x"], s_["y"]), s_) for s_ in cov["sags"]],
+                                 OPTIONAL_LAYERS["sag_points"][2]))
+            flines = []
+            for f_ in cov["flats"]:
+                cs_ = [f_["chainage_m"]] + [r["chainage_m"] for r in prof
+                                            if f_["chainage_m"] < r["chainage_m"] < f_["chainage_to_m"]] \
+                    + [f_["chainage_to_m"]]
+                flines.append(([alignment.point_at(c_) for c_ in cs_], f_))
+            extra_layers.append(("flat_stretches", "LINESTRING", FLAT_FIELDS, flines,
+                                 OPTIONAL_LAYERS["flat_stretches"][2]))
+            coverage_md = _json.dumps(dict(cp, min_area_km2=min_a or "stream threshold",
+                                           proposed_prefix=pprefix), sort_keys=True)
+            feedback.pushInfo(
+                f"Coverage check: {cov['n_missing']} stream crossing(s) without a culvert, "
+                f"{len(cov['sags'])} sag point(s), {len(cov['flats'])} flat stretch(es); "
+                f"{n_proposed} proposed crossing(s) delineated ({pprefix}001...).")
+            for _, a in cov["coverage"]:
+                feedback.pushInfo(f"  ch {a['chainage_m']:,.0f}: {a['issue']} - {a['note']}")
+
         from ..core.raster import raster_tags
         tags_fdr = raster_tags(fdr_path)
         tags_fill = raster_tags(self.raster_path(parameters, "FILLED", context)) \
@@ -394,6 +485,8 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "soil_hsg_source": soil.info.get("hsg_source", "") if soil else "",
             "soil_k_source": soil.info.get("k_source", "") if soil else "",
             "runoff_json": runoff.meta_json() if runoff is not None else "",
+            "coverage_params_json": coverage_md,
+            "n_proposed": str(n_proposed),
             "crossing_source": ("crossing candidates" if candidate_mode else "pour points"),
             "chainage_start_m": (f"{alignment.start_chainage:g}" if alignment is not None else ""),
             "alignment_source": (self.parameterAsSource(parameters, ROAD, context).sourceName()

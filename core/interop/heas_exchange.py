@@ -251,7 +251,8 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
         label_of = {i: n + 1 for n, i in enumerate(order)}
 
     crossings, catchments, flowpaths = [], [], []
-    link = {"link_method": "pour_point", "link_confidence": 1.0, "link_note": ""}
+    link = {"link_method": "pour_point", "link_confidence": 1.0, "link_note": "",
+            "status": "existing"}
     n = len(snapped)
     for i, s in enumerate(snapped):
         if progress is not None:

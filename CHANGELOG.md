@@ -3,6 +3,26 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.16.0] — unreleased (drainage coverage check, sags, flat stretches, proposed crossings)
+### Added
+- **Drainage coverage check** (A2), in "Build design hydrology package" when a road alignment is given (on by default) and as the standalone tool **Drainage coverage check along a road** (Road drainage).
+  - Every stream at least the stream-threshold area that crosses the centreline with no crossing within 50 m of chainage is reported.
+  - In the package each one becomes a **proposed crossing** (`status = proposed`, `proposed_reason = uncovered_stream`, IDs `P001…` gapless along the chainage). It is delineated and characterised like the existing ones (slopes, soils, CN, erosion …), so a designer can adopt it without another QEHT run.
+  - Existing crossings smaller than 0.01 km² are flagged for review.
+- **Sag points** (A3). Low points of the ground profile (smoothed over 30 m; depth = prominence, at least 0.3 m) with no stream or crossing within 50 m.
+  - The water ponding against the embankment is measured with the centreline as a wall on the filled DEM, open at existing and stream crossings. Only cells where the water stops count, so a river running alongside the road is not taken for ponding.
+  - A sag with at least 0.05 km² becomes a proposed crossing (`proposed_reason = sag_point`), delineated on the walled routing.
+- **Flat stretches** (A3). Runs flatter than 0.5 % along the road and in cross-fall over 100 m, longer than 300 m, listed with the crossings inside them: where relief culverts for sheet flow may be needed. QEHT does not place or size them.
+- **Package additions.** Layers `coverage_check`, `sag_points`, `flat_stretches`. Fields `status`, `proposed_reason`, `nearest_uid`, `nearest_m` on crossings, catchments and flow paths (existing crossings: `status = existing`). Metadata `coverage_params_json`, `n_proposed`. All thresholds are advanced parameters.
+- **Renumber and relink keeps the status.**
+  - Crossings still proposed keep the proposed prefix (gapless P…).
+  - Adopted ones (status set to existing / adopted) join the X sequence.
+  - Sag-point crossings are recomputed with the embankment as a wall.
+- Tests: test_coverage 21 checks (new); smoke 51 (+2; 17 algorithms). Golden fixture regenerated: the four status fields and two metadata keys added, no existing value changed.
+
+### Notes
+- On the Site C corridor (16 km, candidates ≥ 0.5 km²) the check proposes 9 crossings for 0.19–0.50 km² streams and finds 3 profile sags, one ponding 0.044 km² (ch 7,360). The run took 62 s for 5.8 M cells, of which about 20 s is the walled routing.
+
 ## [0.15.1] — unreleased (fixes from the Site C test run)
 ### Fixed
 - **Vector outputs honour the file extension.** Choosing `.shp` (or `.geojson` …) wrote a GeoPackage under that name, which other software could not open. All vector writers now pick the OGR driver from the extension (GeoPackage otherwise) and set fields by index, so 10-character shapefile names work.

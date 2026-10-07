@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.15.1
+# QEHT — QGIS Engineering Hydrology Toolkit v0.16.0
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -61,6 +61,7 @@ The core is importable without QGIS. That is what makes the hydrology testable:
     python -m qeht.tests.test_soils_any   # 18 checks: soils from any source, HSG / K overrides
     python -m qeht.tests.test_runoff      # 17 checks: curve number, AMC, Rational C
     python -m qeht.tests.test_channel     # 16 checks: STI, deposition indicator, channel slopes
+    python -m qeht.tests.test_coverage    # 21 checks: missing crossings, sags, flat stretches, proposed crossings
 
 Run these after any change to the core, and before trusting any output on a
 real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
@@ -85,6 +86,7 @@ real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
 | Erosion indices and RUSLE soil loss | SPI, TWI, LS, RUSLE and severity classes |
 | Sample erosion along alignment | — (erosion stations and reaches along a road) |
 | Alignment ground profile | — (ground, fill, area and stream crossings every 10 m along a road) |
+| Drainage coverage check along a road | — (missing crossings, sag points, flat stretches) |
 
 For Pairwise Intersect, use the built-in `native:intersection` — it is C++ and
 never spawns anything. There is no reason to wrap it.
@@ -374,6 +376,16 @@ in soil loss, the classes or the composite. In the package each crossing gets a
 **deposition indicator**: median SPI on the main channel 0–100 m vs 100–500 m
 upstream; a ratio below 0.7 means transport capacity falls into the inlet
 (deposition-prone), above 1.3 scour-prone.
+
+## v0.16: drainage coverage check
+
+With a road alignment, **Build design hydrology package** checks the road for drainage that has no crossing, from the DEM alone (the standalone **Drainage coverage check along a road** gives the same findings without delineating):
+
+- **Missing crossings** — a stream of at least the stream-threshold area crosses the centreline with no crossing within 50 m. In the package each becomes a **proposed crossing** (`status = proposed`, `P001…`), delineated and characterised like the existing ones.
+- **Sag points** — low points of the ground profile with no stream or crossing nearby. The water ponding against the embankment is measured with the centreline as a wall (open at the crossings). A sag with ≥ 0.05 km² becomes a proposed crossing (equaliser / relief).
+- **Flat stretches** — ≥ 300 m flatter than 0.5 % along and across the road: where relief culverts for sheet flow may be needed. QEHT lists them; it does not place or size reliefs.
+
+Adopt a proposed crossing by setting its `status` to `existing`, delete the ones you don't want, then run **Renumber and relink** — proposed ones keep the P prefix, adopted ones join the X sequence.
 
 ### Data sources by region
 
