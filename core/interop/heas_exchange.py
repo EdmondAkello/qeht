@@ -129,7 +129,7 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
                            id_prefix="X", id_width=3, id_start=1,
                            id_order="downstream", soil=None, erosion=None, progress=None,
                            channel_threshold_cells=None, sheet_cap_m=100.0, runoff=None,
-                           channel_slope_m=200.0):
+                           channel_slope_m=200.0, rainfall=None):
     """Run snap -> id -> catchment -> LFP -> characteristics for every outlet.
 
     Parameters
@@ -169,6 +169,10 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
         path downstream, raw DEM
     runoff : optional core.runoff.curve_number.RunoffInputs; adds the curve
         number / Rational C / land-cover block (F1) to every catchment
+    rainfall : optional core.runoff.rainfall.RainfallInputs; adds the
+        rainfall zone / mean annual rainfall / R-estimate block (F3) to
+        every catchment, and a warning when the dominant zone's share is
+        below the QA threshold
 
     Returns (crossings, catchments, flowpaths, issues, id_info) where the
     first three are lists of (geometry, attributes) ready for the writer
@@ -294,6 +298,12 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
                 chs.update(soil_block(mask, soil[0], soil[2], soil[1], soil[3]))
         if runoff is not None:
             chs.update(runoff.block(mask))
+        if rainfall is not None:
+            rb = rainfall.block(mask)
+            chs.update(rb)
+            qa = rainfall.qa_issue(s["uid"], rb)
+            if qa:
+                issues.append(qa)
         from ..watershed.channel import channel_slopes
         crossings[-1][1].update(channel_slopes(direction, valid, accumulation, elevation,
                                                s["row"], s["col"], cw, ch,

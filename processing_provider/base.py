@@ -682,6 +682,114 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
             feedback.pushWarning(ro.note)
         return ro
 
+    def add_rainfall_parameters(self, with_relation=True):
+        """Rainfall zones, mean annual rainfall and R from rainfall (F3)."""
+        from qgis.core import (QgsProcessingParameterFeatureSource, QgsProcessingParameterField,
+                               QgsProcessingParameterRasterLayer, QgsProcessingParameterString,
+                               QgsProcessingParameterEnum, QgsProcessingParameterNumber,
+                               QgsProcessing)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            "RAIN_ZONES", "Rainfall zones (polygons; optional)",
+            [QgsProcessing.SourceType.TypeVectorPolygon], optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            "RAIN_ZONE_FIELD", "Zone name field", parentLayerParameterName="RAIN_ZONES",
+            optional=True))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            "RAIN_MAP", "Mean annual rainfall raster, mm/yr (optional, e.g. a CHIRPS climatology)",
+            optional=True))
+        self.addParameter(self._advanced(QgsProcessingParameterString(
+            "RAIN_MAP_DATASET", "Rainfall dataset name for the record (e.g. CHIRPS v2.0 1991-2020)",
+            optional=True)))
+        if with_relation:
+            self.addParameter(self._advanced(QgsProcessingParameterEnum(
+                "RAIN_R_RELATION", "RUSLE R from rainfall (an ESTIMATE; prefer an erosivity raster)",
+                options=["none", "Renard & Freimund 1994", "Lo et al. 1985"], defaultValue=0)))
+        self.addParameter(self._advanced(QgsProcessingParameterNumber(
+            "RAIN_ZONE_QA", "Warn when the dominant zone covers less than (%)",
+            QgsProcessingParameterNumber.Type.Double, defaultValue=80.0, minValue=0.0,
+            maxValue=100.0)))
+
+    def load_rainfall(self, parameters, context, info, feedback):
+        """-> core.runoff.rainfall.RainfallInputs or None (no zones and no rainfall raster)."""
+        from qgis.core import (QgsCoordinateReferenceSystem, QgsCoordinateTransform,
+                               QgsProject, QgsRectangle, QgsGeometry)
+        from ..core.runoff.rainfall import RainfallInputs, R_RELATION_KEYS
+        from ..core.raster import warp_to_grid
+        from ..core.geometry.rasterize import rasterize_polygons
+        zone_grid, zone_names, zone_src = None, {}, ""
+        src = self.parameterAsSource(parameters, "RAIN_ZONES", context) \
+            if parameters.get("RAIN_ZONES") else None
+        if src is not None:
+            field = self.field_parameter(parameters, "RAIN_ZONE_FIELD", context) \
+                if parameters.get("RAIN_ZONE_FIELD") else None
+            if not field:
+                raise QgsProcessingException("Rainfall zones: choose the zone name field.")
+            dem_crs = QgsCoordinateReferenceSystem()
+            dem_crs.createFromWkt(info.projection_wkt)
+            tr = None
+            if dem_crs.isValid() and src.sourceCrs() != dem_crs:
+                tr = QgsCoordinateTransform(src.sourceCrs(), dem_crs, QgsProject.instance())
+            gt = info.geotransform
+            ext = QgsRectangle(gt[0], gt[3] + info.rows * gt[5], gt[0] + info.cols * gt[1], gt[3])
+            index_of, polys, unnamed = {}, [], 0
+            for feat in src.getFeatures():
+                g = QgsGeometry(feat.geometry())
+                if g is None or g.isEmpty():
+                    continue
+                if tr is not None:
+                    g.transform(tr)
+                if not g.boundingBox().intersects(ext):
+                    continue
+                v = feat[field]
+                name = "" if v is None or str(v) == "NULL" else str(v).strip()
+                if not name:
+                    unnamed += 1
+                    continue
+                if name not in index_of:
+                    index_of[name] = len(index_of) + 1
+                parts = g.asMultiPolygon() if g.isMultipart() else [g.asPolygon()]
+                for part in parts:
+                    polys.append(([[(p.x(), p.y()) for p in ring] for ring in part],
+                                  index_of[name]))
+            if unnamed:
+                feedback.pushWarning(f"Rainfall zones: {unnamed} polygon(s) without a zone name "
+                                     "ignored.")
+            if not polys:
+                feedback.pushWarning("No rainfall zone polygon overlaps the DEM - zone fields "
+                                     "will be empty.")
+            # polygons are burnt in layer order: where zones overlap, the later one wins
+            zone_grid = rasterize_polygons(polys, gt, (info.rows, info.cols))
+            zone_names = {i: n for n, i in index_of.items()}
+            zone_src = f"{src.sourceName()} field {field}"
+            feedback.pushInfo(f"Rainfall zones: {len(index_of)} zone(s) over the DEM from "
+                              f"{zone_src}")
+        map_grid, map_ds = None, ""
+        if parameters.get("RAIN_MAP") and \
+                self.parameterAsRasterLayer(parameters, "RAIN_MAP", context) is not None:
+            path = self.raster_path(parameters, "RAIN_MAP", context)
+            map_grid, desc = warp_to_grid(path, info, resampling="bilinear")
+            label = self.parameterAsString(parameters, "RAIN_MAP_DATASET", context) \
+                if parameters.get("RAIN_MAP_DATASET") else ""
+            map_ds = f"{label} - {desc}" if label else desc
+        rel = R_RELATION_KEYS[self.parameterAsEnum(parameters, "RAIN_R_RELATION", context)] \
+            if "RAIN_R_RELATION" in parameters else "none"
+        qa = self.parameterAsDouble(parameters, "RAIN_ZONE_QA", context) \
+            if parameters.get("RAIN_ZONE_QA") not in (None, "") else 80.0
+        if zone_grid is None and map_grid is None:
+            if rel != "none":
+                feedback.pushWarning("An R-P relation was chosen but no rainfall raster was "
+                                     "given; no rainfall block.")
+            return None
+        try:
+            rain = RainfallInputs(zone_grid, zone_names, zone_src, map_grid, map_ds, rel, qa)
+        except ValueError as e:
+            raise QgsProcessingException(str(e))
+        for w in rain.warnings:
+            feedback.pushWarning(w)
+        if rain.r_grid is not None:
+            feedback.pushWarning(f"rusle_r is an {rain.r_method}")
+        return rain
+
     @staticmethod
     def qgs_field(name, kind):
         """QgsField for text/int/real that works on QGIS 3.22 and 4."""

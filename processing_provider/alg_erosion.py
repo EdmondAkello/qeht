@@ -63,7 +63,8 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
             "<b>RUSLE</b> A = R K LS C P (t/ha/yr). Each factor is a raster, a single "
             "value or a dataset, in that order of precedence:\n"
             "• R: raster (e.g. GloREDa 2023 annual erosivity, recommended) or value, "
-            "MJ mm/(ha h yr).\n"
+            "MJ mm/(ha h yr); failing both, an ESTIMATE from a mean annual rainfall raster "
+            "(advanced: Renard & Freimund 1994 or Lo et al. 1985), labelled as such.\n"
             "• K: raster, value, or a soil source - SOTWIS, any soil map, a unit raster + "
             "table or SoilGrids (Williams/EPIC K, 0-20 cm by "
             "default), SI units.\n"
@@ -112,6 +113,12 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
             self.addParameter(QgsProcessingParameterNumber(
                 f + "_VALUE", f"{label} single value (used when no raster)",
                 QgsProcessingParameterNumber.Type.Double, optional=True, minValue=0.0))
+        self.addParameter(self._advanced(QgsProcessingParameterRasterLayer(
+            "R_MAP", "Mean annual rainfall raster, mm/yr (R ESTIMATE when no R is given)",
+            optional=True)))
+        self.addParameter(self._advanced(QgsProcessingParameterEnum(
+            "R_RELATION", "R-P relation for the estimate",
+            options=["Renard & Freimund 1994", "Lo et al. 1985"], defaultValue=0)))
         self.add_soil_parameters("SOIL", optional=True)
         self.addParameter(QgsProcessingParameterRasterLayer(
             "WORLDCOVER", "ESA WorldCover 2021 classes (for C, and P if chosen)", optional=True))
@@ -198,6 +205,22 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
 
         # -- factors ---------------------------------------------------------
         R = self._factor(parameters, context, info, "R", "R", feedback)
+        if not R.present and parameters.get("R_MAP") and \
+                self.parameterAsRasterLayer(parameters, "R_MAP", context) is not None:
+            from ..core.runoff.rainfall import r_from_map, r_method_text, check_map
+            pm, pdesc = warp_to_grid(self.raster_path(parameters, "R_MAP", context), info)
+            try:
+                for w in check_map(pm):
+                    feedback.pushWarning(w)
+            except ValueError as e:
+                raise QgsProcessingException(str(e))
+            rel = ("renard_freimund_1994", "lo_1985")[
+                self.parameterAsEnum(parameters, "R_RELATION", context)
+                if "R_RELATION" in parameters else 0]
+            R = Factor("R", grid=r_from_map(pm, rel), source=r_method_text(rel, pdesc),
+                       basis="estimate from rainfall",
+                       note="R-P relation not derived in East Africa; prefer an erosivity raster")
+            feedback.pushWarning(f"R is an {R.source}")
         K = self._factor(parameters, context, info, "K", "K", feedback)
         if not K.present:
             soil = self.load_soil(parameters, context, info, feedback)

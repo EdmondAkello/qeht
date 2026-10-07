@@ -22,7 +22,7 @@ K_RASTER = "K_RASTER"; UNIT_RASTER = "UNIT_RASTER"
 class SoilParametersAlgorithm(QehtAlgorithm):
 
     def name(self): return "soilparameters"
-    def displayName(self): return "Soil and runoff parameters for catchments"
+    def displayName(self): return "Soil, rainfall and runoff parameters for catchments"
     def group(self): return "Soils and erosion"
     def groupId(self): return "soils"
 
@@ -61,6 +61,14 @@ class SoilParametersAlgorithm(QehtAlgorithm):
             "<b>Curve number (optional):</b> add a land-cover raster (ESA WorldCover) "
             "to get cn_ii / cn_export (TR-55 lookup, a proxy - see the package tool help), "
             "land-cover shares and, with your lookup CSV, a Rational C.\n\n"
+            "<b>Rainfall (optional):</b> a rainfall zone polygon layer (e.g. the design "
+            "manual's zones) gives each catchment its dominant zone (rain_zone), that zone's "
+            "share (rain_zone_pct) and every zone's share (rain_zones_json); a warning lists "
+            "catchments whose dominant zone covers less than the QA threshold (default 80 %). "
+            "Ties go to the zone name that sorts first. A mean annual rainfall raster in mm/yr "
+            "gives map_mm. Optionally, rusle_r is estimated per cell from the rainfall with a "
+            "published R-P relation (Renard & Freimund 1994 or Lo et al. 1985) and averaged; "
+            "it is labelled an ESTIMATE - an erosivity raster such as GloREDa is better.\n\n"
             "<i>soil_hsg_proxy</i> is derived from texture and drainage, not measured "
             "infiltration - label it as such in a report.")
 
@@ -71,6 +79,7 @@ class SoilParametersAlgorithm(QehtAlgorithm):
             REF, "Reference grid (the DEM or flow-direction raster used for the catchments)"))
         self.add_soil_parameters("SOIL", optional=True)
         self.add_runoff_parameters()
+        self.add_rainfall_parameters()
         self.addParameter(QgsProcessingParameterFeatureSink(
             OUTPUT, "Catchments with soil parameters", QgsProcessing.SourceType.TypeVectorPolygon))
         self.addParameter(QgsProcessingParameterRasterDestination(
@@ -82,16 +91,22 @@ class SoilParametersAlgorithm(QehtAlgorithm):
         _, _, info = read_dem(self.raster_path(parameters, REF, context))
         soil = self.load_soil(parameters, context, info, feedback, "SOIL")
         runoff = self.load_runoff(parameters, context, info, soil, feedback)
-        if soil is None and runoff is None:
-            raise QgsProcessingException("Give a soil source: polygons, a unit raster + table, "
-                                         "texture rasters / a SoilGrids folder, or an HSG / K raster.")
+        rain = self.load_rainfall(parameters, context, info, feedback)
+        if soil is None and runoff is None and rain is None:
+            raise QgsProcessingException("Give a soil source (polygons, a unit raster + table, "
+                                         "texture rasters / a SoilGrids folder, or an HSG / K "
+                                         "raster), a land-cover raster, rainfall zones or a "
+                                         "rainfall raster.")
         src = self.parameterAsSource(parameters, CATCHMENTS, context)
         fields = QgsFields(src.fields())
         existing = set(fields.names())
         from ..core.runoff.curve_number import RUNOFF_FIELDS
+        from ..core.runoff.rainfall import RAIN_FIELDS, RAIN_TEXT
         out_fields = (list(SOIL_FIELDS) if soil is not None else []) + (
             [(f, "text" if f in ("cn_amc", "cn_lookup_id", "lc_dataset") else "real")
-             for f in RUNOFF_FIELDS] if runoff is not None else [])
+             for f in RUNOFF_FIELDS] if runoff is not None else []) + (
+            [(f, "text" if f in RAIN_TEXT else "real") for f in RAIN_FIELDS]
+            if rain is not None else [])
         for name, kind in out_fields:
             if name not in existing:
                 fields.append(self.qgs_field(name, kind))
@@ -115,6 +130,12 @@ class SoilParametersAlgorithm(QehtAlgorithm):
             block = soil.block(mask) if soil is not None else {}
             if runoff is not None:
                 block.update(runoff.block(mask))
+            if rain is not None:
+                rb = rain.block(mask)
+                block.update(rb)
+                issue = rain.qa_issue(f"feature {feat.id()}", rb)
+                if issue:
+                    feedback.pushWarning(issue)
             out = QgsFeature(fields)
             out.setGeometry(feat.geometry())
             attrs = dict(zip(src.fields().names(), feat.attributes()))

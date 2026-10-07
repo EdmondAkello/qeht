@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.16.0
+**Version:** 0.17.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -59,6 +59,7 @@ qeht/
       catchment.py       per-catchment soil block (field list)
     runoff/
       curve_number.py    curve number (TR-55 x WorldCover proxy, user lookups), AMC, Rational C
+      rainfall.py        rainfall zones, mean annual rainfall, R estimate from rainfall
     geometry/
       rasterize.py       polygons -> grid, cell-centre rule
     erosion/
@@ -77,9 +78,12 @@ qeht/
       field_dictionary.py  the qeht-heas-1 contract (every exchange field)
       gpkg.py            standard-library GeoPackage 1.2 writer/reader
       heas_exchange.py   pipeline, writer, validator, CSV export
+    report/
+      characteristics.py one row per crossing from a package (the characteristics table)
+      run_report.py      HTML run report from a package (nothing recalculated)
 
   processing_provider/   the only QGIS-aware code
-    provider.py          registers the seventeen algorithms
+    provider.py          registers the nineteen algorithms
     base.py              shared base class and helpers (pour points, IDs)
     alg_*.py             one file per algorithm
 
@@ -96,6 +100,8 @@ qeht/
     test_runoff.py       17 checks: CN mosaic, dual groups, AMC, lookups, pipeline
     test_channel.py      16 checks: STI identity, channel slopes, deposition ratio
     test_coverage.py     21 checks: missing crossings, sags, walled sag areas, flat stretches
+    test_rainfall.py     35 checks: zone shares and ties, rainfall mean and units, R relations
+    test_report.py       15 checks: characteristics table, run report
     fixtures/            golden_exchange.gpkg + .json (shared with HEAS)
     qgis_smoke.py        every Processing tool run inside QGIS
 ```
@@ -106,7 +112,7 @@ The dependency direction is strict and one-way: `processing_provider` imports `c
 
 ## 3. Processing algorithms
 
-QEHT registers seventeen algorithms under the "Engineering Hydrology" provider.
+QEHT registers nineteen algorithms under the "Engineering Hydrology" provider.
 
 | Algorithm | Commercial reference analogue |
 |---|---|
@@ -122,11 +128,13 @@ QEHT registers seventeen algorithms under the "Engineering Hydrology" provider.
 | Renumber and relink exchange package | none — gapless re-issue of IDs after edits (Section 5.2) |
 | Road crossing candidates | none — road × drainage crossings (Section 4.11) |
 | Burn crossings through embankments | DEM reconditioning at culverts (Section 4.12) |
-| Soil and runoff parameters for catchments | zonal soil statistics, USLE K, HSG shares, curve number (Sections 4.13, 4.17, 4.18) |
+| Soil, rainfall and runoff parameters for catchments | zonal soil statistics, USLE K, HSG shares, curve number, rainfall (Sections 4.13, 4.17, 4.18, 4.21) |
 | Erosion indices and RUSLE soil loss | terrain indices, RUSLE and severity classes (Section 4.14) |
 | Sample erosion along alignment | none — erosion stations and reaches along a road (Section 4.14) |
 | Alignment ground profile | none — ground, fill, area and stream crossings along a road (Section 4.15) |
 | Drainage coverage check along a road | none — missing crossings, sags, flat stretches (Section 4.20) |
+| Run hydrology pipeline (one click) | none — the whole chain, one output folder, run report (Section 4.22) |
+| Run report from a design hydrology package | none — HTML report and characteristics table (Section 4.22) |
 
 Each is a `QgsProcessingAlgorithm` registered through a `QgsProcessingProvider`. Exposing the tools this way — rather than as bespoke dialogs — means they gain input validation, batch mode, the Graphical Modeler, the history log, and `processing.run()` scriptability at no additional cost. Chaining tools in the Modeler is much of a commercial hydrology extension's practical value, and this design reproduces it.
 
@@ -291,6 +299,25 @@ Per cell, land cover (WorldCover, nearest-neighbour onto the DEM grid) × HSG (4
 
 From the alignment profile (4.15). **Missing crossings:** stations with stream = 1 and area ≥ the minimum (default the stream threshold) merged within 30 m into one point at the largest area; uncovered when no existing crossing lies within 50 m of chainage. The package builds each uncovered point as a proposed crossing (snapped within 2 cells to the stream) with the full pipeline (4.8–4.19), IDs P001… gapless along the chainage, `nearest_uid` / `nearest_m` recorded. **Sags:** local minima of the profile smoothed by a 30 m moving average whose prominence (the lower of the highest smoothed ground on each side before the profile drops below the minimum again) is ≥ 0.3 m, with no stream station or crossing within 50 m. On the filled DEM the centreline cells are raised 1,000 m (diagonal gaps closed; wall removed within one cell of existing and stream crossings) and D8 is computed without refilling; the sag area on each side is the largest accumulation among pit cells (no receiver) within two cells of a point 1.5 cells off the centreline. Sags of ≥ 0.05 km² become proposed crossings delineated on that walled routing. **Flat stretches:** runs of stations with |longitudinal slope| and the steeper cross-fall over 100 m both below 0.5 %, boundaries half-way between stations, ≥ 300 m long.
 
+### 4.21 Rainfall zone, mean annual rainfall and R estimate (v0.17)
+
+**Zones.** The zone polygons are rasterised on the DEM grid by the cell-centre rule (as the soil map; where polygons overlap the later one wins), polygons with the same name forming one zone. Per catchment, each zone's share is its cell count over the cells covered by any zone; `rain_zone` is the largest, ties going to the name that sorts first (case-insensitive), so the result does not depend on the order of the layer. `rain_zone_coverage_pct` is the covered share of the catchment.
+
+**Mean annual rainfall.** Resampled bilinearly to the DEM grid; `map_mm` is the mean over cells with data. A raster whose 99.5th percentile is below 20 mm/yr (mm/day or a monthly mean), above 13,000 mm/yr (tenths of mm or a NoData problem) or with negative values is refused; below 100 mm/yr gives a warning.
+
+**R estimate.** Per cell from the rainfall P (mm/yr), then the catchment mean (R is not linear in P, so this differs from R of the mean P):
+
+- Renard & Freimund (1994): R = 0.0483 P^1.61 for P ≤ 850 mm, R = 587.8 − 1.219 P + 0.004105 P² above (the branches meet within 0.2 % at 850 mm);
+- Lo et al. (1985): R = 38.46 + 3.48 P;
+
+in MJ mm ha⁻¹ h⁻¹ yr⁻¹. Neither was derived in East Africa. The value is labelled an estimate in `rusle_r_method`, `rainfall_json` and, when the erosion tool uses it, the factor basis "estimate from rainfall".
+
+### 4.22 One-click pipeline and run report (v0.17)
+
+The pipeline runs the standalone tools as child algorithms with the parameters below, so it introduces no numerical code of its own: Fill (min slope 0) → D8 (chosen flat method) → accumulation → streams (threshold = km² ÷ cell area, rounded) → crossing candidates (with a road and no crossing layer) → Burn crossings and the four routing steps again on the burned DEM (when asked) → stream polylines → Erosion indices (channel threshold = stream threshold; R from the R raster, else the value, else the rainfall estimate) → Build design hydrology package (snap 5 cells to the stream threshold for pour points; candidates keep their outlets; road, coverage check, soils, CN, rainfall, erosion folder and burn log passed through). After the package, the flat-method sensitivity (4.4, v0.13.1) is computed at every crossing outlet on the filled DEM. The package layers are copied to `layers/` with in-process GDAL `VectorTranslate`, the tables to `tables/`, and the characteristics table and report are built from the package.
+
+The **characteristics table** joins crossings, catchments and flow paths on `outlet_uid` (core columns always; groups for flow-path segments, channel slopes, flat check, soils, CN, rainfall, shape and erosion when at least one crossing has a value) and orders rows by chainage when present. The **run report** reads `qeht_run_metadata` and the layers only. Both are pure Python (`core/report`).
+
 ---
 
 ## 5. Data handling and interoperability
@@ -308,6 +335,7 @@ From the alignment profile (4.15). **Missing crossings:** stations with stream =
 - **CRS.** A projected, metric CRS is required; a geographic DEM is refused before any computation.
 - **Values.** Missing values are NULL, never 0. `acc_at_outlet_km2` is read from the accumulation raster ((accumulation + 1) × cell area) and equals `area_km2` for full catchments — a built-in QA check.
 - **Renumber and relink (5.2).** After crossings are deleted, moved or added in a package, "Renumber and relink exchange package" writes a new package: unmoved crossings keep their outlet cell, moved/added ones are snapped; crossings are ordered by chainage (recomputed from the road for moved/added points) or downstream-first; IDs are re-issued gaplessly with the package's prefix; catchments and flow paths are recomputed; `renumber_log` lists old → new (`unchanged`, `renumbered`, `new`, `deleted`, and `moved_m`). IDs are only re-issued when this tool is run.
+- **v0.17 additions (additive).** Catchments: `rain_zone`, `rain_zone_pct`, `rain_zones_json`, `rain_zone_coverage_pct`, `map_mm`, `map_coverage_pct`, `map_dataset`, `rusle_r`, `rusle_r_method`. Metadata: `rainfall_json`. The golden fixture was regenerated after `golden_diff` showed no existing value changed.
 - **Evolution.** New fields may be added under `qeht-heas-1`; renaming or removing a field requires `qeht-heas-2`. The validator (also used by the tool after writing) rejects unknown major versions and checks that every catchment and flow path refers to an existing crossing.
 - **Erosion block (v0.14).** With an erosion folder, catchments carry `ero_*` soil loss, LS, ln(SPI), K/C/P, class shares, SDR and sediment fields and crossings carry `ero_*` ln(SPI), local terrain, class and impact fields; `erosion_json` in the metadata records the mode, factor sources and proxy flags, schemes, weights and SDR model. Additive under `qeht-heas-1`.
 - **Burn log (v0.14).** Give the breach log from "Burn crossings through embankments" and the package stores it as layer `burn_log`; `conditioning` appends a summary (breaches cut, volume) to the user-declared text and `conditioning_burn` holds it on its own.

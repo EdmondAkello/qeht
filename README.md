@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.16.0
+# QEHT — QGIS Engineering Hydrology Toolkit v0.17.0
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -62,6 +62,8 @@ The core is importable without QGIS. That is what makes the hydrology testable:
     python -m qeht.tests.test_runoff      # 17 checks: curve number, AMC, Rational C
     python -m qeht.tests.test_channel     # 16 checks: STI, deposition indicator, channel slopes
     python -m qeht.tests.test_coverage    # 21 checks: missing crossings, sags, flat stretches, proposed crossings
+    python -m qeht.tests.test_rainfall    # 35 checks: rainfall zones, mean annual rainfall, R estimate
+    python -m qeht.tests.test_report      # 15 checks: characteristics table, run report
 
 Run these after any change to the core, and before trusting any output on a
 real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
@@ -82,11 +84,13 @@ real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
 | Renumber and relink exchange package | — (re-issue IDs after editing crossings) |
 | Road crossing candidates | — (road × drainage crossings with chainage, clustering) |
 | Burn crossings through embankments | a DEM-reconditioning "burn culverts" step |
-| Soil and runoff parameters for catchments | zonal soil statistics, USLE K, HSG shares, curve number |
+| Soil, rainfall and runoff parameters for catchments | zonal soil statistics, USLE K, HSG shares, curve number, rainfall zone, mean annual rainfall |
 | Erosion indices and RUSLE soil loss | SPI, TWI, LS, RUSLE and severity classes |
 | Sample erosion along alignment | — (erosion stations and reaches along a road) |
 | Alignment ground profile | — (ground, fill, area and stream crossings every 10 m along a road) |
 | Drainage coverage check along a road | — (missing crossings, sag points, flat stretches) |
+| Run hydrology pipeline (one click) | — (the whole chain into one output folder, with a run report) |
+| Run report from a design hydrology package | — (HTML report and characteristics table for any package) |
 
 For Pairwise Intersect, use the built-in `native:intersection` — it is C++ and
 never spawns anything. There is no reason to wrap it.
@@ -245,7 +249,7 @@ new fields only; no existing value changed).
 
 ## Soils (v0.11)
 
-**Soil and runoff parameters for catchments** (and the optional soil input on
+**Soil, rainfall and runoff parameters for catchments** (and the optional soil input on
 Build design hydrology package) adds a soil block to every catchment: area-weighted topsoil
 sand, silt, clay, organic carbon, coarse fragments and bulk density; USDA
 texture; dominant FAO drainage class; **USLE K** (Williams/EPIC, SI units
@@ -386,6 +390,33 @@ With a road alignment, **Build design hydrology package** checks the road for dr
 - **Flat stretches** — ≥ 300 m flatter than 0.5 % along and across the road: where relief culverts for sheet flow may be needed. QEHT lists them; it does not place or size reliefs.
 
 Adopt a proposed crossing by setting its `status` to `existing`, delete the ones you don't want, then run **Renumber and relink** — proposed ones keep the P prefix, adopted ones join the X sequence.
+
+## v0.17: one-click pipeline, run report, rainfall
+
+**Run hydrology pipeline (one click)** (group Workflow) runs the whole chain and writes one folder:
+
+| Folder | Contents |
+|---|---|
+| `layers/` | crossings, catchments, flow paths, streams, crossing candidates, coverage findings, sags, flat stretches, alignment profile (GeoPackage each) |
+| `rasters/` | filled DEM, flow direction, accumulation, streams, Strahler order, `erosion/` |
+| `tables/` | `catchment_characteristics.csv` (one row per crossing: chainage, area, the four slopes, flow-path segments, channel slopes, flat-method check, soils, CN, rainfall, shape, erosion) and one CSV per layer |
+| `report/` | `run_report.html`: summary, schematic plan, crossing schedule, DEM checks, flat-method check, coverage findings, inputs and provenance, warnings, CN lookup |
+| `package/` | `design_hydrology.gpkg`, only when *Keep the design hydrology package* is ticked |
+| `settings.json` | every parameter of the run |
+
+Steps: DEM checks → fill → D8 (Barnes) → accumulation → streams → candidates (with a road) → optional burn and second routing → erosion → crossings, catchments, flow paths with every optional block → coverage check → flat-method check → tables and report. Each step is the standalone tool, run as a child algorithm, so results are identical to running the tools one by one (the smoke test checks this).
+
+- **Review stop.** *Run = Stop after crossing candidates* writes the candidates and stops. Edit `layers/crossing_candidates.gpkg` (status accepted / rejected, move or add points), then run again with *Re-run from settings* = the run's `settings.json`, *Crossings* = the edited layer and *Run = Full run*.
+- **Re-run from settings.** Every parameter comes from the file; a new output folder, Crossings and Run override.
+- **Undeclared NoData.** *Treat this DEM value as NoData* writes `rasters/dem_input.tif` with the value declared, and every step uses it.
+
+**Run report from a design hydrology package** writes the same report (and the characteristics CSV) for any package, e.g. one built by hand or relinked.
+
+**Rainfall (F3)**, in *Soil, rainfall and runoff parameters*, the package and the pipeline:
+
+- **Zones:** a polygon layer and its name field. Per catchment `rain_zone` (largest share; ties go to the name that sorts first), `rain_zone_pct`, `rain_zones_json` (every zone's share) and `rain_zone_coverage_pct`. A warning lists catchments whose zone covers less than 80 %: pick their design zone by hand.
+- **Mean annual rainfall:** a raster in mm/yr (e.g. a CHIRPS climatology), bilinear to the DEM grid: `map_mm`, `map_coverage_pct`, `map_dataset`. Values that cannot be annual mm (mm/day, tenths of mm, negative) are refused.
+- **R estimate (optional):** `rusle_r` per cell from the rainfall with Renard & Freimund (1994) or Lo et al. (1985), then the catchment mean, labelled an ESTIMATE in `rusle_r_method` and the metadata. Neither relation comes from East Africa; an erosivity raster such as GloREDa is better. The erosion tool can use the same estimate when no R raster or value is given.
 
 ### Data sources by region
 

@@ -32,6 +32,8 @@ from .alg_erosion import ErosionIndicesAlgorithm
 from .alg_erosion_corridor import ErosionCorridorAlgorithm
 from .alg_alignment_profile import AlignmentProfileAlgorithm
 from .alg_coverage import DrainageCoverageAlgorithm
+from .alg_pipeline import HydrologyPipelineAlgorithm
+from .alg_run_report import RunReportAlgorithm
 
 
 class QehtProvider(QgsProcessingProvider):
@@ -55,6 +57,8 @@ class QehtProvider(QgsProcessingProvider):
             ErosionCorridorAlgorithm(),
             AlignmentProfileAlgorithm(),
             DrainageCoverageAlgorithm(),
+            HydrologyPipelineAlgorithm(),
+            RunReportAlgorithm(),
         ):
             self.addAlgorithm(alg)
 

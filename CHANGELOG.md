@@ -3,6 +3,22 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.17.0] — unreleased (one-click pipeline, run report, rainfall)
+### Added
+- **Run hydrology pipeline (one click)** (F7, group Workflow). Runs DEM checks → fill → D8 → accumulation → streams → crossing candidates → (burn + second routing) → erosion → package → coverage check → flat-method check, each step as the standalone tool (child algorithm). Fixed output folder `layers/`, `rasters/`, `tables/`, `report/`, `settings.json`; the design hydrology package is kept only when asked (`package/`).
+  - Review stop after the candidates (D3), resumed with the edited layer as *Crossings*.
+  - *Re-run from settings*: every parameter from `settings.json`; output folder, Crossings and Run override.
+  - *Treat this DEM value as NoData*: a declared-NoData copy (`rasters/dem_input.tif`) used by every step.
+  - Main layers loaded into a group when finished.
+- **Catchment characteristics table** (§0): `tables/catchment_characteristics.csv`, one row per crossing joined on `outlet_uid` (crossings, catchments, flow paths, flat-method check), ordered by chainage; optional groups only when filled.
+- **Run report** (F8): `report/run_report.html` from the package only (nothing recalculated): summary cards, schematic plan (catchments, flow paths, road, crossings, sags; scale bar, north arrow), crossing schedule, DEM checks, flat-method check (flagged crossings), coverage findings, inputs and provenance with PROXY / ESTIMATE labels, warnings, CN lookup, output files. Standalone tool **Run report from a design hydrology package** (also writes the characteristics CSV).
+- **Rainfall zone and mean annual rainfall per catchment** (F3) in *Soil, rainfall and runoff parameters for catchments* (renamed; id `soilparameters` unchanged), the package and the pipeline: `rain_zone`, `rain_zone_pct`, `rain_zones_json`, `rain_zone_coverage_pct`, `map_mm`, `map_coverage_pct`, `map_dataset`, `rusle_r`, `rusle_r_method`; metadata `rainfall_json`. Zone QA warning below 80 % (editable). Rainfall rasters are range-checked (mm/day, tenths of mm and negative values refused).
+- **R estimate from rainfall**: Renard & Freimund (1994) or Lo et al. (1985), per cell then averaged, labelled ESTIMATE. Also in *Erosion indices and RUSLE* as a fallback when no R raster or value is given (factor basis "estimate from rainfall").
+- Tests: test_rainfall 35 checks and test_report 15 (new); smoke 60 (+9; 19 algorithms). Golden fixture regenerated: nine catchment fields and `rainfall_json` added, no existing value changed (golden_diff).
+
+### Fixed
+- The package read the burn log with the geometry-validity filter, so a breach skipped at NoData (logged as a zero-length line) stopped the run. The log is now read as written.
+
 ## [0.16.0] — unreleased (drainage coverage check, sags, flat stretches, proposed crossings)
 ### Added
 - **Drainage coverage check** (A2), in "Build design hydrology package" when a road alignment is given (on by default) and as the standalone tool **Drainage coverage check along a road** (Road drainage).

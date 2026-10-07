@@ -104,6 +104,11 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "fair/good/poor; replace it with your own lookup CSV), averaged over the "
             "catchment (cn_ii) and exported at the chosen AMC (cn_export). Rational C needs "
             "your lookup CSV - none ships. Land-cover shares lc_pct_* are always given.\n\n"
+            "<b>Rainfall (optional):</b> rainfall zone polygons give each catchment its "
+            "dominant zone (rain_zone, rain_zone_pct, all shares in rain_zones_json; a "
+            "warning when the dominant zone covers less than 80 %); a mean annual rainfall "
+            "raster (mm/yr) gives map_mm; optionally rusle_r is ESTIMATED from it with a "
+            "published R-P relation (Renard & Freimund 1994 or Lo et al. 1985).\n\n"
             "<b>Coverage check (with a road alignment):</b> every place a stream of at least "
             "the stream-threshold area crosses the road with no crossing within 50 m becomes "
             "a PROPOSED crossing (status = proposed, IDs P001...), delineated and "
@@ -199,6 +204,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             QgsProcessingParameterNumber.Type.Double, defaultValue=10.0, minValue=0.5))
         self.add_soil_parameters("SOIL", optional=True)
         self.add_runoff_parameters()
+        self.add_rainfall_parameters()
         from qgis.core import QgsProcessingParameterFeatureSource as _FS, QgsProcessing as _QP
         self.addParameter(_FS(
             "BURN_LOG", "Breach log from 'Burn crossings through embankments' (optional; "
@@ -287,7 +293,15 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                 if dcrs.isValid() and burn_src.sourceCrs() != dcrs else None
             names = burn_src.fields().names()
             brows = []
-            for f in burn_src.getFeatures():
+            try:                                   # QGIS >= 3.36
+                from qgis.core import Qgis as _Q
+                _skip = _Q.ProcessingFeatureSourceFlag.SkipGeometryValidityChecks
+            except AttributeError:
+                from qgis.core import QgsProcessingFeatureSource as _PFS
+                _skip = _PFS.Flag.FlagSkipGeometryValidityChecks
+            from qgis.core import QgsFeatureRequest as _FR
+            # skipped breaches are logged as zero-length lines: keep them (audit record)
+            for f in burn_src.getFeatures(_FR(), _skip):
                 g = f.geometry()
                 if g is None or g.isEmpty():
                     continue
@@ -360,6 +374,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                           f"IDs {'from ' + id_field if id_field else 'sequential ' + (prefix or '') + '001...'}")
         soil = self.load_soil(parameters, context, info, feedback, "SOIL")
         runoff = self.load_runoff(parameters, context, info, soil, feedback)
+        rainfall = self.load_rainfall(parameters, context, info, feedback)
         erosion, erosion_run = None, None
         ero_folder = self.parameterAsFile(parameters, "EROSION", context) if "EROSION" in parameters else ""
         if ero_folder:
@@ -378,7 +393,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                 id_prefix=prefix, id_order=order, soil=soil, erosion=erosion,
                 progress=self.make_progress(feedback, weight=0.9),
                 channel_threshold_cells=snap_threshold if snap_threshold > 0 else None,
-                sheet_cap_m=sheet_cap, runoff=runoff,
+                sheet_cap_m=sheet_cap, runoff=runoff, rainfall=rainfall,
                 channel_slope_m=(self.parameterAsDouble(parameters, "CH_SLOPE_DIST", context)
                                  if "CH_SLOPE_DIST" in parameters else 200.0))
         except ExchangeError as e:
@@ -415,7 +430,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                     direction, valid, accum, elevation, fill_for_wall, info.geotransform, alignment,
                     prof, crossings,
                     build_kwargs=dict(local=False, stream_order=stream_order, soil=soil,
-                                      erosion=erosion, runoff=runoff,
+                                      erosion=erosion, runoff=runoff, rainfall=rainfall,
                                       channel_threshold_cells=snap_threshold if snap_threshold > 0 else None,
                                       sheet_cap_m=sheet_cap,
                                       channel_slope_m=(self.parameterAsDouble(parameters, "CH_SLOPE_DIST", context)
@@ -485,6 +500,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "soil_hsg_source": soil.info.get("hsg_source", "") if soil else "",
             "soil_k_source": soil.info.get("k_source", "") if soil else "",
             "runoff_json": runoff.meta_json() if runoff is not None else "",
+            "rainfall_json": rainfall.meta_json() if rainfall is not None else "",
             "coverage_params_json": coverage_md,
             "n_proposed": str(n_proposed),
             "crossing_source": ("crossing candidates" if candidate_mode else "pour points"),

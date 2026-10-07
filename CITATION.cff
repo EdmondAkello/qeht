@@ -9,7 +9,7 @@ abstract: >-
 authors:
   - family-names: "Akello"
     given-names: "Edmond"
-version: 0.16.0
+version: 0.17.0
 license: GPL-2.0-or-later
 type: software
 keywords:

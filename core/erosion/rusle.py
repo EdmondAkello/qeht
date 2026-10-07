@@ -51,8 +51,10 @@ WORLDCOVER_NAMES = {10: "Tree cover", 20: "Shrubland", 30: "Grassland", 40: "Cro
 class Factor(object):
     """One RUSLE factor on the DEM grid with its provenance."""
 
-    def __init__(self, name, grid=None, value=None, source="", proxy=False, note=""):
+    def __init__(self, name, grid=None, value=None, source="", proxy=False, note="",
+                 basis=None):
         self.name = name
+        self.basis = basis
         self.grid = None if grid is None else np.asarray(grid, dtype=np.float64)
         self.value = None if value is None else float(value)
         self.source = source or ("single value" if value is not None else "")
@@ -71,7 +73,7 @@ class Factor(object):
     def describe(self):
         kind = "raster" if self.grid is not None else ("value" if self.value is not None else "missing")
         d = {"factor": self.name, "kind": kind, "source": self.source,
-             "basis": ("class proxy" if self.proxy else "user value" if kind == "value"
+             "basis": self.basis or ("class proxy" if self.proxy else "user value" if kind == "value"
                        else "raster as supplied" if self.present else "missing")}
         if self.value is not None:
             d["value"] = self.value

@@ -232,6 +232,25 @@ CATCHMENTS = [
      "provenance"),
     ("lc_dataset", "text", "-", "land-cover dataset", "", "provenance"),
 ] + [
+    # rainfall zone and mean annual rainfall (v0.17, F3) - empty without rainfall inputs
+    ("rain_zone", "text", "-", "rainfall zone with the largest share of the catchment",
+     "zone polygons rasterised on the DEM grid (cell centre); ties -> name sorting first",
+     "rainfall zone"),
+    ("rain_zone_pct", "real", "%", "share of the catchment in rain_zone",
+     "of cells covered by a zone; a warning below the QA threshold (default 80 %)",
+     "rainfall zone"),
+    ("rain_zones_json", "text", "-", "share of every zone, % (JSON)", "", "provenance"),
+    ("rain_zone_coverage_pct", "real", "%", "share of the catchment covered by a zone", "",
+     "QA"),
+    ("map_mm", "real", "mm/yr", "mean annual rainfall over the catchment",
+     "raster resampled bilinear to the DEM grid, mean of cells with data", "rainfall"),
+    ("map_coverage_pct", "real", "%", "share of the catchment with rainfall data", "", "QA"),
+    ("map_dataset", "text", "-", "rainfall dataset", "", "provenance"),
+    ("rusle_r", "real", "MJ mm/(ha h yr)", "RUSLE R ESTIMATED from mean annual rainfall",
+     "per cell from a published R-P relation, then the mean (see rusle_r_method); an "
+     "erosivity raster is preferable", "erosion"),
+    ("rusle_r_method", "text", "-", "R-P relation used for rusle_r", "", "erosion provenance"),
+] + [
     # erosion block (v0.14, WP-F) - empty when no erosion inputs were supplied
     ("ero_mode", "text", "-", "RUSLE, or LS-only when R, K or C was not supplied",
      "no factor is ever invented", "erosion provenance"),
@@ -435,6 +454,8 @@ METADATA_KEYS = [
     ("runoff_json", "curve number / Rational C inputs: land-cover dataset, condition, AMC, "
      "proxy flag and the full lookups (empty = no runoff block)"),
     ("soil_k_source", "source of K in the soil block (direct K or Williams/EPIC)"),
+    ("rainfall_json", "rainfall inputs: zone layer and field, zones, tie rule, QA threshold, "
+     "rainfall dataset, R-P relation and estimate flag (empty = no rainfall block)"),
     ("conditioning_burn", "summary of the breach log when one was supplied (layer burn_log)"),
     ("erosion_json", "erosion inputs: mode, factor provenance (source, proxy flags), LS method, "
      "class schemes, MCDMA weights, SDR model (empty = no erosion block)"),
@@ -482,6 +503,8 @@ DOWNSTREAM_USE = {
     "CN": "SCS curve number (when the engineer accepts it)",
     "runoff coefficient": "Rational method runoff coefficient",
     "land cover": "land-cover share for the report and CN / C checks",
+    "rainfall zone": "design rainfall zone of the catchment (zone-based storm methods)",
+    "rainfall": "mean annual rainfall for the report and erosivity checks",
     "crossing status": "existing vs proposed crossing (adopt or delete proposed ones)",
     "coverage QA": "missing culverts, sags and flat stretches along the road",
     "relief / equaliser": "relief culvert / equaliser at a low point (designed downstream)",

@@ -63,9 +63,10 @@ def main(in_qgis=False):
         reg.addProvider(QehtProvider())
     algs = sorted(a.id() for a in reg.providerById("qeht").algorithms())
     print("QEHT algorithms:", ", ".join(algs))
-    check("provider loads with 17 algorithms incl. exchange, crossings, burn, relink, soils, "
-          "erosion, alignment profile",
-          len(algs) == 17 and all(a in algs for a in ("qeht:alignmentprofile", "qeht:drainagecoverage",
+    check("provider loads with 19 algorithms incl. exchange, crossings, burn, relink, soils, "
+          "erosion, alignment profile, pipeline, run report",
+          len(algs) == 19 and all(a in algs for a in ("qeht:alignmentprofile", "qeht:drainagecoverage",
+              "qeht:hydrologypipeline", "qeht:runreport",
               "qeht:buildheasexchange", "qeht:crossingcandidates", "qeht:burncrossings",
               "qeht:renumberrelink", "qeht:soilparameters", "qeht:erosionindices",
               "qeht:erosioncorridor")))
@@ -495,6 +496,43 @@ def main(in_qgis=False):
           and "SoilGrids" in md["soil_dataset"] and "hysogs" in md["soil_hsg_source"].lower()
           and all(c["cn_export"] for c in ca) and '"cn_proxy": true' in md["runoff_json"])
 
+    # ---- v0.17 (F3): rainfall zones, mean annual rainfall, R estimate ------
+    zl = QgsVectorLayer(f"Polygon?crs={QgsRasterLayer(dem).crs().authid()}&field=zone:string",
+                        "zones", "memory")
+    zf = []
+    for (x0, x1), name in (((xa, xmid), "Zone II"), ((xmid, xb), "Zone I")):
+        f = QgsFeature(zl.fields())
+        f.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(x0, ya), QgsPointXY(x1, ya),
+                                                  QgsPointXY(x1, yb), QgsPointXY(x0, yb)]]))
+        f.setAttributes([name]); zf.append(f)
+    zl.dataProvider().addFeatures(zf)
+    QgsVectorFileWriter.writeAsVectorFormatV3(zl, out("rain_zones.gpkg"),
+                                              QgsCoordinateTransformContext(), opts)
+    _wr(out("map.tif"), np.tile(np.linspace(600, 1400, nx), (ny, 1)).astype(np.float32))
+    r6 = processing.run("qeht:soilparameters", {
+        "CATCHMENTS": out("ch_c.gpkg"), "REF": out("fdr.tif"), "RAIN_ZONES": out("rain_zones.gpkg"),
+        "RAIN_ZONE_FIELD": "zone", "RAIN_MAP": out("map.tif"), "RAIN_MAP_DATASET": "synthetic",
+        "RAIN_R_RELATION": 1, "OUTPUT": out("ch_rain.gpkg")})
+    f6 = list(QgsVectorLayer(r6["OUTPUT"], "s6", "ogr").getFeatures())
+    check("rainfall only (no soil): zone, zone shares, MAP within the raster range, R estimate",
+          len(f6) == 3 and all(f["rain_zone"] in ("Zone I", "Zone II") and 0 < f["rain_zone_pct"] <= 100
+                               and 600 <= f["map_mm"] <= 1400 and f["rusle_r"] > 0
+                               and "ESTIMATE" in f["rusle_r_method"] for f in f6),
+          ", ".join(f"{f['outlet_uid']} {f['rain_zone']} {f['rain_zone_pct']:.0f}% "
+                    f"{f['map_mm']:.0f} mm R {f['rusle_r']:.0f}" for f in f6))
+    r = processing.run("qeht:buildheasexchange", {
+        "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "POINTS": ptsfile,
+        "ID_FIELD": "culvert", "SNAP": 5, "SNAP_THRESHOLD": 200,
+        "RAIN_ZONES": out("rain_zones.gpkg"), "RAIN_ZONE_FIELD": "zone", "RAIN_MAP": out("map.tif"),
+        "OUTPUT": out("rain_exchange.gpkg")})
+    ca = gpkg.read_table(r["OUTPUT"], "catchments", with_geometry=False)
+    md = {row["key"]: row["value"] for row in gpkg.read_table(r["OUTPUT"], "qeht_run_metadata")}
+    errors, _ = validate_exchange(r["OUTPUT"])
+    check("package with rainfall: zone + MAP on catchments, no R without a relation, "
+          "rainfall_json in metadata, validates",
+          not errors and all(c["rain_zone"] and c["map_mm"] and c["rusle_r"] is None for c in ca)
+          and '"r_relation": "none"' in md["rainfall_json"])
+
     # ---- v0.14: erosion (WP-F) -------------------------------------------
     import json as _json
     from osgeo import gdal as _gdal
@@ -526,6 +564,15 @@ def main(in_qgis=False):
           run2["mode"].startswith("LS-only")
           and os.path.exists(os.path.join(r2["OUTPUT"], "ls_class.tif"))
           and not os.path.exists(os.path.join(r2["OUTPUT"], "rusle_soil_loss_t_ha_yr.tif")))
+    r3 = processing.run("qeht:erosionindices", {
+        "RAW_DEM": dem, "FAC": out("fac.tif"), "R_MAP": out("map.tif"), "R_RELATION": 0,
+        "K_VALUE": 0.03, "C_VALUE": 0.05, "OUTPUT": out("erosion_rmap")})
+    with open(os.path.join(r3["OUTPUT"], "erosion_run.json")) as fh:
+        run3 = _json.load(fh)
+    rf = [f for f in run3["factors"] if f["factor"] == "R"]
+    check("R from a rainfall raster: RUSLE runs, R labelled an estimate (Renard & Freimund)",
+          run3["mode"] == "RUSLE" and rf and rf[0]["basis"] == "estimate from rainfall"
+          and "Renard & Freimund" in rf[0]["source"], str(rf))
     r = processing.run("qeht:erosioncorridor", {
         "EROSION": ef, "ROAD": out("road.gpkg"), "START": 1000.0, "STEP": 10, "HALF_WIDTH": 50,
         "STATIONS": out("ero_st.gpkg"), "REACHES": out("ero_re.gpkg"), "CHART": out("ero.png")})
@@ -603,6 +650,90 @@ def main(in_qgis=False):
     except Exception as e:
         refused = "class codes" in str(e)
     check("a land-cover class raster given as the C raster is refused with a hint", refused)
+
+
+    # ---- v0.17 (F7/F8): one-click pipeline and run report --------------------
+    import json as _json3
+    from ..core.raster import read_dem as _rd3
+    _, _, _inf = _rd3(dem)
+    km2_200 = 200 * _inf.cell_width * _inf.cell_height / 1e6
+    pf = out("pipe_review")
+    r = processing.run("qeht:hydrologypipeline", {
+        "DEM": dem, "ROAD": out("road.gpkg"), "START": 1000.0, "STAGE": 1, "STREAM_KM2": km2_200,
+        "RUN_NAME": "review", "LOAD": False, "OUTPUT": pf})
+    check("pipeline, stop for review: candidates, streams and settings written, no report yet",
+          os.path.exists(os.path.join(pf, "layers", "crossing_candidates.gpkg"))
+          and os.path.exists(os.path.join(pf, "layers", "streams.gpkg"))
+          and os.path.exists(os.path.join(pf, "settings.json"))
+          and not os.path.exists(os.path.join(pf, "report", "run_report.html"))
+          and "Stopped for review" in r["SUMMARY"])
+    pf2 = out("pipe_full")
+    r = processing.run("qeht:hydrologypipeline", {
+        "SETTINGS": os.path.join(pf, "settings.json"),
+        "CROSSINGS": os.path.join(pf, "layers", "crossing_candidates.gpkg"), "STAGE": 0,
+        "OUTPUT": pf2})
+    # the settings file sets everything else; add inputs by editing a copy of it
+    with open(os.path.join(pf, "settings.json"), encoding="utf-8") as fh:
+        st = _json3.load(fh)
+    st["parameters"].update({"SOIL_HSG_R": out("hysogs.tif"), "LANDCOVER": out("worldcover.tif"),
+                             "RAIN_ZONES": out("rain_zones.gpkg"), "RAIN_ZONE_FIELD": "zone",
+                             "RAIN_MAP": out("map.tif"), "RAIN_R_RELATION": 1, "PACKAGE": True,
+                             "BURN": True, "RUN_NAME": "full", "NODATA_OVERRIDE": 0})
+    with open(out("settings_edit.json"), "w", encoding="utf-8") as fh:
+        _json3.dump(st, fh)
+    pf3 = out("pipe_rich")
+    r3 = processing.run("qeht:hydrologypipeline", {
+        "SETTINGS": out("settings_edit.json"),
+        "CROSSINGS": os.path.join(pf, "layers", "crossing_candidates.gpkg"), "STAGE": 0,
+        "OUTPUT": pf3})
+    need = ["layers/crossings.gpkg", "layers/catchments.gpkg", "layers/flowpaths.gpkg",
+            "layers/streams.gpkg", "layers/burn_log.gpkg", "rasters/filled.tif",
+            "rasters/flow_direction.tif", "rasters/flow_accumulation.tif", "rasters/dem_burned.tif",
+            "rasters/erosion/ls_factor.tif", "tables/catchment_characteristics.csv",
+            "tables/crossings.csv", "report/run_report.html", "settings.json",
+            "package/design_hydrology.gpkg"]
+    missing = [n for n in need if not os.path.exists(os.path.join(pf3, n))]
+    check("full run from edited settings: fixed folder layout, burn, erosion, package kept",
+          not missing and not os.path.exists(os.path.join(pf3, "_work")), str(missing))
+    pkg3 = os.path.join(pf3, "package", "design_hydrology.gpkg")
+    errors, _ = validate_exchange(pkg3)
+    ca3 = gpkg.read_table(pkg3, "catchments", with_geometry=False)
+    md3 = {row["key"]: row["value"] for row in gpkg.read_table(pkg3, "qeht_run_metadata")}
+    with open(os.path.join(pf3, "tables", "catchment_characteristics.csv"), encoding="utf-8") as fh:
+        lines = fh.read().strip().splitlines()
+    head = lines[0].split(",")
+    check("package validates; CN, rainfall and R estimate on catchments; one table row per "
+          "crossing with the flat-method check",
+          not errors and all(c["cn_export"] and c["rain_zone"] and c["rusle_r"] for c in ca3)
+          and len(lines) - 1 == len(ca3) and "flat_sensitive" in head and "cn_export" in head
+          and "breach" in (md3.get("conditioning_burn") or "") + (md3.get("conditioning") or "")
+          and all(c["elev_min_m"] > 1000 for c in ca3)
+          and os.path.exists(os.path.join(pf3, "rasters", "dem_input.tif")),
+          f"{len(ca3)} catchments; conditioning: {md3.get('conditioning')}")
+    with open(os.path.join(pf3, "report", "run_report.html"), encoding="utf-8") as fh:
+        rep = fh.read()
+    check("run report: title, every crossing, plan, PROXY / ESTIMATE labels, settings path",
+          "<h1>full</h1>" in rep and all(c["outlet_uid"] in rep for c in ca3) and "<svg" in rep
+          and "PROXY" in rep and "R ESTIMATE" in rep and "settings.json" in rep)
+    pf4 = out("pipe_points")
+    r4 = processing.run("qeht:hydrologypipeline", {
+        "DEM": dem, "CROSSINGS": ptsfile, "FLAT_METHOD": 0, "STREAM_KM2": km2_200,
+        "EROSION": False, "LOAD": False, "OUTPUT": pf4})
+    direct = processing.run("qeht:buildheasexchange", {
+        "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "POINTS": ptsfile,
+        "SNAP": 5, "SNAP_THRESHOLD": 200, "OUTPUT": out("direct_for_pipe.gpkg")})
+    a_pipe = sorted(round(f["area_km2"], 6) for f in
+                    QgsVectorLayer(os.path.join(pf4, "layers", "catchments.gpkg"), "c", "ogr").getFeatures())
+    a_dir = sorted(round(c["area_km2"], 6) for c in
+                   gpkg.read_table(direct["OUTPUT"], "catchments", with_geometry=False))
+    check("pour points, package off: no package kept, areas identical to the tools run one by one",
+          r4["PACKAGE_FILE"] == "" and not os.path.exists(os.path.join(pf4, "package"))
+          and not os.path.exists(os.path.join(pf4, "_work")) and a_pipe == a_dir and a_pipe,
+          f"{a_pipe} vs {a_dir}")
+    r5 = processing.run("qeht:runreport", {"PACKAGE": direct["OUTPUT"], "TITLE": "direct",
+                                           "OUTPUT": out("direct_report.html")})
+    check("run report tool on any package (+ characteristics CSV)",
+          os.path.exists(r5["OUTPUT"]) and os.path.exists(r5["CSV"]))
 
     print("\n" + ("ALL QGIS SMOKE CHECKS PASSED" if not FAILURES
                   else f"{len(FAILURES)} FAILURE(S): " + "; ".join(FAILURES)))
