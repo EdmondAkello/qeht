@@ -10,7 +10,7 @@ PARENT="$(dirname "$REPO")"
 [ "$(basename "$REPO")" = "qeht" ] || { echo "rename/clone the repo folder as 'qeht'"; exit 2; }
 cd "$PARENT"
 PY=${PY:-python3.12}
-SUITES="core interop crossings soils soils_any flats erosion alignment morphometry runoff channel coverage rainfall report floodplain quicklooks section corridor_sti prepare_dem tc"
+SUITES="core interop crossings soils soils_any flats erosion alignment morphometry runoff channel coverage rainfall report floodplain quicklooks section corridor_sti prepare_dem tc exports"
 for t in $SUITES; do r=$($PY -m qeht.tests.test_$t 2>&1); echo "pure $t: pass=$(echo "$r"|grep -c '\[PASS\]') fail=$(echo "$r"|grep -c '\[FAIL\]')"; done
 QT_QPA_PLATFORM=offscreen $PY -m qeht.tests.qgis_smoke > smoke_3x.log 2>&1
 echo "smoke QGIS 3.x: pass=$(grep -c '\[PASS\]' smoke_3x.log) fail=$(grep -c '\[FAIL\]' smoke_3x.log) done=$(grep -c 'ALL QGIS SMOKE CHECKS PASSED' smoke_3x.log)  (a segfault AFTER the final line is a known Ubuntu-3.34 teardown issue)"

@@ -3,6 +3,19 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.23.0] — unreleased (KMZ and XLSX exports)
+### Added
+- **Export package to KMZ / XLSX** (F11, group Workflow, id `exportpackage`); the pipeline writes `exports/design_hydrology.kmz` and `.xlsx` by default (*EXPORTS*).
+- **KMZ** in pure Python:
+  - crossings (existing blue, proposed orange) with an HTML card each: location, catchment, flow path and channel slopes, Tc by every method with validity, channel section, erosion;
+  - translucent labelled catchments, longest flow paths, road with kilometre posts, coverage findings, sags and flat stretches;
+  - channel sections and side-drain siltation (hidden by default);
+  - relief quicklook as a `gx:LatLonQuad` ground overlay;
+  - run record, legend and title block (matplotlib when installed);
+  - normal / highlight style maps, LookAt over the crossings.
+- **XLSX** in pure Python: Catchment characteristics in design order (one config list, `core/report/xlsx_layout.py`), Time of concentration, Coverage findings, Run metadata, Field dictionary; units row, frozen panes at B3, column widths, number formats.
+- Tests: test_exports 25 (new; KML parsed back, coordinates against an OSR round trip, escaping; XLSX parts parse, values round-trip); smoke 71 (+2; 21 algorithms). No package field changed.
+
 ## [0.22.0] — unreleased (time of concentration table)
 ### Added
 - **Time of concentration** (F10) on every crossing in the package and the pipeline, by five methods side by side: `tc_kirpich_min`, `tc_kerby_kirpich_min`, `tc_scs_lag_min`, `tc_tr55_min`, `tc_bransby_williams_min`, each with `tc_*_flag` from its published calibration range, plus `tc_basis_json` (inputs per method) and `tc_note` (missing inputs). QEHT does not choose a method.

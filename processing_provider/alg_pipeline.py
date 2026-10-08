@@ -51,7 +51,8 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
             "candidates and the QA layers), <b>rasters/</b> (filled DEM, flow direction, "
             "accumulation, streams, Strahler order, erosion), <b>tables/</b> (the catchment "
             "characteristics table - one row per crossing, ready for a spreadsheet - and one "
-            "CSV per layer), <b>quicklooks/</b> (PNG + world file + legend of the rasters, for "
+            "CSV per layer), <b>exports/</b> (KMZ for Google Earth and an XLSX workbook), "
+            "<b>quicklooks/</b> (PNG + world file + legend of the rasters, for "
             "viewing without a GIS), <b>report/run_report.html</b> and <b>settings.json</b>.\n\n"
             "<b>Steps:</b> optionally Prepare DEM (merge tiles, bilinear to the local UTM "
             "zone; off by default) → DEM checks (NoData, nearest-neighbour resampling) → fill → D8 "
@@ -136,6 +137,8 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
         self.addParameter(QgsProcessingParameterBoolean(
             "QUICKLOOKS", "Raster quicklooks (PNG + world file + legend, for viewing without a GIS)",
             defaultValue=True))
+        self.addParameter(QgsProcessingParameterBoolean(
+            "EXPORTS", "KMZ (Google Earth) and XLSX workbook in exports/", defaultValue=True))
         self.addParameter(QgsProcessingParameterBoolean(
             "PACKAGE", "Keep the design hydrology package (GeoPackage for design software)",
             defaultValue=False))
@@ -414,6 +417,22 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
             package, os.path.join(d["tables"], "time_of_concentration.csv"))
         if os.path.isdir(os.path.join(folder, "quicklooks")):
             outputs["Quicklooks"] = os.path.join(folder, "quicklooks")
+        if self.parameterAsBool(p, "EXPORTS", context) if "EXPORTS" in p else True:
+            fb.setProgressText("KMZ and XLSX exports")
+            from .alg_export_package import wgs84_transformer, relief_quicklook
+            from ..core.report.kmz import write_kmz
+            from ..core.report.xlsx_layout import write_workbook
+            ex = os.path.join(folder, "exports")
+            os.makedirs(ex, exist_ok=True)
+            ttl = p.get("RUN_NAME") or "QEHT hydrology run"
+            try:
+                outputs["KMZ"] = write_kmz(package, os.path.join(ex, "design_hydrology.kmz"),
+                                           wgs84_transformer(package), title=ttl,
+                                           relief=relief_quicklook(package))
+                outputs["XLSX"] = write_workbook(package, os.path.join(ex, "design_hydrology.xlsx"),
+                                                 extra=flat, title=ttl)
+            except (OSError, ValueError, RuntimeError) as e:
+                warn(f"Exports failed: {e}")
 
         # 9. report -------------------------------------------------------------------
         fb.setCurrentStep(9)

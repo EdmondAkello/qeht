@@ -35,6 +35,7 @@ from .alg_coverage import DrainageCoverageAlgorithm
 from .alg_pipeline import HydrologyPipelineAlgorithm
 from .alg_run_report import RunReportAlgorithm
 from .alg_prepare_dem import PrepareDemAlgorithm
+from .alg_export_package import ExportPackageAlgorithm
 
 
 class QehtProvider(QgsProcessingProvider):
@@ -61,6 +62,7 @@ class QehtProvider(QgsProcessingProvider):
             DrainageCoverageAlgorithm(),
             HydrologyPipelineAlgorithm(),
             RunReportAlgorithm(),
+            ExportPackageAlgorithm(),
         ):
             self.addAlgorithm(alg)
 

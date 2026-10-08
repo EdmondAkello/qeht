@@ -42,6 +42,13 @@ INDEX_FIELDS = [("name", "text"), ("title", "text"), ("png", "text"), ("world_fi
 # -- PNG / world file ------------------------------------------------------------
 def write_png(path, rgba):
     """8-bit RGBA PNG, pure Python. rgba: uint8 array (rows, cols, 4)."""
+    with open(path, "wb") as f:
+        f.write(png_bytes(rgba))
+    return path
+
+
+def png_bytes(rgba):
+    """8-bit RGBA PNG file content, pure Python."""
     a = np.ascontiguousarray(np.asarray(rgba, dtype=np.uint8))
     h, w = a.shape[:2]
     raw = b"".join(b"\x00" + a[r].tobytes() for r in range(h))
@@ -51,9 +58,7 @@ def write_png(path, rgba):
                 + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
     png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0))
            + chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b""))
-    with open(path, "wb") as f:
-        f.write(png)
-    return path
+    return png
 
 
 def read_png_size(path):

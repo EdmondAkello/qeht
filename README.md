@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.22.0
+# QEHT — QGIS Engineering Hydrology Toolkit v0.23.0
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -482,6 +482,39 @@ The pipeline can run it as an optional first step (*Prepare the DEM first*, off 
 - **No invented inputs.** P2 (the 2-year 24-hour rainfall, mm) is your value or raster with no default; without it TR-55 is empty with the note "give P2". Sheet-flow n (TR-55 Table 3-1) and Kerby N are PROXY lookups matched to WorldCover and weighted along the flow path; give your own CSV (`class,value`) to replace them. Channel n defaults to 0.035 (clean natural channel, Chow 1959) and is editable.
 - `tc_basis_json` holds the inputs each method used; `tc_params_json` records the ranges with their sources, P2 and the lookups.
 - The pipeline writes `tables/time_of_concentration.csv`, the run report has a Tc section, and the characteristics table a "time of concentration" group.
+
+## v0.23: KMZ and XLSX exports
+
+**Export package to KMZ / XLSX** (Workflow) writes a design hydrology package for people without a GIS. The pipeline writes both to `exports/` by default. Both writers are pure Python, so no extra software is needed.
+
+**KMZ (Google Earth).** Coordinates are transformed to WGS 84. The file contains:
+- **Crossings**, existing in blue and proposed in orange. Each has a card with location and chainage, the contributing catchment (area, slope, elevations, soil, CN, rain zone), the flow path and channel slopes, the time of concentration by every method with its validity, the channel section and erosion values.
+- **Catchments** as translucent polygons with labels.
+- **Longest flow paths.**
+- **Road** with kilometre posts.
+- **Coverage findings**, sag points and flat stretches.
+- **Channel sections** and **side-drain siltation** reaches, hidden by default.
+- **Relief quicklook** as a terrain overlay, when the package has one.
+- A **run record** card, a **legend** and a **title block**. The legend and title block need matplotlib, which ships with QGIS on most installs; without it they are left out.
+
+Icons enlarge and labels highlight on hover.
+
+**XLSX.** Five sheets: *Catchment characteristics*, *Time of concentration*, *Coverage findings*, *Run metadata* and *Field dictionary*. The characteristics sheet runs in design order:
+1. ID, status, chainage, easting and northing;
+2. area;
+3. LFP length and drop;
+4. elevations and relief;
+5. the four slopes;
+6. flow-path segments;
+7. channel slopes;
+8. Tc by each method;
+9. CN, AMC and C;
+10. rain zone and MAP;
+11. soil texture, HSG and K;
+12. floodplain and section widths;
+13. flags.
+
+Units are in row 2 and panes are frozen at B3. Every column is always written, so the layout is fixed. The order is one config list (`core/report/xlsx_layout.py`) and can be matched to a house workbook without code changes.
 
 ### Data sources by region
 

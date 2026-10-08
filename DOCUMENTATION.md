@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.22.0
+**Version:** 0.23.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -395,6 +395,24 @@ All five methods are computed for each crossing with a flow path. A method missi
 - TR-55: sheet flow ≤ 30 m, enforced by the cap; the flag is `outside` when the channel section has low quality.
 
 The ranges and sources are written to `tc_params_json`. QEHT reports every method and does not choose one.
+
+### 4.28 KMZ and XLSX exports (v0.23, F11)
+
+**KMZ.** KML 2.2 (`doc.kml`) and its images in a zip. The processing layer builds an OSR transformation from the package CRS to EPSG:4326 (traditional GIS axis order) and passes it to `core/report/kmz.py`, which never reprojects. Every text value is XML-escaped; balloon HTML sits in CDATA with `]]>` split.
+
+- **Icons:** circle, square, diamond and triangle, drawn with NumPy (4× supersampling, dark outline, white halo) and written as PNG. Each icon has a normal and a highlight style in a StyleMap.
+- **Catchments:** a MultiGeometry of a label point and the polygons, with holes as inner rings. The label point is the centroid of the largest ring, or the midpoint of a chord through it when the centroid falls outside.
+- **Kilometre posts:** interpolated along the stored road geometry from `chainage_from_m`.
+- **Relief overlay:** a `gx:LatLonQuad` from the quicklook's four corners, so the projected grid's rotation against north is kept.
+- **Legend and title block:** ScreenOverlays drawn with matplotlib (Agg) when it is installed.
+
+**XLSX.** A minimal SpreadsheetML writer (`core/report/xlsx.py`) without openpyxl:
+
+- **Parts:** `[Content_Types].xml`, the relationships, `workbook.xml`, `styles.xml` (bold white header on navy, italic grey units row, one cell style per number format) and one worksheet per sheet.
+- **Cells:** inline strings with XML-illegal control characters removed, numbers, booleans, and no cell for NULL.
+- **Sheets:** frozen panes and column widths; sheet names are cleaned of `[]*?/\:` and cut to 31 characters.
+
+The column order is `core/report/xlsx_layout.py`: (field, source layer, header, unit, number format) per column, joined on `outlet_uid` and sorted by chainage.
 
 ---
 

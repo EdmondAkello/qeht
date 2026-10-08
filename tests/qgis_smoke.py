@@ -63,10 +63,10 @@ def main(in_qgis=False):
         reg.addProvider(QehtProvider())
     algs = sorted(a.id() for a in reg.providerById("qeht").algorithms())
     print("QEHT algorithms:", ", ".join(algs))
-    check("provider loads with 20 algorithms incl. exchange, crossings, burn, relink, soils, "
+    check("provider loads with 21 algorithms incl. exchange, crossings, burn, relink, soils, "
           "erosion, alignment profile, pipeline, run report, prepare DEM",
-          len(algs) == 20 and all(a in algs for a in ("qeht:alignmentprofile", "qeht:drainagecoverage",
-              "qeht:preparedem",
+          len(algs) == 21 and all(a in algs for a in ("qeht:alignmentprofile", "qeht:drainagecoverage",
+              "qeht:preparedem", "qeht:exportpackage",
               "qeht:hydrologypipeline", "qeht:runreport",
               "qeht:buildheasexchange", "qeht:crossingcandidates", "qeht:burncrossings",
               "qeht:renumberrelink", "qeht:soilparameters", "qeht:erosionindices",
@@ -822,6 +822,23 @@ def main(in_qgis=False):
     n5 = sum(1 for c in cr3 if all(c[f"tc_{m}_min"] is not None for m in
                                    ("kirpich", "kerby_kirpich", "scs_lag", "bransby_williams")))
     n_tr = sum(1 for c in cr3 if c["tc_tr55_min"] is not None)
+    import zipfile as _zf
+    kz = os.path.join(pf3, "exports", "design_hydrology.kmz")
+    xz = os.path.join(pf3, "exports", "design_hydrology.xlsx")
+    kml = _zf.ZipFile(kz).read("doc.kml").decode("utf-8") if os.path.exists(kz) else ""
+    from ..core.report.xlsx import read_xlsx_cells as _rx
+    xc = _rx(xz, 1) if os.path.exists(xz) else {}
+    check("pipeline exports: KMZ with every crossing, relief overlay and legend; XLSX with one "
+          "row per crossing",
+          kml.count("<styleUrl>#x_existing</styleUrl>") + kml.count("<styleUrl>#x_proposed</styleUrl>") == len(cr3) and "gx:LatLonQuad" in kml
+          and "files/legend.png" in _zf.ZipFile(kz).namelist()
+          and sum(1 for k in xc if k.startswith("A") and k[1:].isdigit() and int(k[1:]) >= 3) == len(cr3),
+          f"{kml.count('<Placemark>')} placemarks, {len(xc)} cells")
+    r = processing.run("qeht:exportpackage", {"PACKAGE": pkg3, "TITLE": "Site C <test>",
+                                              "KMZ": out("exp.kmz"), "XLSX": out("exp.xlsx")})
+    check("export tool on a package: KMZ and XLSX written",
+          os.path.exists(r["KMZ"]) and os.path.exists(r["XLSX"])
+          and "Site C &lt;test&gt;" in _zf.ZipFile(r["KMZ"]).read("doc.kml").decode("utf-8"))
     check("time of concentration: Kirpich, Kerby, SCS lag, Bransby-Williams on every crossing "
           "with a flow path (land cover + CN), TR-55 where a bank-full section exists, flags set, table and report "
           "section, P2 recorded",
