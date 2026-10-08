@@ -34,7 +34,7 @@ from ..core.raster import read_dem, audit_nodata, audit_resampling
 FLAT_LABELS = ["toward lower terrain", "Barnes 2014"]
 STAGES = ["Full run", "Stop after crossing candidates (review them, then run again with "
           "the reviewed layer as Crossings)"]
-PASS_PREFIXES = ("SOIL", "LANDCOVER", "CN_", "RC_CSV", "RAIN_")
+PASS_PREFIXES = ("SOIL", "LANDCOVER", "CN_", "RC_CSV", "RAIN_", "TC_")
 
 
 class HydrologyPipelineAlgorithm(QehtAlgorithm):
@@ -120,6 +120,9 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
         self.add_soil_parameters("SOIL", optional=True)
         self.add_runoff_parameters()
         self.add_rainfall_parameters()
+        self.addParameter(QgsProcessingParameterNumber(
+            "TC_P2", "2-yr 24-h rainfall P2 for the TR-55 time of concentration (mm; optional, "
+            "no default)", QgsProcessingParameterNumber.Type.Double, optional=True, minValue=0.0))
         self.addParameter(QgsProcessingParameterBoolean(
             "EROSION", "Erosion indices and RUSLE (LS-only when R, K or C is missing)",
             defaultValue=True))
@@ -406,6 +409,9 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
         chars, n_rows = write_characteristics_csv(
             package, os.path.join(d["tables"], "catchment_characteristics.csv"), flat)
         outputs["Catchment characteristics"] = chars
+        from ..core.report.characteristics import write_tc_csv
+        outputs["Time of concentration"], _ = write_tc_csv(
+            package, os.path.join(d["tables"], "time_of_concentration.csv"))
         if os.path.isdir(os.path.join(folder, "quicklooks")):
             outputs["Quicklooks"] = os.path.join(folder, "quicklooks")
 

@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.21.0
+# QEHT — QGIS Engineering Hydrology Toolkit v0.22.0
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -465,6 +465,23 @@ Most bad runs start before QEHT: a DEM reprojected with nearest neighbour, an ex
 **Target CRS.** By default this is the WGS 84 / UTM zone of the extent centre, anywhere on Earth. Beyond 84° N or 80° S it is UPS North or South, and the Norway (32V) and Svalbard (31X–37X) zone exceptions apply. The log notes an extent that spans several zones. You can also choose any projected CRS, such as a national grid. **Cell size** defaults to the native cell converted to metres (the larger of x and y, to 0.1 m). A JSON log records the inputs, CRS, cell size, resampling, both audits and an estimate of the native grid.
 
 The pipeline can run it as an optional first step (*Prepare the DEM first*, off by default). It takes the DEM or a set of tiles and writes `rasters/dem_prepared.tif`.
+
+## v0.22: time of concentration table
+
+*Build design hydrology package* (and the pipeline) computes the time of concentration of every crossing by five published methods, side by side. **QEHT does not choose one.**
+
+| Field | Method | Inputs |
+|---|---|---|
+| `tc_kirpich_min` | Kirpich (1940): 0.0195 L^0.77 S^−0.385 | flow-path length, 10–85 slope |
+| `tc_kerby_kirpich_min` | Kerby (1959) overland + Kirpich channel | overland and channel lengths and slopes; retardance N |
+| `tc_scs_lag_min` | SCS / NRCS lag (NEH 630 ch. 15), Tc = lag / 0.6 | flow-path length, `cn_ii`, Horn catchment slope |
+| `tc_tr55_min` | TR-55 segments: sheet (≤ 30 m) + shallow (unpaved) + channel (Manning) | P2, sheet n, overland slope, channel slope, the v0.19 bank-full section, channel n |
+| `tc_bransby_williams_min` | Bransby-Williams: 14.6 L / (A^0.1 S^0.2) | length, area, 10–85 slope |
+
+- **Validity flags.** Each method has a `tc_<method>_flag` (`within` / `outside: …`) from its published range: Kirpich A 0.004–0.45 km² and slope 3–10 %; SCS lag A ≤ 8 km² and CN 50–95; Kerby overland ≤ 365 m; TR-55 sheet flow ≤ 30 m; Bransby-Williams "rural catchments". Values are always reported.
+- **No invented inputs.** P2 (the 2-year 24-hour rainfall, mm) is your value or raster with no default; without it TR-55 is empty with the note "give P2". Sheet-flow n (TR-55 Table 3-1) and Kerby N are PROXY lookups matched to WorldCover and weighted along the flow path; give your own CSV (`class,value`) to replace them. Channel n defaults to 0.035 (clean natural channel, Chow 1959) and is editable.
+- `tc_basis_json` holds the inputs each method used; `tc_params_json` records the ranges with their sources, P2 and the lookups.
+- The pipeline writes `tables/time_of_concentration.csv`, the run report has a Tc section, and the characteristics table a "time of concentration" group.
 
 ### Data sources by region
 

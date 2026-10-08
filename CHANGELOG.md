@@ -3,6 +3,13 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.22.0] — unreleased (time of concentration table)
+### Added
+- **Time of concentration** (F10) on every crossing in the package and the pipeline, by five methods side by side: `tc_kirpich_min`, `tc_kerby_kirpich_min`, `tc_scs_lag_min`, `tc_tr55_min`, `tc_bransby_williams_min`, each with `tc_*_flag` from its published calibration range, plus `tc_basis_json` (inputs per method) and `tc_note` (missing inputs). QEHT does not choose a method.
+- Inputs: P2 as a user value or raster (no default; TR-55 empty with "give P2" without it); sheet-flow n (TR-55 Table 3-1) and Kerby N as PROXY lookups matched to WorldCover, weighted along the flow path, replaceable by user CSVs; channel n 0.035 (editable); TR-55 channel velocity by Manning on the F5 bank-full section. Metadata `tc_params_json`; downstream-use term "time of concentration".
+- Pipeline: `tables/time_of_concentration.csv`, P2 parameter (the `TC_` package parameters pass through); run report section; characteristics group.
+- Tests: test_tc 28 (new); smoke 69 (+1). Golden fixture regenerated: twelve crossing fields and one metadata key added, no existing value changed.
+
 ## [0.21.0] — unreleased (Prepare DEM for hydrology)
 ### Added
 - **Prepare DEM for hydrology** (F9, group Terrain and drainage, id `preparedem`): tile mosaic (`gdal.BuildVRT`), optional clip to polygons or an extent with a buffer (default 2,000 m), warp to the target CRS (bilinear or cubic; nearest refused; float32, NoData −9999, target-aligned pixels), NoData override, NoData and resampling audits on input and output, a JSON log with a native-grid estimate, and GeoTIFF tags `QEHT_DEM_SOURCE` / `QEHT_DEM_PREP`.

@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.21.0
+**Version:** 0.22.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -372,6 +372,29 @@ When the four corners of the extent fall in different zones, the log says so; th
 The default cell size is max(Δλ · m_λ(φ), Δφ · m_φ(φ)) rounded to 0.1 m for a geographic input, where m_λ and m_φ are the WGS 84 lengths of a degree at the centre latitude (series in cos 2φ, cos 4φ …). For a projected input it is the input cell size. The clip bounds are transformed to the target CRS with densified edges (21 points per side) and widened by the buffer. `gdal.Warp` then writes float32 with NoData −9999, `targetAlignedPixels` and the chosen resampling (bilinear or cubic; nearest is refused).
 
 `audit_nodata` and `audit_resampling` (§4.4, 0.13.1) run on the mosaic (a central window of 16 Mcells when larger) and on the output. The native-grid estimate is the input cell divided by (1 − share of repeated rows or columns). On an input with partial repeats it is a lower bound. The output carries the tags `QEHT_DEM_SOURCE` and `QEHT_DEM_PREP`.
+
+### 4.27 Time of concentration (v0.22, F10)
+
+All five methods are computed for each crossing with a flow path. A method missing an input is NULL with the reason in `tc_note`.
+
+- **Kirpich (1940):** Tc = 0.0195 L^0.77 S^−0.385 min, with L = lfp_length_m and S = lfp_slope_1085 (m/m). This is the metric form of 0.0078 L_ft^0.77 S^−0.385 (they agree within 0.5 %).
+- **Kerby (1959) + Kirpich:** t_ov = 1.44 (L_ov N)^0.467 S_ov^−0.235 min on lfp_overland_m and lfp_overland_slope, plus Kirpich on lfp_channel_m and lfp_channel_slope. This is the metric form of 0.83 (L_ft N / √S)^0.467 (within 1 %). N is the length-weighted lookup value of the land-cover classes along the overland part of the flow path (from the divide). It defaults to a PROXY matched to WorldCover: built-up 0.02, bare 0.10, crop 0.20, grass and shrub 0.40, tree 0.60; water, wetland, snow and moss have no value.
+- **SCS / NRCS lag (NEH 630 ch. 15):** lag = ℓ^0.8 (S + 1)^0.7 / (1900 Y^0.5) h, with ℓ the flow-path length in feet, S = 1000 / CN − 10 (in) with CN = cn_ii, and Y = 100 × catch_slope_horn (%). Tc = lag / 0.6.
+- **TR-55 (1986)**, three segments:
+  - **sheet:** T = 0.007 (n L)^0.8 / (P2^0.5 s^0.4) h, with L = min(lfp_overland_m, 30 m) in feet, P2 in inches and s = lfp_overland_slope. The sheet n defaults to a PROXY from TR-55 Table 3-1: tree 0.40, shrub 0.24, grass 0.15, crop 0.06, built-up and bare 0.011.
+  - **shallow concentrated:** the rest of the overland length at V = 16.1345 s^0.5 ft/s (unpaved).
+  - **channel:** lfp_channel_m at Manning V = R^(2/3) s^(1/2) / n, with s = lfp_channel_slope and n = 0.035 by default. A and P come from the F5 transect below the bank-full level, integrated trapezoidally with the partly wet end segments cut at the water line. For the F5 test trapezoid this gives A = 20 m² and P = 6 + 2√20 m.
+  - P2 is a user value, or a raster averaged along the flow path; there is no default.
+- **Bransby-Williams:** Tc = 14.6 L / (A^0.1 S^0.2) min, with L in km, A in km² and S = 1000 × lfp_slope_1085 (m/km).
+
+**Flags.** Each method's `tc_*_flag` is `within`, `outside: <which limit>` or, for Bransby-Williams, `rural catchments`. The limits:
+
+- Kirpich (1940; Tennessee data): A 0.004–0.45 km², slope 3–10 %;
+- SCS lag (NEH 630 ch. 15): A ≤ 8 km², CN 50–95;
+- Kerby (1959): overland length ≤ 365 m;
+- TR-55: sheet flow ≤ 30 m, enforced by the cap; the flag is `outside` when the channel section has low quality.
+
+The ranges and sources are written to `tc_params_json`. QEHT reports every method and does not choose one.
 
 ---
 

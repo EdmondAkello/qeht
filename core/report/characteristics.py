@@ -34,6 +34,9 @@ GROUPS = [
                             ("lfp_channel_m", "flowpaths"), ("lfp_channel_slope", "flowpaths"),
                             ("lfp_channel_slope_1085", "flowpaths")]),
     ("channel at the crossing", [("ch_slope_us", "crossings"), ("ch_slope_ds", "crossings")]),
+    ("time of concentration", [("tc_kirpich_min", "crossings"), ("tc_kerby_kirpich_min", "crossings"),
+                               ("tc_scs_lag_min", "crossings"), ("tc_tr55_min", "crossings"),
+                               ("tc_bransby_williams_min", "crossings")]),
     ("channel section", [("xs_bankfull_w_m", "crossings"), ("xs_bankfull_d_m", "crossings"),
                          ("xs_w_1p0_m", "crossings"), ("xs_quality", "crossings")]),
     ("floodplain width", [("fp_w_0p5_m", "crossings"), ("fp_w_1p0_m", "crossings"),
@@ -96,6 +99,47 @@ def characteristics_rows(package_path, extra=None):
 
 def write_characteristics_csv(package_path, out_csv, extra=None):
     cols, rows = characteristics_rows(package_path, extra)
+    os.makedirs(os.path.dirname(os.path.abspath(out_csv)), exist_ok=True)
+    with open(out_csv, "w", newline="", encoding="utf-8") as f:
+        wr = csv.writer(f)
+        wr.writerow(cols)
+        for r in rows:
+            wr.writerow(["" if not _has(r[c]) else
+                         (round(r[c], 6) if isinstance(r[c], float) else r[c]) for c in cols])
+    return out_csv, len(rows)
+
+
+TC_COLUMNS = ["outlet_uid", "status", "chainage_m", "area_km2", "lfp_length_m", "lfp_slope_1085",
+              "tc_kirpich_min", "tc_kirpich_flag", "tc_kerby_kirpich_min", "tc_kerby_kirpich_flag",
+              "tc_scs_lag_min", "tc_scs_lag_flag", "tc_tr55_min", "tc_tr55_flag",
+              "tc_bransby_williams_min", "tc_bransby_williams_flag", "tc_note"]
+
+
+def tc_rows(package_path):
+    """Time of concentration table (F10): one row per crossing, every method side by side."""
+    tables = dict(gpkg.list_tables(package_path))
+    if "crossings" not in tables:
+        return TC_COLUMNS, []
+    lay = {n: {r["outlet_uid"]: r for r in gpkg.read_table(package_path, n, with_geometry=False)}
+           for n in ("crossings", "catchments", "flowpaths") if n in tables}
+    rows = []
+    for uid, x in lay["crossings"].items():
+        r = {}
+        for c in TC_COLUMNS:
+            for n in ("crossings", "catchments", "flowpaths"):
+                v = lay.get(n, {}).get(uid, {}).get(c)
+                if _has(v):
+                    r[c] = v
+                    break
+            else:
+                r[c] = None
+        rows.append(r)
+    rows.sort(key=lambda r: (0 if _has(r.get("chainage_m")) else 1, r.get("chainage_m") or 0))
+    return TC_COLUMNS, rows
+
+
+def write_tc_csv(package_path, out_csv):
+    cols, rows = tc_rows(package_path)
     os.makedirs(os.path.dirname(os.path.abspath(out_csv)), exist_ok=True)
     with open(out_csv, "w", newline="", encoding="utf-8") as f:
         wr = csv.writer(f)

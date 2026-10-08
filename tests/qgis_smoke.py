@@ -779,7 +779,8 @@ def main(in_qgis=False):
     st["parameters"].update({"SOIL_HSG_R": out("hysogs.tif"), "LANDCOVER": out("worldcover.tif"),
                              "RAIN_ZONES": out("rain_zones.gpkg"), "RAIN_ZONE_FIELD": "zone",
                              "RAIN_MAP": out("map.tif"), "RAIN_R_RELATION": 1, "PACKAGE": True,
-                             "BURN": True, "RUN_NAME": "full", "NODATA_OVERRIDE": 0})
+                             "BURN": True, "RUN_NAME": "full", "NODATA_OVERRIDE": 0,
+                             "TC_P2": 60.0})
     with open(out("settings_edit.json"), "w", encoding="utf-8") as fh:
         _json3.dump(st, fh)
     pf3 = out("pipe_rich")
@@ -813,6 +814,25 @@ def main(in_qgis=False):
           f"{len(ca3)} catchments; conditioning: {md3.get('conditioning')}")
     with open(os.path.join(pf3, "report", "run_report.html"), encoding="utf-8") as fh:
         rep = fh.read()
+    cr3 = gpkg.read_table(pkg3, "crossings", with_geometry=False)
+    with open(os.path.join(pf3, "tables", "time_of_concentration.csv"), encoding="utf-8") as fh:
+        tcl = fh.read().strip().splitlines()
+    md_tc = _json3.loads(md3["tc_params_json"])
+    n_fp = sum(1 for c in cr3 if c["tc_note"] != "no flow path")
+    n5 = sum(1 for c in cr3 if all(c[f"tc_{m}_min"] is not None for m in
+                                   ("kirpich", "kerby_kirpich", "scs_lag", "bransby_williams")))
+    n_tr = sum(1 for c in cr3 if c["tc_tr55_min"] is not None)
+    check("time of concentration: Kirpich, Kerby, SCS lag, Bransby-Williams on every crossing "
+          "with a flow path (land cover + CN), TR-55 where a bank-full section exists, flags set, table and report "
+          "section, P2 recorded",
+          n5 == n_fp and n_fp >= len(cr3) - 2 and n_tr >= 1 and all(c["tc_kirpich_flag"] for c in cr3 if c["tc_note"] != "no flow path")
+          and len(tcl) - 1 == len(cr3) and "Time of concentration" in rep
+          and md_tc["p2_mm"] == 60.0 and md_tc["sheet_n_lookup"].startswith("PROXY")
+          and all(c["tc_tr55_min"] is not None or "TR-55" in (c["tc_note"] or "") for c in cr3
+                  if c["tc_note"] != "no flow path"),
+          f"{n5}/{n_fp} with four methods, {n_tr} with TR-55; e.g. "
+          + ", ".join(f"{c['outlet_uid']} K {c['tc_kirpich_min']:.0f} SCS {c['tc_scs_lag_min']:.0f} min"
+                      for c in cr3[:3]))
     check("run report: title, every crossing, plan, PROXY / ESTIMATE labels, settings path",
           "<h1>full</h1>" in rep and all(c["outlet_uid"] in rep for c in ca3) and "<svg" in rep
           and "PROXY" in rep and "R ESTIMATE" in rep and "settings.json" in rep)

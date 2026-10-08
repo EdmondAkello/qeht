@@ -281,6 +281,31 @@ def build_report(package_path, title=None, extra=None):
                            {"area_barnes_km2", "area_toward_km2", "flat_sensitivity_pct"})
                     if flagged else ""))
 
+    # time of concentration (F10)
+    from .characteristics import tc_rows
+    tcols, trows = tc_rows(package_path)
+    if any(_has(r.get("tc_kirpich_min")) for r in trows):
+        meth = [("tc_kirpich_min", "Kirpich"), ("tc_kerby_kirpich_min", "Kerby + Kirpich"),
+                ("tc_scs_lag_min", "SCS lag"), ("tc_tr55_min", "TR-55"),
+                ("tc_bransby_williams_min", "Bransby-Williams")]
+        hdr = ["outlet_uid", "area_km2"] + [k for k, _ in meth]
+        body = []
+        for r in trows:
+            d = {"outlet_uid": _e(r["outlet_uid"]), "area_km2": _fmt(r.get("area_km2"))}
+            for k, _ in meth:
+                fl = r.get(k.replace("_min", "_flag")) or ""
+                d[k] = _fmt(r.get(k)) + (" <span class='flag'>*</span>" if fl.startswith("outside") else "")
+            body.append(d)
+        tj = _json(md, "tc_params_json") or {}
+        P.append("<h2>Time of concentration (min)</h2><p class='sub'>Every method side by side; "
+                 "QEHT does not choose one. * = outside the method's published calibration range "
+                 "(ranges and sources in <code>tc_params_json</code>; inputs per crossing in "
+                 "<code>tc_basis_json</code>). TR-55 P2: " + _e(tj.get("p2_source", "not given"))
+                 + ". Sheet n and Kerby N: "
+                 + ("PROXY lookups from land cover" if str(tj.get("sheet_n_lookup", "")).startswith("PROXY")
+                    else "user lookups") + ".</p>" + _table(hdr, body, {"area_km2"} | {k for k, _ in meth})
+                 + "<p class='sub'>Full table: <code>tables/time_of_concentration.csv</code>.</p>")
+
     # channel sections of low quality (F5)
     if "crossings" in tables:
         xs = [r for r in gpkg.read_table(package_path, "crossings", with_geometry=False)

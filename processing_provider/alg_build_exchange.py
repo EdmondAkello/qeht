@@ -116,6 +116,13 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "station-elevation list (xs_*; layer xs_transects), with a quality flag. Indicative "
             "only; on a 30 m DEM a small channel is below the grid resolution. Use survey where "
             "available.\n\n"
+            "<b>Time of concentration:</b> Kirpich, Kerby + Kirpich, SCS lag, TR-55 segments "
+            "and Bransby-Williams side by side (tc_*_min), each with a validity flag from its "
+            "published calibration range and its inputs in tc_basis_json. QEHT does not pick a "
+            "method. TR-55 needs the 2-yr 24-h rainfall P2 (no default); sheet-flow n and Kerby N "
+            "come from the land cover (PROXY lookups from TR-55 Table 3-1 and Kerby 1959) unless "
+            "you give your own CSV; the TR-55 channel velocity uses Manning on the channel "
+            "section (n 0.035 by default).\n\n"
             "<b>Rainfall (optional):</b> rainfall zone polygons give each catchment its "
             "dominant zone (rain_zone, rain_zone_pct, all shares in rain_zones_json; a "
             "warning when the dominant zone covers less than 80 %); a mean annual rainfall "
@@ -234,6 +241,23 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             self.addParameter(self._advanced(QgsProcessingParameterNumber(
                 key, label, QgsProcessingParameterNumber.Type.Double, defaultValue=default,
                 minValue=0.0)))
+        self.addParameter(QgsProcessingParameterNumber(
+            "TC_P2", "Time of concentration: 2-yr 24-h rainfall P2 for TR-55 (mm; no default)",
+            QgsProcessingParameterNumber.Type.Double, optional=True, minValue=0.0))
+        from qgis.core import QgsProcessingParameterRasterLayer as _RL2, QgsProcessingParameterFile as _PF2
+        self.addParameter(_RL2("TC_P2_RASTER", "Time of concentration: P2 raster (mm; mean along "
+                               "the flow path; optional)", optional=True))
+        self.addParameter(self._advanced(QgsProcessingParameterBoolean(
+            "TC", "Time of concentration by five methods", defaultValue=True)))
+        self.addParameter(self._advanced(QgsProcessingParameterNumber(
+            "TC_CHANNEL_N", "Time of concentration: channel Manning n (TR-55 channel part)",
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.035, minValue=0.001)))
+        for key, label in (("TC_SHEET_N_CSV", "Time of concentration: sheet-flow n lookup CSV "
+                            "(class, value; replaces the PROXY)"),
+                           ("TC_KERBY_N_CSV", "Time of concentration: Kerby N lookup CSV "
+                            "(class, value; replaces the PROXY)")):
+            self.addParameter(self._advanced(_PF2(key, label, optional=True,
+                                                  fileFilter="CSV (*.csv)")))
         self.addParameter(QgsProcessingParameterNumber(
             "PROFILE_STEP", "Alignment profile station spacing (m)",
             QgsProcessingParameterNumber.Type.Double, defaultValue=10.0, minValue=0.5))
@@ -562,6 +586,12 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                     feedback.pushWarning(f"  {a['outlet_uid']}: channel section low quality - "
                                          f"{a.get('xs_note')}")
 
+        # -- time of concentration by five methods (F10) -------------------------
+        tc_md = ""
+        if self.parameterAsBool(parameters, "TC", context) if "TC" in parameters else True:
+            tc_md = self._tc_block(parameters, context, feedback, info, crossings, catchments,
+                                   flowpaths, runoff)
+
         # -- side-drain siltation indicator along the corridor (STI R3) ---------
         csti_md = ""
         if alignment is not None and erosion is not None and getattr(erosion, "sti", None) is not None:
@@ -672,6 +702,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "quicklook_params_json": ql_md,
             "xs_params_json": xs_md,
             "corridor_sti_params_json": csti_md,
+            "tc_params_json": tc_md,
             "n_proposed": str(n_proposed),
             "crossing_source": ("crossing candidates" if candidate_mode else "pour points"),
             "chainage_start_m": (f"{alignment.start_chainage:g}" if alignment is not None else ""),
@@ -725,3 +756,66 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                    f"{len(flowpaths)} flow paths -> {out_path} ({SCHEMA_VERSION})")
         feedback.pushInfo(summary)
         return {OUTPUT: out_path, SUMMARY: summary}
+
+    def _tc_block(self, parameters, context, feedback, info, crossings, catchments, flowpaths,
+                  runoff):
+        """F10: tc_* fields on every crossing; returns tc_params_json."""
+        from ..core.runoff.tc import (tc_block, along_path_value, read_value_lookup, params_json,
+                                      SHEET_N, KERBY_N, SHEET_N_ID, KERBY_N_ID, CHANNEL_N)
+        gt = info.geotransform
+
+        def cells(xs, ys, grid):
+            c = [int((x - gt[0]) // gt[1]) for x in xs]
+            r = [int((y - gt[3]) // gt[5]) for y in ys]
+            return [grid[r_, c_] if 0 <= r_ < info.rows and 0 <= c_ < info.cols else None
+                    for r_, c_ in zip(r, c)]
+        sheet, kerby, sid, kid = SHEET_N, KERBY_N, SHEET_N_ID, KERBY_N_ID
+        try:
+            if parameters.get("TC_SHEET_N_CSV"):
+                pth = self.parameterAsFile(parameters, "TC_SHEET_N_CSV", context)
+                sheet, sid = read_value_lookup(pth), f"user lookup {pth}"
+            if parameters.get("TC_KERBY_N_CSV"):
+                pth = self.parameterAsFile(parameters, "TC_KERBY_N_CSV", context)
+                kerby, kid = read_value_lookup(pth), f"user lookup {pth}"
+        except (OSError, ValueError) as e:
+            raise QgsProcessingException(str(e))
+        p2, p2_src, p2_grid = None, "", None
+        if parameters.get("TC_P2") not in (None, ""):
+            p2 = self.parameterAsDouble(parameters, "TC_P2", context)
+            p2_src = "user value"
+        elif "TC_P2_RASTER" in parameters and \
+                self.parameterAsRasterLayer(parameters, "TC_P2_RASTER", context) is not None:
+            from ..core.raster import warp_to_grid
+            p2_grid, desc = warp_to_grid(self.raster_path(parameters, "TC_P2_RASTER", context), info)
+            p2_src = f"raster {desc}, mean along the longest flow path"
+        chn = self.parameterAsDouble(parameters, "TC_CHANNEL_N", context) \
+            if "TC_CHANNEL_N" in parameters else CHANNEL_N
+        cat = {a["outlet_uid"]: a for _, a in catchments}
+        paths = {a["outlet_uid"]: (g, a) for g, a in flowpaths}
+        n_ok = 0
+        for _, xa in crossings:
+            uid = xa["outlet_uid"]
+            if uid not in paths:
+                xa["tc_note"] = "no flow path"
+                continue
+            line, fa = paths[uid]
+            sn = kn = None
+            if runoff is not None:
+                at = lambda xs, ys: cells(xs, ys, runoff.classes)   # noqa: E731
+                sn = along_path_value(line, min(fa.get("lfp_overland_m") or 0.0, 30.0), at, sheet)
+                kn = along_path_value(line, fa.get("lfp_overland_m"), at, kerby)
+            p2_here = p2
+            if p2_grid is not None:
+                import math as _m
+                v = [x for x in cells([p[0] for p in line], [p[1] for p in line], p2_grid)
+                     if x is not None and _m.isfinite(x)]
+                p2_here = sum(v) / len(v) if v else None
+            b = tc_block(fa, cat.get(uid, {}), xa, sheet_n=sn, kerby_n=kn, p2_mm=p2_here,
+                         channel_n=chn)
+            xa.update(b)
+            n_ok += b["tc_kirpich_min"] is not None
+        feedback.pushInfo(f"Time of concentration: {n_ok} crossing(s) with Kirpich; TR-55 "
+                          + ("with P2 " + p2_src if p2_src else "empty (give P2)")
+                          + ("" if runoff is not None else "; Kerby and TR-55 sheet need land cover")
+                          + ". Every method is reported; none is chosen.")
+        return params_json(p2, p2_src, chn, sid, kid, "cn_ii")

@@ -166,6 +166,32 @@ CROSSINGS = [
      "low: bank-full width under 3 cells or no bank found; medium: one bank only, or the "
      "transect or the walk cut by NoData or the grid edge", "QA"),
     ("xs_note", "text", "-", "why the quality was lowered; widths that are lower bounds", "", "QA"),
+    # time of concentration by five methods (v0.22, F10) - all reported, none chosen
+    ("tc_kirpich_min", "real", "min", "Tc by Kirpich (1940)",
+     "0.0195 L^0.77 S^-0.385; L = lfp_length_m, S = lfp_slope_1085", "time of concentration"),
+    ("tc_kerby_kirpich_min", "real", "min", "Tc by Kerby (1959) overland + Kirpich channel",
+     "1.44 (L_ov N)^0.467 S_ov^-0.235 on lfp_overland_m / _slope + Kirpich on lfp_channel_m / "
+     "_slope; N along the overland path from the land-cover lookup (PROXY unless a user CSV)",
+     "time of concentration"),
+    ("tc_scs_lag_min", "real", "min", "Tc by the SCS / NRCS lag equation (NEH 630 ch. 15)",
+     "lag = l^0.8 (S+1)^0.7 / (1900 Y^0.5) (l ft, S = 1000/CN - 10, Y % = catch_slope_horn); "
+     "Tc = lag / 0.6; CN = cn_ii", "time of concentration"),
+    ("tc_tr55_min", "real", "min", "Tc by TR-55 segments (sheet + shallow + channel)",
+     "sheet 0.007 (nL)^0.8 / (P2^0.5 s^0.4) over <= 30 m; shallow 16.1345 s^0.5 ft/s (unpaved); "
+     "channel Manning on the F5 bank-full section; NULL without a user P2", "time of concentration"),
+    ("tc_bransby_williams_min", "real", "min", "Tc by Bransby-Williams",
+     "14.6 L / (A^0.1 S^0.2); L km, A km2, S m/km from lfp_slope_1085", "time of concentration"),
+    ("tc_kirpich_flag", "text", "-", "within / outside the Kirpich calibration range",
+     "A 0.004-0.45 km2, slope 3-10 % (tc_params_json)", "QA"),
+    ("tc_kerby_kirpich_flag", "text", "-", "within / outside the Kerby range",
+     "overland length <= 365 m", "QA"),
+    ("tc_scs_lag_flag", "text", "-", "within / outside the SCS lag range", "A <= 8 km2, CN 50-95",
+     "QA"),
+    ("tc_tr55_flag", "text", "-", "within / outside (channel section quality low)",
+     "sheet flow capped at 30 m", "QA"),
+    ("tc_bransby_williams_flag", "text", "-", "'rural catchments' (no hard limit)", "", "QA"),
+    ("tc_basis_json", "text", "-", "inputs used by each method (JSON)", "", "hand check"),
+    ("tc_note", "text", "-", "why a method is empty (missing input)", "", "QA"),
 ]
 
 CATCHMENTS = [
@@ -575,6 +601,8 @@ METADATA_KEYS = [
     ("fp_params_json", "floodplain width indicator settings: area limit, dz values, bed window, "
      "HAND on/off (empty = no road)"),
     ("quicklook_params_json", "raster quicklook settings: folder, maximum size (empty = none)"),
+    ("tc_params_json", "time of concentration settings: validity ranges and sources, P2 and its "
+     "source, channel n, sheet n and Kerby N lookups (PROXY flags), CN used"),
     ("corridor_sti_params_json", "side-drain siltation indicator settings: station step, half "
      "width, offset step, road strip, drain slope limit, class breaks, slope source "
      "(empty = not run)"),
@@ -634,6 +662,8 @@ DOWNSTREAM_USE = {
     "exit channel slope": "exit channel slope (tailwater rating)",
     "side-drain siltation": "side-drain siltation screening (low-gradient drain fed by a high "
                             "transport-capacity slope)",
+    "time of concentration": "time of concentration by one published method (all methods side "
+                             "by side; the engineer chooses)",
     "channel section": "approach / exit channel section for tailwater and waterway checks "
                        "(indicative)",
     "MUSLE K": "soil erodibility for RUSLE / MUSLE",
