@@ -53,7 +53,8 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
             "characteristics table - one row per crossing, ready for a spreadsheet - and one "
             "CSV per layer), <b>quicklooks/</b> (PNG + world file + legend of the rasters, for "
             "viewing without a GIS), <b>report/run_report.html</b> and <b>settings.json</b>.\n\n"
-            "<b>Steps:</b> DEM checks (NoData, nearest-neighbour resampling) → fill → D8 "
+            "<b>Steps:</b> optionally Prepare DEM (merge tiles, bilinear to the local UTM "
+            "zone; off by default) → DEM checks (NoData, nearest-neighbour resampling) → fill → D8 "
             "(Barnes by default) → accumulation → streams → with a road: crossing candidates "
             "(optionally burnt through the embankment, then routed again) → erosion "
             "indices / RUSLE → crossings, catchments and flow paths with soils, curve number, "
@@ -82,6 +83,12 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
             optional=True, fileFilter="JSON (*.json)"))
         self.addParameter(QgsProcessingParameterRasterLayer("DEM", "DEM (raw, projected, metres)",
                                                             optional=True))
+        from qgis.core import QgsProcessingParameterMultipleLayers as _ML
+        self.addParameter(QgsProcessingParameterBoolean(
+            "PREPARE", "Prepare the DEM first (merge tiles, reproject bilinear to the local UTM "
+            "zone at the native cell size, audit)", defaultValue=False))
+        self.addParameter(_ML("DEM_TILES", "DEM tiles to prepare (optional; else the DEM above)",
+                              QgsProcessing.SourceType.TypeRaster, optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
             "ROAD", "Road alignment (centreline; optional)",
             [QgsProcessing.SourceType.TypeVectorLine], optional=True))
@@ -182,7 +189,8 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
     def processAlgorithm(self, parameters, context, feedback):
         t0 = time.time()
         p = self._settings(parameters, context, feedback)
-        if not p.get("DEM"):
+        prepare = self.parameterAsBool(p, "PREPARE", context) if "PREPARE" in p else False
+        if not p.get("DEM") and not (prepare and p.get("DEM_TILES")):
             raise QgsProcessingException("Give a DEM (or a settings file that names one).")
         folder = self.parameterAsFileOutput(
             parameters if parameters.get("OUTPUT") not in (None, "") else p, "OUTPUT", context)
@@ -193,7 +201,7 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
             os.makedirs(v, exist_ok=True)
         R = lambda name: os.path.join(d["rasters"], name)  # noqa: E731
         L = lambda name: os.path.join(d["layers"], name)   # noqa: E731
-        raw = self.raster_path(p, "DEM", context)
+        raw = self.raster_path(p, "DEM", context) if p.get("DEM") else ""
         road = p.get("ROAD") or None
         crossings_in = p.get("CROSSINGS") or None
         stage = self.parameterAsEnum(p, "STAGE", context) if "STAGE" in p else 0
@@ -212,7 +220,20 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
         # 0. DEM checks -----------------------------------------------------------
         fb.setCurrentStep(0)
         fb.setProgressText("DEM checks")
-        if p.get("NODATA_OVERRIDE") not in (None, ""):
+        if prepare:
+            fb.setProgressText("Prepare DEM")
+            tiles = [lyr.source().split("|")[0] for lyr in self.parameterAsLayerList(p, "DEM_TILES", context)] \
+                if p.get("DEM_TILES") else [raw]
+            pp = {"DEMS": tiles, "CRS_MODE": 0, "RESAMPLING": 0, "SOURCE": p.get("DEM_SOURCE") or "",
+                  "OUTPUT": R("dem_prepared.tif"), "LOG": R("dem_prepared_log.json")}
+            if p.get("NODATA_OVERRIDE") not in (None, ""):
+                pp["NODATA"] = p["NODATA_OVERRIDE"]
+            self._run("preparedem", pp, context, fb)
+            raw = R("dem_prepared.tif")
+            outputs["Prepared DEM"] = raw
+            feedback.pushInfo("DEM prepared: rasters/dem_prepared.tif (log dem_prepared_log.json); "
+                              "every step uses it.")
+        elif p.get("NODATA_OVERRIDE") not in (None, ""):
             from osgeo import gdal
             gdal.UseExceptions()
             nd = self.parameterAsDouble(p, "NODATA_OVERRIDE", context)
@@ -444,6 +465,8 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
             elif text not in ("", None) and kind in ("source", "vector"):
                 lyr = self.parameterAsVectorLayer(p, k, context)
                 text = lyr.source() if lyr is not None else str(text)
+            elif text not in ("", None) and kind == "multilayer":
+                text = [lyr.source() for lyr in self.parameterAsLayerList(p, k, context)]
             elif not isinstance(text, (str, int, float, bool)):
                 text = str(text)
             rec[k] = text

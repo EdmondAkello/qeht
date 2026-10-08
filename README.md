@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.20.0
+# QEHT — QGIS Engineering Hydrology Toolkit v0.21.0
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -451,6 +451,20 @@ Side drains silt up where a low-gradient drain is fed by a slope with a high sed
 - Reach fields: `sti_p90_lhs` / `_rhs` (p90 of the station values), `sti_max_*`, `sti_class_*` and `siltation_len_lhs_m` / `_rhs_m`. The chart gains an LHS / RHS panel.
 
 *Build design hydrology package* writes the same reaches as layer `corridor_sti` when an erosion folder and a road are given (settings and class breaks in `corridor_sti_params_json`). The indicator is not used in the erosion classes, RUSLE or the composite score.
+
+## v0.21: Prepare DEM for hydrology
+
+Most bad runs start before QEHT: a DEM reprojected with nearest neighbour, an export finer than the native grid (repeated rows and columns), or NoData zeros the file does not declare. **Prepare DEM for hydrology** (Terrain and drainage) does the preparation in-process:
+
+1. Merges the tiles of one product into a virtual mosaic.
+2. Optionally clips to a polygon layer or an extent, widened by a buffer (default 2,000 m).
+3. Reprojects with **bilinear** (default) or cubic resampling. Nearest neighbour is not offered. The output is float32 with NoData −9999 and pixels aligned to the cell size.
+4. Audits the input and the output for undeclared NoData and nearest-neighbour repeats. If the *input* already repeats rows or columns, the damage is upstream: get the native product.
+5. Writes the DEM source and the preparation record into the GeoTIFF tags. The design hydrology package reads them when its own *DEM source* is blank (metadata `dem_source`, `dem_prep`).
+
+**Target CRS.** By default this is the WGS 84 / UTM zone of the extent centre, anywhere on Earth. Beyond 84° N or 80° S it is UPS North or South, and the Norway (32V) and Svalbard (31X–37X) zone exceptions apply. The log notes an extent that spans several zones. You can also choose any projected CRS, such as a national grid. **Cell size** defaults to the native cell converted to metres (the larger of x and y, to 0.1 m). A JSON log records the inputs, CRS, cell size, resampling, both audits and an estimate of the native grid.
+
+The pipeline can run it as an optional first step (*Prepare the DEM first*, off by default). It takes the DEM or a set of tiles and writes `rasters/dem_prepared.tif`.
 
 ### Data sources by region
 

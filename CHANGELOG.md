@@ -3,6 +3,14 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.21.0] — unreleased (Prepare DEM for hydrology)
+### Added
+- **Prepare DEM for hydrology** (F9, group Terrain and drainage, id `preparedem`): tile mosaic (`gdal.BuildVRT`), optional clip to polygons or an extent with a buffer (default 2,000 m), warp to the target CRS (bilinear or cubic; nearest refused; float32, NoData −9999, target-aligned pixels), NoData override, NoData and resampling audits on input and output, a JSON log with a native-grid estimate, and GeoTIFF tags `QEHT_DEM_SOURCE` / `QEHT_DEM_PREP`.
+- Automatic target CRS for any location: the WGS 84 / UTM zone of the extent centre with the Norway and Svalbard exceptions, UPS North / South beyond 84° N / 80° S, and a note when the extent spans several zones. Any projected CRS can be chosen instead.
+- The design hydrology package takes `dem_source` from the DEM tags when the parameter is blank; new metadata key `dem_prep`.
+- Pipeline: optional first step *Prepare the DEM first* (off by default) with optional DEM tiles; writes `rasters/dem_prepared.tif` and its log.
+- Tests: test_prepare_dem 20 (new; GDAL); smoke 68 (+2; 20 algorithms). Golden fixture regenerated: one metadata key added, no existing value changed.
+
 ## [0.20.0] — unreleased (side-drain siltation indicator)
 ### Added
 - **Side-drain siltation indicator** (STI advisory R3) in *Sample erosion along alignment*, with the new optional inputs *Flow direction* and *Raw DEM* (advanced: road strip half-width 5 m, drain slope limit 1 %). Per station and side (LHS / RHS looking up-chainage) the overland STI over the corridor cells whose D8 path reaches the road strip without entering a channel: `sti_p50_lhs`, `sti_p90_lhs`, `n_lhs`, `sti_p50_rhs`, `sti_p90_rhs`, `n_rhs`, relative classes `sti_class_lhs` / `_rhs` from the corridor's own 50 / 75 / 90th percentiles, `slope_long_pct` from the alignment profile and `siltation_lhs` / `_rhs` (class high or very high on a slope under 1 %). Reach fields `sti_p90_*`, `sti_max_*`, `sti_class_*`, `siltation_len_*_m`. An LHS / RHS panel on the chart.

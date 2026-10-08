@@ -34,12 +34,14 @@ from .alg_alignment_profile import AlignmentProfileAlgorithm
 from .alg_coverage import DrainageCoverageAlgorithm
 from .alg_pipeline import HydrologyPipelineAlgorithm
 from .alg_run_report import RunReportAlgorithm
+from .alg_prepare_dem import PrepareDemAlgorithm
 
 
 class QehtProvider(QgsProcessingProvider):
 
     def loadAlgorithms(self):
         for alg in (
+            PrepareDemAlgorithm(),
             FillDepressionsAlgorithm(),
             FlowDirectionAlgorithm(),
             FlowAccumulationAlgorithm(),

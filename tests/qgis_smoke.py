@@ -63,9 +63,10 @@ def main(in_qgis=False):
         reg.addProvider(QehtProvider())
     algs = sorted(a.id() for a in reg.providerById("qeht").algorithms())
     print("QEHT algorithms:", ", ".join(algs))
-    check("provider loads with 19 algorithms incl. exchange, crossings, burn, relink, soils, "
-          "erosion, alignment profile, pipeline, run report",
-          len(algs) == 19 and all(a in algs for a in ("qeht:alignmentprofile", "qeht:drainagecoverage",
+    check("provider loads with 20 algorithms incl. exchange, crossings, burn, relink, soils, "
+          "erosion, alignment profile, pipeline, run report, prepare DEM",
+          len(algs) == 20 and all(a in algs for a in ("qeht:alignmentprofile", "qeht:drainagecoverage",
+              "qeht:preparedem",
               "qeht:hydrologypipeline", "qeht:runreport",
               "qeht:buildheasexchange", "qeht:crossingcandidates", "qeht:burncrossings",
               "qeht:renumberrelink", "qeht:soilparameters", "qeht:erosionindices",
@@ -725,6 +726,33 @@ def main(in_qgis=False):
           "xs_transects" not in dict(gpkg.list_tables(r["OUTPUT"]))
           and all(c["xs_quality"] is None for c in gpkg.read_table(r["OUTPUT"], "crossings",
                                                                    with_geometry=False)))
+    # ---- v0.21 (F9): Prepare DEM for hydrology --------------------------------
+    import json as _jp
+    r = processing.run("qeht:preparedem", {"DEMS": [geo_dem], "SOURCE": "synthetic test DEM",
+                                           "OUTPUT": out("prepared.tif"), "LOG": out("prepared.json")})
+    from ..core.raster import raster_tags as _rt, read_dem as _rdp
+    _, _, pinf = _rdp(r["OUTPUT"])
+    with open(r["LOG"], encoding="utf-8") as fh:
+        plog = _jp.load(fh)
+    check("prepare DEM: geographic synthetic DEM -> auto UTM, native cell in metres, tags and "
+          "log with both audits",
+          "UTM zone 26N" in pinf.projection_wkt and abs(pinf.cell_width - plog["cell_m"]) < 1e-9
+          and _rt(r["OUTPUT"]).get("QEHT_DEM_SOURCE") == "synthetic test DEM"
+          and "audit_input" in plog and not plog["audit_output"]["warnings"],
+          f"{plog['target_crs']}, cell {plog['cell_m']} m, {r['SUMMARY']}")
+    from osgeo import gdal as _gp
+    _gp.UseExceptions()
+    _gp.Translate(out("dem_tagged.tif"), dem)
+    _ds = _gp.Open(out("dem_tagged.tif"), _gp.GA_Update)
+    _ds.SetMetadata({"QEHT_DEM_SOURCE": "FABDEM v1.2 (test tag)", "QEHT_DEM_PREP": "QEHT prepare DEM test"})
+    _ds = None
+    r = processing.run("qeht:buildheasexchange", {
+        "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": out("dem_tagged.tif"),
+        "POINTS": out("cand.gpkg"), "XS": False, "OUTPUT": out("tag_pkg.gpkg")})
+    mdt = {row["key"]: row["value"] for row in gpkg.read_table(r["OUTPUT"], "qeht_run_metadata")}
+    check("package reads dem_source and dem_prep from the DEM tags when left blank",
+          mdt["dem_source"].startswith("FABDEM v1.2 (test tag)") and mdt["dem_prep"] ==
+          "QEHT prepare DEM test", mdt["dem_source"])
     # ---- v0.17 (F7/F8): one-click pipeline and run report --------------------
     import json as _json3
     from ..core.raster import read_dem as _rd3

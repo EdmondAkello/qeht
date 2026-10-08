@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.20.0
+**Version:** 0.21.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -358,6 +358,20 @@ For every crossing (existing and proposed) at outlet cell (r, c):
 On the analytic test channel (1 m grid; 6 m bed, 1:2 banks 2 m high, 1:20 floodplain) the bed level, the 14 m bank-full width, the 2 m depth and the 2.0 side slopes are exact; on the same channel running NE–SW the widths agree within a station step except at the bank-top corner, which bilinear interpolation rounds off across the diagonal (0.5 m on a 14 m width). A single-cell notch on a 10 m grid returns a 20 m bilinear V and quality low.
 
 The method is terrain only. On a 30 m DEM a channel narrower than about three cells is not resolved, and the first break of slope is often the valley shoulder: a bank-full depth of several metres means the valley, not the channel bank, was found. Use survey where available. Fields `xs_*` on crossings, layer `xs_transects`, metadata `xs_params_json`.
+
+### 4.26 Prepare DEM for hydrology (v0.21, F9)
+
+`gdal.BuildVRT` builds an in-memory mosaic of the tiles, which must share one CRS. When a NoData override is given, it is the source NoData of the mosaic and of the warp. The target CRS is either the user's (geographic CRSs are refused) or automatic: the extent centre (of the clip when given, else of the mosaic) is transformed to WGS 84 longitude λ and latitude φ, and
+
+- zone = ⌊(λ + 180) / 6⌋ + 1, with zone 32 for 56° ≤ φ < 64° and 3° ≤ λ < 12° (Norway), and zones 31, 33, 35 and 37 for 72° ≤ φ ≤ 84° and λ in [0, 9), [9, 21), [21, 33) and [33, 42) (Svalbard);
+- EPSG 32600 + zone north of the equator, 32700 + zone south of it;
+- UPS North (EPSG:32661) for φ > 84° and UPS South (EPSG:32761) for φ < −80°.
+
+When the four corners of the extent fall in different zones, the log says so; the centre's zone is used.
+
+The default cell size is max(Δλ · m_λ(φ), Δφ · m_φ(φ)) rounded to 0.1 m for a geographic input, where m_λ and m_φ are the WGS 84 lengths of a degree at the centre latitude (series in cos 2φ, cos 4φ …). For a projected input it is the input cell size. The clip bounds are transformed to the target CRS with densified edges (21 points per side) and widened by the buffer. `gdal.Warp` then writes float32 with NoData −9999, `targetAlignedPixels` and the chosen resampling (bilinear or cubic; nearest is refused).
+
+`audit_nodata` and `audit_resampling` (§4.4, 0.13.1) run on the mosaic (a central window of 16 Mcells when larger) and on the output. The native-grid estimate is the input cell divided by (1 − share of repeated rows or columns). On an input with partial repeats it is a lower bound. The output carries the tags `QEHT_DEM_SOURCE` and `QEHT_DEM_PREP`.
 
 ---
 

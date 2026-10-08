@@ -671,6 +671,7 @@
   "crs_epsg": "32737",
   "crs_name": "WGS 84 / UTM zone 37S",
   "dem_path": "synthetic",
+  "dem_prep": "",
   "dem_sha256": "",
   "dem_source": "synthetic test surface (tests/test_interop.py)",
   "erosion_json": "",

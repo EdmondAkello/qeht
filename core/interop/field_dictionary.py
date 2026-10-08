@@ -539,6 +539,8 @@ METADATA_KEYS = [
     ("raw_dem_path", "DEM used for reported elevations and slopes"),
     ("dem_sha256", "SHA-256 of the raw DEM file (or size+mtime above the hash limit)"),
     ("dem_source", "user description of the DEM (e.g. ALOS 30 m, LiDAR)"),
+    ("dem_prep", "preparation record of the raw DEM (QEHT_DEM_PREP tag from 'Prepare DEM for "
+     "hydrology'; empty when not prepared there)"),
     ("conditioning", "how the DEM was conditioned (user-declared)"),
     ("flat_method", "flat resolution used for flow direction (user-declared)"),
     ("tie_rule", "D8 tie-break rule"),

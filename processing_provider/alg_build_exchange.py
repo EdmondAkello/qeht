@@ -629,6 +629,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
 
         from ..core.raster import raster_tags
         tags_fdr = raster_tags(fdr_path)
+        tags_raw = raster_tags(raw_path)
         tags_fill = raster_tags(self.raster_path(parameters, "FILLED", context)) \
             if self.parameterAsRasterLayer(parameters, "FILLED", context) is not None else {}
         cell_area = info.cell_width * info.cell_height
@@ -639,7 +640,10 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "dem_path": fdr_path, "raw_dem_path": raw_path,
             "dem_sha256": file_fingerprint(raw_path),
             "dem_source": (self.parameterAsString(parameters, DEM_SOURCE, context)
+                           or (f"{tags_raw['QEHT_DEM_SOURCE']} (from the DEM tags)"
+                               if tags_raw.get("QEHT_DEM_SOURCE") else "")
                            or f"file {os.path.basename(raw_path)} (not described by the user)"),
+            "dem_prep": tags_raw.get("QEHT_DEM_PREP", ""),
             "conditioning": "; ".join(x for x in (
                 self.parameterAsString(parameters, CONDITIONING, context)
                 or tags_fill.get("QEHT_CONDITIONING", ""),
