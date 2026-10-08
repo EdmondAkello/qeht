@@ -194,8 +194,9 @@ def main(in_qgis=False):
     check("exchange: package validates", not errors and not warnings, "; ".join(errors + warnings))
     for layer in ("crossings", "catchments", "flowpaths"):
         ql = QgsVectorLayer(f"{xp}|layername={layer}", layer, "ogr")
-        check(f"exchange: '{layer}' opens in QGIS with 3 features and EPSG:21037",
-              ql.isValid() and ql.featureCount() == 3 and ql.crs().authid() == "EPSG:21037",
+        check(f"exchange: '{layer}' opens in QGIS with 3 features in the DEM's CRS",
+              ql.isValid() and ql.featureCount() == 3
+              and ql.crs().authid() == QgsRasterLayer(dem).crs().authid(),
               f"{ql.featureCount()} features, {ql.crs().authid()}")
     md = {row["key"]: row["value"] for row in gpkg.read_table(xp, "qeht_run_metadata")}
     check("exchange: metadata records DEM hash, flat method and id attribute",
@@ -962,8 +963,8 @@ def main(in_qgis=False):
           and all(c["tc_tr55_min"] is not None or "TR-55" in (c["tc_note"] or "") for c in cr3
                   if c["tc_note"] != "no flow path"),
           f"{n5}/{n_fp} with four methods, {n_tr} with TR-55; e.g. "
-          + ", ".join(f"{c['outlet_uid']} K {c['tc_kirpich_min']:.0f} SCS {c['tc_scs_lag_min']:.0f} min"
-                      for c in cr3[:3]))
+          + ", ".join(f"{c['outlet_uid']} K {c['tc_kirpich_min'] or 0:.0f} SCS "
+                      f"{c['tc_scs_lag_min'] or 0:.0f} min" for c in cr3[:3]))
     check("run report: title, every crossing, plan, PROXY / ESTIMATE labels, settings path",
           "<h1>full</h1>" in rep and all(c["outlet_uid"] in rep for c in ca3) and "<svg" in rep
           and "PROXY" in rep and "R ESTIMATE" in rep and "settings.json" in rep)

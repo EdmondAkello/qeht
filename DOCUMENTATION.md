@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.27.1
+**Version:** 1.0.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -555,8 +555,9 @@ Completed as of 0.8.2:
   (`https://github.com/EdmondAkello/qeht`) populated; `changelog` pointer
   added.
 - `CHANGELOG.md` added, derived from the version history.
-- Reproducible example datasets added: a real-world DEM (`examples/example_dem.tif`,
-  ~2.7 MB) and a synthetic DEM with no real-world correspondence
+- Reproducible example datasets added: a DEM (`examples/example_dem.tif`; real terrain up
+  to 0.27, replaced in 1.0.0 by a synthetic projected DEM from `tools/dev/make_example_dem.py`)
+  and a synthetic geographic DEM with no real-world correspondence
   (`examples/synthetic_dem.tif`, ~0.4 MB), both with a documented end-to-end
   workflow (`examples/README.md`).
 - Documentation pass replacing project-identifying site names with generic
