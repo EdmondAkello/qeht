@@ -834,6 +834,28 @@ def main(in_qgis=False):
           and "files/legend.png" in _zf.ZipFile(kz).namelist()
           and sum(1 for k in xc if k.startswith("A") and k[1:].isdigit() and int(k[1:]) >= 3) == len(cr3),
           f"{kml.count('<Placemark>')} placemarks, {len(xc)} cells")
+    # ---- v0.24 (F12): check against mapped drainage (the DEM's own streams as the map) --
+    r = processing.run("qeht:buildheasexchange", {
+        "FDR": os.path.join(pf, "rasters", "flow_direction.tif"),
+        "FAC": os.path.join(pf, "rasters", "flow_accumulation.tif"), "RAW_DEM": dem,
+        "POINTS": os.path.join(pf, "layers", "crossing_candidates.gpkg"), "ROAD": out("road.gpkg"),
+        "START": 1000.0, "COVERAGE": False, "SNAP_THRESHOLD": 200,
+        "MAPPED": os.path.join(pf, "layers", "streams.gpkg"), "MAPPED_KM2": km2_200,
+        "MAPPED_SOURCE": "DEM streams (self-check)", "OUTPUT": out("mapped_pkg.gpkg")})
+    errors, _ = validate_exchange(r["OUTPUT"])
+    crm = gpkg.read_table(r["OUTPUT"], "crossings", with_geometry=False)
+    cam = gpkg.read_table(r["OUTPUT"], "catchments", with_geometry=False)
+    mdm = _json3.loads({row["key"]: row["value"] for row in
+                        gpkg.read_table(r["OUTPUT"], "qeht_run_metadata")}["mapped_drainage_json"])
+    tabsm = dict(gpkg.list_tables(r["OUTPUT"]))
+    agr = [c["map_agrees"] for c in crm if c["map_agrees"] is not None]
+    check("mapped drainage against the DEM's own streams: precision and recall near 1, every "
+          "crossing on the map, per-catchment scores, layers and metadata, validates",
+          not errors and mdm["precision"] > 0.95 and mdm["recall"] > 0.95 and agr and all(agr)
+          and all(c["map_precision"] is not None for c in cam)
+          and "drainage_divergence" in tabsm and "mapped_rivers_used" in tabsm,
+          f"P {mdm['precision']:.3f} R {mdm['recall']:.3f} F1 {mdm['f1']:.3f}; {len(agr)} of "
+          f"{len(crm)} crossings compared")
     r = processing.run("qeht:exportpackage", {"PACKAGE": pkg3, "TITLE": "Site C <test>",
                                               "KMZ": out("exp.kmz"), "XLSX": out("exp.xlsx")})
     check("export tool on a package: KMZ and XLSX written",

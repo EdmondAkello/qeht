@@ -281,6 +281,36 @@ def build_report(package_path, title=None, extra=None):
                            {"area_barnes_km2", "area_toward_km2", "flat_sensitivity_pct"})
                     if flagged else ""))
 
+    # check against mapped drainage (F12)
+    mj = _json(md, "mapped_drainage_json")
+    if mj:
+        off = [r for r in gpkg.read_table(package_path, "crossings", with_geometry=False)
+               if r.get("map_agrees") == 0]
+        div = gpkg.read_table(package_path, "drainage_divergence", with_geometry=False) \
+            if "drainage_divergence" in tables else []
+        P.append("<h2>Check against mapped drainage</h2><p class='sub'>DEM streams of at least "
+                 f"{_fmt(mj.get('comparison_threshold_km2'))} km² against "
+                 f"{_e(mj.get('source'))} ({mj.get('lines')} line(s)), tolerance "
+                 f"{_fmt(mj.get('tolerance_m'))} m. Precision = share of DEM stream length on the "
+                 "map; recall = share of mapped length found by the DEM.</p>"
+                 + _table(["precision", "recall", "F1"], [{"precision": _fmt(mj.get("precision")),
+                                                          "recall": _fmt(mj.get("recall")),
+                                                          "F1": _fmt(mj.get("f1"))}],
+                          {"precision", "recall", "F1"}))
+        if off:
+            P.append("<h3>Crossings away from the mapped waterways</h3>" + _table(
+                ["outlet_uid", "map_river_dist_m", "map_river_name", "map_note"],
+                [{k: _fmt(r.get(k)) for k in ("outlet_uid", "map_river_dist_m", "map_river_name",
+                                             "map_note")} for r in off], {"map_river_dist_m"}))
+        if div:
+            div = sorted(div, key=lambda r: -(r.get("area_km2") or 0))[:20]
+            P.append("<h3>Where the DEM streams leave the mapped course</h3><p class='sub'>Largest "
+                     "areas first (layer drainage_divergence). A large area here can move between "
+                     "crossings: verify on site.</p>" + _table(
+                         ["area_km2", "length_m", "cells", "rejoins"],
+                         [{k: _fmt(r.get(k)) for k in ("area_km2", "length_m", "cells", "rejoins")}
+                          for r in div], {"area_km2", "length_m", "cells"}))
+
     # time of concentration (F10)
     from .characteristics import tc_rows
     tcols, trows = tc_rows(package_path)

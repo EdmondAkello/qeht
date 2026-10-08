@@ -38,7 +38,7 @@ C = {"existing": "#2b83ba", "proposed": "#f28e2b", "navy": "#1f3b57", "text": "#
      "label": "#51606f", "rule": "#c9d3dd", "zebra": "#f3f6f9", "lfp": "#ae017e",
      "lfp_hi": "#ff3fbf", "road": "#252525", "road_case": "#fff7bc", "finding": "#d7301f",
      "sag": "#6a51a3", "flat": "#1b9e77", "xs": "#00a6ca", "kmpost": "#3b4b5c", "ok": "#1a9641",
-     "warn": "#d95f02", "bad": "#d7191c", "grey": "#7f8c99"}
+     "warn": "#d95f02", "bad": "#d7191c", "grey": "#7f8c99", "mapped": "#4292c6"}
 STI_COLOURS = {"low": "#1a9641", "moderate": "#a6d96a", "high": "#fdae61", "very high": "#d7191c"}
 FONT = "font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#1d2733;width:430px"
 
@@ -302,6 +302,10 @@ def crossing_card(c, ca, fp, md):
     if c.get("xs_quality"):
         b += badge(f"Channel section: {c['xs_quality']}",
                    {"high": C["ok"], "medium": C["warn"], "low": C["bad"]}[c["xs_quality"]])
+    if c.get("map_agrees") is not None:
+        b += badge("On the mapped waterway" if c["map_agrees"] == 1 else
+                   f"{fmt(c.get('map_river_dist_m'), 0)} m from the mapped waterway",
+                   C["ok"] if c["map_agrees"] == 1 else C["warn"])
     if c.get("ero_impact"):
         b += badge(f"Erosion impact: {c['ero_impact']}", C["grey"])
     if c.get("ero_dep_flag"):
@@ -314,6 +318,8 @@ def crossing_card(c, ca, fp, md):
         ("Snapped by", fmt(c.get("snap_dist_m"), 1, "m")),
         ("Strahler order", fmt(c.get("stream_order"))),
         ("Source ID", c.get("source_id")),
+        ("Nearest mapped waterway", f"{c.get('map_river_name') or 'unnamed'} "
+         f"({fmt(c.get('map_river_dist_m'), 1, 'm')})" if _has(c.get("map_river_dist_m")) else None),
         ("Nearest existing crossing", f"{c['nearest_uid']} ({fmt(c.get('nearest_m'), 1, 'm')})"
          if c.get("nearest_uid") else None)])
     cat = rows_table([
@@ -429,7 +435,9 @@ def build_kml(pkg, to_wgs84, title=None, relief=None):
               line_style("road_case", C["road_case"], 7.0),
               line_style("road", C["road"], 3.2),
               line_style("flat", C["flat"], 5.0, alpha=200),
-              line_style("xs", C["xs"], 1.6)]
+              line_style("xs", C["xs"], 1.6),
+              line_style("mapped", C["mapped"], 2.4, alpha=210),
+              line_style("divergence", C["bad"], 3.4)]
     styles += [line_style("sti_" + k.replace(" ", "_"), v, 4.0, alpha=230)
                for k, v in STI_COLOURS.items()]
     # everything to WGS 84 in one call per layer
@@ -571,6 +579,22 @@ def build_kml(pkg, to_wgs84, title=None, relief=None):
                       card(C["xs"], f"Channel section {r.get('outlet_uid')}",
                            f"{fmt(r.get('xs_dist_m'), 0)} m downstream · quality {r.get('xs_quality')}"))
             for r in xs if r.get("_geom")], visible=False))
+    dv = _layer(pkg, "drainage_divergence", tabs)
+    mr = _layer(pkg, "mapped_rivers_used", tabs)
+    if dv or mr:
+        items = [placemark(r.get("name") or "mapped waterway", "mapped", line_geom(to_wgs84(r["_geom"])),
+                           card(C["mapped"], r.get("name") or "Mapped waterway", "used for the check",
+                                "", rows_table([("Length in the DEM extent", fmt(r.get("length_m"), 0, "m"))])))
+                 for r in mr if r.get("_geom")]
+        items += [placemark(f"Divergence {fmt(r.get('area_km2'), 3)} km²", "divergence",
+                            line_geom(to_wgs84(r["_geom"])),
+                            card(C["bad"], "DEM stream leaves the mapped course", "", "", rows_table([
+                                ("Area flowing down it", fmt(r.get("area_km2"), 3, "km²")),
+                                ("Length", fmt(r.get("length_m"), 0, "m")),
+                                ("Returns to the mapped course", "yes" if r.get("rejoins") else "no")]),
+                                foot="Verify on site: the catchment may switch between crossings."))
+                  for r in dv if r.get("_geom")]
+        folders.append(folder("6a · Mapped drainage check", items, visible=True))
     sti = _layer(pkg, "corridor_sti", tabs)
     if sti:
         items = []

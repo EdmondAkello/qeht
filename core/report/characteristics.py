@@ -37,6 +37,8 @@ GROUPS = [
     ("time of concentration", [("tc_kirpich_min", "crossings"), ("tc_kerby_kirpich_min", "crossings"),
                                ("tc_scs_lag_min", "crossings"), ("tc_tr55_min", "crossings"),
                                ("tc_bransby_williams_min", "crossings")]),
+    ("mapped drainage", [("map_agrees", "crossings"), ("map_river_dist_m", "crossings"),
+                         ("map_precision", "catchments"), ("map_recall", "catchments")]),
     ("channel section", [("xs_bankfull_w_m", "crossings"), ("xs_bankfull_d_m", "crossings"),
                          ("xs_w_1p0_m", "crossings"), ("xs_quality", "crossings")]),
     ("floodplain width", [("fp_w_0p5_m", "crossings"), ("fp_w_1p0_m", "crossings"),

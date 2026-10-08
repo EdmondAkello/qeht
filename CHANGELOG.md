@@ -3,6 +3,16 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.24.0] — unreleased (check against mapped drainage)
+### Added
+- **Check against mapped drainage** (F12) in the package and the pipeline: mapped waterways (lines, optional name field and source text), comparison threshold (default 1 km²), tolerance (60 m), shortest divergence run (10 cells).
+  - Network precision, recall and F1, overall (`mapped_drainage_json`) and per catchment (`map_precision`, `map_recall`, `map_f1`).
+  - Per crossing `map_river_dist_m`, `map_river_name`, `map_agrees` and `map_note`.
+  - Mapped rivers crossing the road with no crossing within 50 m as `mapped_river_uncovered` coverage findings.
+  - Layers `drainage_divergence` and `mapped_rivers_used`.
+- Run report section; KMZ mapped lines, divergence reaches and a map badge on each crossing; characteristics group "mapped drainage"; downstream-use term "mapped drainage check".
+- Tests: test_mapped 22 (new); smoke 72 (+1). Golden fixture regenerated: four crossing fields, three catchment fields and one metadata key added, no existing value changed.
+
 ## [0.23.0] — unreleased (KMZ and XLSX exports)
 ### Added
 - **Export package to KMZ / XLSX** (F11, group Workflow, id `exportpackage`); the pipeline writes `exports/design_hydrology.kmz` and `.xlsx` by default (*EXPORTS*).

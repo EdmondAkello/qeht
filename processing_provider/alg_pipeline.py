@@ -34,7 +34,7 @@ from ..core.raster import read_dem, audit_nodata, audit_resampling
 FLAT_LABELS = ["toward lower terrain", "Barnes 2014"]
 STAGES = ["Full run", "Stop after crossing candidates (review them, then run again with "
           "the reviewed layer as Crossings)"]
-PASS_PREFIXES = ("SOIL", "LANDCOVER", "CN_", "RC_CSV", "RAIN_", "TC_")
+PASS_PREFIXES = ("SOIL", "LANDCOVER", "CN_", "RC_CSV", "RAIN_", "TC_", "MAPPED")
 
 
 class HydrologyPipelineAlgorithm(QehtAlgorithm):
@@ -121,6 +121,15 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
         self.add_soil_parameters("SOIL", optional=True)
         self.add_runoff_parameters()
         self.add_rainfall_parameters()
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            "MAPPED", "Mapped waterways for the drainage check (lines; optional)",
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
+        from qgis.core import QgsProcessingParameterField as _Fld
+        self.addParameter(_Fld("MAPPED_NAME_FIELD", "Mapped waterways: name field",
+                               parentLayerParameterName="MAPPED", optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            "MAPPED_KM2", "Mapped drainage: comparison threshold (km2; about 1 for OSM, 10 for "
+            "HydroRIVERS)", QgsProcessingParameterNumber.Type.Double, defaultValue=1.0, minValue=0.0))
         self.addParameter(QgsProcessingParameterNumber(
             "TC_P2", "2-yr 24-h rainfall P2 for the TR-55 time of concentration (mm; optional, "
             "no default)", QgsProcessingParameterNumber.Type.Double, optional=True, minValue=0.0))

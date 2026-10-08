@@ -116,6 +116,13 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "station-elevation list (xs_*; layer xs_transects), with a quality flag. Indicative "
             "only; on a 30 m DEM a small channel is below the grid resolution. Use survey where "
             "available.\n\n"
+            "<b>Check against mapped drainage (optional):</b> give mapped waterways (OSM, "
+            "HydroRIVERS or a national layer). DEM streams at the comparison threshold are "
+            "compared with them within the tolerance: precision, recall and F1 overall "
+            "(metadata) and per catchment (map_precision, map_recall, map_f1); per crossing the "
+            "distance to the nearest mapped waterway and whether it agrees (map_agrees); mapped "
+            "rivers crossing the road without a crossing within 50 m become coverage findings; "
+            "DEM stream runs that leave the mapped course form the layer drainage_divergence.\n\n"
             "<b>Time of concentration:</b> Kirpich, Kerby + Kirpich, SCS lag, TR-55 segments "
             "and Bransby-Williams side by side (tc_*_min), each with a validity flag from its "
             "published calibration range and its inputs in tc_basis_json. QEHT does not pick a "
@@ -238,6 +245,23 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                 ("XS_HALF", "Channel section: half width of the transect (m)", 150.0),
                 ("XS_BANK_SLOPE", "Channel section: bank top where the side slope falls below (m/m)",
                  0.05)):
+            self.addParameter(self._advanced(QgsProcessingParameterNumber(
+                key, label, QgsProcessingParameterNumber.Type.Double, defaultValue=default,
+                minValue=0.0)))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            "MAPPED", "Mapped waterways for the drainage check (lines, e.g. OSM or HydroRIVERS; "
+            "optional)", [QgsProcessing.SourceType.TypeVectorLine], optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            "MAPPED_NAME_FIELD", "Mapped waterways: name field", parentLayerParameterName="MAPPED",
+            optional=True))
+        self.addParameter(QgsProcessingParameterString(
+            "MAPPED_SOURCE", "Mapped waterways: source for the record (e.g. OSM 2026-09)",
+            optional=True))
+        for key, label, default in (
+                ("MAPPED_KM2", "Mapped drainage: comparison threshold (km2; about 1 for OSM, 10 for "
+                 "HydroRIVERS)", 1.0),
+                ("MAPPED_TOL", "Mapped drainage: tolerance (m)", 60.0),
+                ("MAPPED_MIN_CELLS", "Mapped drainage: shortest divergence reach (cells)", 10.0)):
             self.addParameter(self._advanced(QgsProcessingParameterNumber(
                 key, label, QgsProcessingParameterNumber.Type.Double, defaultValue=default,
                 minValue=0.0)))
@@ -586,6 +610,12 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                     feedback.pushWarning(f"  {a['outlet_uid']}: channel section low quality - "
                                          f"{a.get('xs_note')}")
 
+        # -- check against mapped drainage (F12) -----------------------------------
+        mapped_md = ""
+        if parameters.get("MAPPED") and self.parameterAsSource(parameters, "MAPPED", context) is not None:
+            mapped_md = self._mapped_block(parameters, context, feedback, info, direction, valid,
+                                           accum, alignment, crossings, catchments, extra_layers)
+
         # -- time of concentration by five methods (F10) -------------------------
         tc_md = ""
         if self.parameterAsBool(parameters, "TC", context) if "TC" in parameters else True:
@@ -703,6 +733,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "xs_params_json": xs_md,
             "corridor_sti_params_json": csti_md,
             "tc_params_json": tc_md,
+            "mapped_drainage_json": mapped_md,
             "n_proposed": str(n_proposed),
             "crossing_source": ("crossing candidates" if candidate_mode else "pour points"),
             "chainage_start_m": (f"{alignment.start_chainage:g}" if alignment is not None else ""),
@@ -819,3 +850,87 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                           + ("" if runoff is not None else "; Kerby and TR-55 sheet need land cover")
                           + ". Every method is reported; none is chosen.")
         return params_json(p2, p2_src, chn, sid, kid, "cn_ii")
+
+    def _mapped_block(self, parameters, context, feedback, info, direction, valid, accum,
+                      alignment, crossings, catchments, extra_layers):
+        """F12: map_* fields, optional layers and coverage findings; returns mapped_drainage_json."""
+        from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
+        from ..core.network import mapped as mp
+        from ..core.geometry.rasterize import rasterize_polygons
+        from ..core.interop.field_dictionary import OPTIONAL_LAYERS
+        src = self.parameterAsSource(parameters, "MAPPED", context)
+        name_field = self.field_parameter(parameters, "MAPPED_NAME_FIELD", context) \
+            if parameters.get("MAPPED_NAME_FIELD") else ""
+        dcrs = QgsCoordinateReferenceSystem()
+        dcrs.createFromWkt(info.projection_wkt)
+        tr = QgsCoordinateTransform(src.sourceCrs(), dcrs, QgsProject.instance()) \
+            if dcrs.isValid() and src.sourceCrs() != dcrs else None
+        lines, names = [], []
+        for f in src.getFeatures():
+            g = f.geometry()
+            if g is None or g.isEmpty():
+                continue
+            if tr is not None:
+                g.transform(tr)
+            parts = g.asMultiPolyline() if g.isMultipart() else [g.asPolyline()]
+            nm = f[name_field] if name_field else None
+            nm = None if nm is None or str(nm) == "NULL" else str(nm)
+            for ln in parts:
+                if len(ln) >= 2:
+                    lines.append([(p.x(), p.y()) for p in ln])
+                    names.append(nm)
+        gp = lambda k, d: self.parameterAsDouble(parameters, k, context) if k in parameters else d  # noqa: E731
+        km2, tol, mc = gp("MAPPED_KM2", 1.0), gp("MAPPED_TOL", 60.0), int(gp("MAPPED_MIN_CELLS", 10.0))
+        gt = info.geotransform
+        cell_area = info.cell_width * info.cell_height
+        stream = extract_streams(accum, valid, threshold_cells=max(1.0, km2 * 1e6 / cell_area))
+        ctx = mp.prepare(stream, direction, valid, lines, gt, tol)
+        overall = mp.scores(ctx)
+        shape = (info.rows, info.cols)
+        for g, a in catchments:
+            pts = np.array([p for poly in (g or []) for ring in poly for p in ring], float)
+            if pts.size == 0:
+                continue
+            c0 = max(int((pts[:, 0].min() - gt[0]) // gt[1]) - 1, 0)
+            c1 = min(int((pts[:, 0].max() - gt[0]) // gt[1]) + 2, info.cols)
+            r0 = max(int((pts[:, 1].max() - gt[3]) // gt[5]) - 1, 0)
+            r1 = min(int((pts[:, 1].min() - gt[3]) // gt[5]) + 2, info.rows)
+            wgt = (gt[0] + c0 * gt[1], gt[1], 0.0, gt[3] + r0 * gt[5], 0.0, gt[5])
+            lab = rasterize_polygons([(poly, 1) for poly in g], wgt, (r1 - r0, c1 - c0))
+            region = np.zeros(shape, bool)
+            region[r0:r1, c0:c1] = lab > 0
+            p, r, f1 = mp.scores(ctx, region)
+            a.update({"map_precision": p, "map_recall": r, "map_f1": f1})
+        for (_, a), b in zip(crossings, mp.crossing_fields([a for _, a in crossings], lines, names,
+                                                            tol, km2)):
+            a.update(b)
+        n_unc = 0
+        if alignment is not None:
+            found = mp.uncovered_rivers(lines, names, alignment,
+                                        [a.get("chainage_m") for _, a in crossings])
+            n_unc = len(found)
+            if found:
+                cov = [e for e in extra_layers if e[0] == "coverage_check"]
+                if cov:
+                    cov[0][3].extend(found)
+                else:
+                    from ..core.network.coverage import COVERAGE_FIELDS
+                    extra_layers.append(("coverage_check", "POINT", COVERAGE_FIELDS, found,
+                                         OPTIONAL_LAYERS["coverage_check"][2]))
+                for (_, a_) in found:
+                    feedback.pushWarning(f"  ch {a_['chainage_m']:,.0f}: {a_['note']}")
+        div = mp.divergence_reaches(stream, ctx["stream"] & ctx["near_map"], direction, valid,
+                                    accum, gt, min_cells=mc)
+        for name in ("drainage_divergence", "mapped_rivers_used"):
+            lay = OPTIONAL_LAYERS[name]
+            rows = div if name == "drainage_divergence" else mp.clip_lines(lines, names, gt, shape)
+            extra_layers.append((name, lay[0], [(f[0], f[1]) for f in lay[1]], rows, lay[2]))
+        fmt = lambda v: "-" if v is None else f"{v:.2f}"  # noqa: E731
+        feedback.pushInfo(f"Mapped drainage ({len(lines)} line(s), streams >= {km2:g} km2, "
+                          f"tolerance {tol:g} m): precision {fmt(overall[0])}, recall "
+                          f"{fmt(overall[1])}, F1 {fmt(overall[2])}; "
+                          f"{sum(1 for _, a in crossings if a.get('map_agrees') == 0)} crossing(s) "
+                          f"off the map, {n_unc} mapped river(s) without a crossing, {len(div)} "
+                          "divergence reach(es).")
+        return mp.params_json((self.parameterAsString(parameters, "MAPPED_SOURCE", context) or
+                               src.sourceName()), km2, tol, mc, overall, len(lines), name_field)

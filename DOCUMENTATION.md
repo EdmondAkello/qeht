@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.23.0
+**Version:** 0.24.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -413,6 +413,31 @@ The ranges and sources are written to `tc_params_json`. QEHT reports every metho
 - **Sheets:** frozen panes and column widths; sheet names are cleaned of `[]*?/\:` and cut to 31 characters.
 
 The column order is `core/report/xlsx_layout.py`: (field, source layer, header, unit, number format) per column, joined on `outlet_uid` and sorted by chainage.
+
+### 4.29 Check against mapped drainage (v0.24, F12)
+
+The mapped lines are transformed to the DEM CRS. The comparison streams S are the cells with accumulation ≥ A_c / cell area, where A_c is the comparison threshold. Agreement is tested on cell centres:
+
+- **M:** the cells touched by the mapped lines, sampled every quarter cell.
+- **M_t and S_t:** M and S dilated by a disk of radius t (all cells whose centre lies within t of a marked cell centre).
+
+The scores:
+
+- **Precision:** P = Σ ℓ(S ∩ M_t) / Σ ℓ(S), where ℓ is each cell's D8 link length to its receiver.
+- **Recall:** R = Σ w(samples in S_t) / Σ w(samples), with the mapped lines sampled every half cell and each sample weighted by half the length of its two neighbouring segments. Only samples on valid DEM cells count.
+- **F1** = 2PR / (P + R).
+
+Per catchment the same sums run over the cells of the catchment polygon, rasterised by the cell-centre rule in a window around it.
+
+For each crossing, the distance from the outlet to every mapped polyline is computed exactly (point to segment), with these rules:
+
+- **Agrees** (`map_agrees` = 1) when the distance is at most t.
+- **Disagrees** (`map_agrees` = 0) up to 1 km.
+- **Empty** (NULL) beyond 1 km, or when acc_at_outlet_km2 < A_c.
+
+Mapped lines are intersected with the alignment (the coverage-check intersection, §4.20). An intersection whose chainage is more than 50 m from every crossing is a `mapped_river_uncovered` finding.
+
+**Divergence reaches.** A divergence head is a stream cell outside M_t whose D8 donor is a stream cell inside M_t. From each head, largest accumulation first, the receivers are followed while the cells stay outside M_t and are not yet used. A run of at least `min_cells` cells is a reach. Its length is the sum of its D8 links, its area is the head's (accumulation + 1) × cell area, and `rejoins` = 1 when it ends on an agreeing cell.
 
 ---
 

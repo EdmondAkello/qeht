@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.23.0
+# QEHT — QGIS Engineering Hydrology Toolkit v0.24.0
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -515,6 +515,17 @@ Icons enlarge and labels highlight on hover.
 13. flags.
 
 Units are in row 2 and panes are frozen at B3. Every column is always written, so the layout is fixed. The order is one config list (`core/report/xlsx_layout.py`) and can be matched to a house workbook without code changes.
+
+## v0.24: check against mapped drainage
+
+Did the DEM put the river where the map does? Give *Build design hydrology package* (or the pipeline) a line layer of **mapped waterways**: OSM waterways, HydroRIVERS or a national river layer, with an optional name field. QEHT compares it with the DEM streams at a **comparison threshold** matched to the map's scale (default 1 km²; about 10 km² for HydroRIVERS) within a **tolerance** (default 60 m).
+
+- **Network agreement:** precision is the share of DEM stream length on the map; recall is the share of mapped length found by the DEM; F1 combines them. Overall scores go in `mapped_drainage_json`; per-catchment scores in `map_precision`, `map_recall` and `map_f1`.
+- **Per crossing:** `map_river_dist_m` (distance to the nearest mapped waterway), `map_river_name` and `map_agrees`. `map_agrees` is 1 within the tolerance and 0 within 1 km. It is empty beyond 1 km, and for a crossing smaller than the comparison threshold, which the map is not expected to show; `map_note` says why.
+- **Road:** a mapped river crossing the road with no crossing within 50 m becomes a coverage finding `mapped_river_uncovered`. The designer decides; no crossing is proposed.
+- **Divergence:** DEM stream runs that leave the mapped course for at least 10 cells form the layer `drainage_divergence`, with length and the area flowing down them. A large area here is how a catchment that switches between crossings shows up. The mapped lines used are stored as `mapped_rivers_used`.
+
+The run report has a section for it, and the KMZ shows the mapped lines, the divergence reaches and an "on / off the mapped waterway" badge on each crossing.
 
 ### Data sources by region
 

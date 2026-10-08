@@ -192,6 +192,15 @@ CROSSINGS = [
     ("tc_bransby_williams_flag", "text", "-", "'rural catchments' (no hard limit)", "", "QA"),
     ("tc_basis_json", "text", "-", "inputs used by each method (JSON)", "", "hand check"),
     ("tc_note", "text", "-", "why a method is empty (missing input)", "", "QA"),
+    # check against mapped drainage (v0.24, F12) - empty without a mapped waterways layer
+    ("map_river_dist_m", "real", "m", "distance from the outlet to the nearest mapped waterway",
+     "point-to-polyline, package CRS", "mapped drainage check"),
+    ("map_river_name", "text", "-", "name of that waterway (name field, if given)", "",
+     "mapped drainage check"),
+    ("map_agrees", "int", "0/1", "1 when the outlet is within the tolerance of a mapped waterway",
+     "tolerance in mapped_drainage_json (default 60 m); NULL beyond 1 km or below the "
+     "comparison threshold", "mapped drainage check"),
+    ("map_note", "text", "-", "why map_agrees is 0 or NULL", "", "QA"),
 ]
 
 CATCHMENTS = [
@@ -367,6 +376,14 @@ CATCHMENTS = [
     ("ero_sy_class", "text", "-", "sediment volume impact class", "<1,000 / 5,000 / 15,000 m3/yr",
      "MCDMA"),
     ("ero_sy_score", "int", "1-5", "severity score of ero_sy_class", "", "MCDMA"),
+    # check against mapped drainage (v0.24, F12)
+    ("map_precision", "real", "0-1", "share of the DEM stream length in the catchment within the "
+     "tolerance of a mapped waterway", "DEM streams at the comparison threshold; D8 link lengths",
+     "mapped drainage check"),
+    ("map_recall", "real", "0-1", "share of the mapped waterway length in the catchment within the "
+     "tolerance of a DEM stream", "mapped lines sampled every half cell", "mapped drainage check"),
+    ("map_f1", "real", "0-1", "harmonic mean of map_precision and map_recall", "2PR / (P + R)",
+     "mapped drainage check"),
 ]
 
 FLOWPATHS = [
@@ -524,6 +541,21 @@ OPTIONAL_LAYERS = {
          "positive on the right looking downstream", "raw DEM bilinear", "channel section"),
         ("xs_quality", "text", "-", "high / medium / low (see crossings)", "", "QA"),
     ], "Channel cross-section transects downstream of each crossing (F5; indicative)"),
+    "drainage_divergence": ("LINESTRING", [
+        ("length_m", "real", "m", "length of the divergent run", "D8 link lengths",
+         "mapped drainage check"),
+        ("cells", "int", "-", "stream cells in the run", "at least the minimum in "
+         "mapped_drainage_json", "QA"),
+        ("area_km2", "real", "km2", "area flowing down the run", "(accumulation + 1) x cell area at "
+         "its first cell", "mapped drainage check"),
+        ("rejoins", "int", "0/1", "1 when the run returns to the mapped course", "", "QA"),
+        ("from_x", "real", "m", "first cell of the run (where the DEM leaves the map)", "", "info"),
+        ("from_y", "real", "m", "", "", "info"),
+    ], "DEM stream runs that leave the mapped waterway (where catchments may switch crossings)"),
+    "mapped_rivers_used": ("LINESTRING", [
+        ("name", "text", "-", "waterway name (name field, if given)", "", "info"),
+        ("length_m", "real", "m", "length inside the DEM extent", "", "info"),
+    ], "Mapped waterways used for the check, clipped to the DEM extent"),
     "corridor_sti": ("LINESTRING", [
         ("ch_start", "real", "m", "reach start chainage", "reaches of 'Sample erosion along "
          "alignment' (runs of equal worst erosion class; bounds half-way between stations)",
@@ -601,6 +633,8 @@ METADATA_KEYS = [
     ("fp_params_json", "floodplain width indicator settings: area limit, dz values, bed window, "
      "HAND on/off (empty = no road)"),
     ("quicklook_params_json", "raster quicklook settings: folder, maximum size (empty = none)"),
+    ("mapped_drainage_json", "check against mapped drainage: source, name field, comparison "
+     "threshold, tolerance, overall precision / recall / F1 (empty = not run)"),
     ("tc_params_json", "time of concentration settings: validity ranges and sources, P2 and its "
      "source, channel n, sheet n and Kerby N lookups (PROXY flags), CN used"),
     ("corridor_sti_params_json", "side-drain siltation indicator settings: station step, half "
@@ -662,6 +696,8 @@ DOWNSTREAM_USE = {
     "exit channel slope": "exit channel slope (tailwater rating)",
     "side-drain siltation": "side-drain siltation screening (low-gradient drain fed by a high "
                             "transport-capacity slope)",
+    "mapped drainage check": "independent check that the DEM drainage follows the mapped "
+                             "waterways",
     "time of concentration": "time of concentration by one published method (all methods side "
                              "by side; the engineer chooses)",
     "channel section": "approach / exit channel section for tailwater and waterway checks "
