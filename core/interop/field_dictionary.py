@@ -201,6 +201,21 @@ CROSSINGS = [
      "tolerance in mapped_drainage_json (default 60 m); NULL beyond 1 km or below the "
      "comparison threshold", "mapped drainage check"),
     ("map_note", "text", "-", "why map_agrees is 0 or NULL", "", "QA"),
+    # DEM-error sensitivity (v0.27, F15) - empty unless the Monte Carlo was run
+] + [(f"unc_{q}_{s}", "real", u if s != "cv" else "-",
+      (f"coefficient of variation of the {name}" if s == "cv" else f"{s} of the {name}")
+      + " over the DEM-error realisations",
+      "correlated Gaussian error added to the raw DEM, re-routed per realisation "
+      "(uncertainty_json)", "DEM uncertainty")
+     for q, name, u in (("area", "catchment area", "km2"), ("lfp", "longest flow path length", "m"),
+                        ("s1085", "10-85 slope", "m/m"), ("tc", "Kirpich Tc", "min"))
+     for s in ("p10", "p50", "p90", "cv")] + [
+    ("unc_lost_pct", "real", "%", "share of realisations where the outlet lost its stream",
+     "no stream cell within the snap radius", "DEM uncertainty"),
+    ("unc_switch_pct", "real", "%", "share of realisations where the area moved by more than 25 %",
+     "against the deterministic run; a sign of catchment switching", "DEM uncertainty"),
+    ("unc_n", "int", "-", "number of realisations", "", "provenance"),
+    ("unc_note", "text", "-", "lost outlet or switching, in words", "", "QA"),
 ]
 
 CATCHMENTS = [
@@ -659,6 +674,8 @@ METADATA_KEYS = [
     ("fp_params_json", "floodplain width indicator settings: area limit, dz values, bed window, "
      "HAND on/off (empty = no road)"),
     ("quicklook_params_json", "raster quicklook settings: folder, maximum size (empty = none)"),
+    ("uncertainty_json", "DEM-error sensitivity: N, sigma and its source (preset), correlation "
+     "length, seed, threshold, timing, correlation-length sensitivity (empty = not run)"),
     ("scenario_json", "land-cover scenario: name, dataset, lookups, erosion relation (empty = none)"),
     ("autoclip_json", "automatic corridor clip of the raw DEM (QEHT_AUTOCLIP tag): window, coarse "
      "factor, road buffer, margin, mode, memory estimate (empty = not clipped)"),
@@ -725,6 +742,7 @@ DOWNSTREAM_USE = {
     "exit channel slope": "exit channel slope (tailwater rating)",
     "side-drain siltation": "side-drain siltation screening (low-gradient drain fed by a high "
                             "transport-capacity slope)",
+    "DEM uncertainty": "range of a catchment value under DEM error (P10-P90; switching)",
     "land-cover scenario": "change in runoff and soil loss from a land-cover scenario (same "
                            "lookups and soils)",
     "mapped drainage check": "independent check that the DEM drainage follows the mapped "

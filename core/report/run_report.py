@@ -281,6 +281,34 @@ def build_report(package_path, title=None, extra=None):
                            {"area_barnes_km2", "area_toward_km2", "flat_sensitivity_pct"})
                     if flagged else ""))
 
+    # DEM uncertainty (F15)
+    uj = _json(md, "uncertainty_json")
+    if uj:
+        crs_ = gpkg.read_table(package_path, "crossings", with_geometry=False)
+        cols_ = ["outlet_uid", "unc_area_p10", "unc_area_p50", "unc_area_p90", "unc_area_cv",
+                 "unc_tc_p10", "unc_tc_p90", "unc_switch_pct", "unc_lost_pct"]
+        P.append("<h2>DEM uncertainty at crossings</h2><p class='sub'>"
+                 f"{uj.get('n')} realisations, vertical error {_fmt(uj.get('sigma_m'))} m "
+                 f"({_e(uj.get('preset'))}: {_e(uj.get('sigma_source'))}), correlation length "
+                 f"{_fmt(uj.get('corr_len_m'))} m, seed {uj.get('seed')}. Switching = area moved by "
+                 "more than 25 % from the deterministic run.</p>"
+                 + _table(cols_, [{c: _fmt(r.get(c)) for c in cols_} for r in crs_],
+                          set(cols_) - {"outlet_uid"}))
+        sens = uj.get("corr_len_sensitivity")
+        if sens:
+            rows_ = []
+            for i, u in enumerate(sens.get("outlets") or []):
+                d = {"outlet_uid": _e(u)}
+                for k in ("0.5x", "2x"):
+                    v = (sens.get(k) or [{}] * 3)[i]
+                    d[f"area_p50 {k}"] = _fmt(v.get("area_p50"))
+                    d[f"area_cv {k}"] = _fmt(v.get("area_cv"))
+                rows_.append(d)
+            P.append("<h3>Correlation-length sensitivity (three largest crossings)</h3>"
+                     + _table(["outlet_uid", "area_p50 0.5x", "area_cv 0.5x", "area_p50 2x",
+                               "area_cv 2x"], rows_, {"area_p50 0.5x", "area_cv 0.5x",
+                                                      "area_p50 2x", "area_cv 2x"}))
+
     # land-cover scenario (F14)
     sj = _json(md, "scenario_json")
     if sj:

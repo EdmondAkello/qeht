@@ -34,7 +34,7 @@ from ..core.raster import read_dem, audit_nodata, audit_resampling
 FLAT_LABELS = ["toward lower terrain", "Barnes 2014"]
 STAGES = ["Full run", "Stop after crossing candidates (review them, then run again with "
           "the reviewed layer as Crossings)"]
-PASS_PREFIXES = ("SOIL", "LANDCOVER", "CN_", "RC_CSV", "RAIN_", "TC_", "MAPPED", "SCENARIO")
+PASS_PREFIXES = ("SOIL", "LANDCOVER", "CN_", "RC_CSV", "RAIN_", "TC_", "MAPPED", "SCENARIO", "UNC")
 
 
 class HydrologyPipelineAlgorithm(QehtAlgorithm):
@@ -150,6 +150,7 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
         self.addParameter(QgsProcessingParameterBoolean(
             "QUICKLOOKS", "Raster quicklooks (PNG + world file + legend, for viewing without a GIS)",
             defaultValue=True))
+        self.add_uncertainty_parameters()
         self.addParameter(QgsProcessingParameterBoolean(
             "EXPORTS", "KMZ (Google Earth) and XLSX workbook in exports/", defaultValue=True))
         self.addParameter(QgsProcessingParameterBoolean(

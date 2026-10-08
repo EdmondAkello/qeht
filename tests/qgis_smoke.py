@@ -63,10 +63,10 @@ def main(in_qgis=False):
         reg.addProvider(QehtProvider())
     algs = sorted(a.id() for a in reg.providerById("qeht").algorithms())
     print("QEHT algorithms:", ", ".join(algs))
-    check("provider loads with 22 algorithms incl. exchange, crossings, burn, relink, soils, "
+    check("provider loads with 23 algorithms incl. exchange, crossings, burn, relink, soils, "
           "erosion, alignment profile, pipeline, run report, prepare DEM",
-          len(algs) == 22 and all(a in algs for a in ("qeht:alignmentprofile", "qeht:drainagecoverage",
-              "qeht:preparedem", "qeht:exportpackage", "qeht:autoclip",
+          len(algs) == 23 and all(a in algs for a in ("qeht:alignmentprofile", "qeht:drainagecoverage",
+              "qeht:preparedem", "qeht:exportpackage", "qeht:autoclip", "qeht:demuncertainty",
               "qeht:hydrologypipeline", "qeht:runreport",
               "qeht:buildheasexchange", "qeht:crossingcandidates", "qeht:burncrossings",
               "qeht:renumberrelink", "qeht:soilparameters", "qeht:erosionindices",
@@ -777,6 +777,38 @@ def main(in_qgis=False):
     check("package reads dem_source and dem_prep from the DEM tags when left blank",
           mdt["dem_source"].startswith("FABDEM v1.2 (test tag)") and mdt["dem_prep"] ==
           "QEHT prepare DEM test", mdt["dem_source"])
+    # ---- v0.27 (F15): DEM uncertainty at crossings ------------------------------------
+    try:
+        processing.run("qeht:demuncertainty", {"DEM": dem, "CROSSINGS": out("cand.gpkg"),
+                                               "OUTPUT": out("unc_x.gpkg")})
+        refused = False
+    except Exception as e:
+        refused = "no default" in str(e).lower() or "There is no default" in str(e)
+    check("DEM uncertainty refuses to run without a chosen vertical error", refused)
+    r = processing.run("qeht:demuncertainty", {
+        "DEM": dem, "CROSSINGS": out("cand.gpkg"), "ID_FIELD": "status", "UNC_PRESET": 2,
+        "UNC_N": 3, "UNC_SENS": True, "OUTPUT": out("unc.gpkg"), "LOG": out("unc.json")})
+    ul = list(QgsVectorLayer(r["OUTPUT"], "u", "ogr").getFeatures())
+    import json as _ju
+    with open(r["LOG"], encoding="utf-8") as fh:
+        uj = _ju.loads(fh.read())
+    check("DEM uncertainty tool (FABDEM preset, N 3): P10 <= P50 <= P90 per crossing, settings, "
+          "source and correlation-length sensitivity recorded",
+          ul and all(f["unc_area_p10"] <= f["unc_area_p50"] <= f["unc_area_p90"] for f in ul
+                     if f["unc_area_p50"] is not None and str(f["unc_area_p50"]) != "NULL")
+          and uj["sigma_m"] == 2.5 and "Hawker" in uj["sigma_source"] and uj["n"] == 3
+          and len(uj["corr_len_sensitivity"]["outlets"]) == min(3, len(ul)),
+          r["SUMMARY"])
+    r = processing.run("qeht:buildheasexchange", {
+        "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "POINTS": out("cand.gpkg"),
+        "XS": False, "UNC": True, "UNC_PRESET": 3, "UNC_SIGMA": 1.0, "UNC_N": 2, "UNC_SENS": False,
+        "OUTPUT": out("unc_pkg.gpkg")})
+    crq = gpkg.read_table(r["OUTPUT"], "crossings", with_geometry=False)
+    mdq = {row["key"]: row["value"] for row in gpkg.read_table(r["OUTPUT"], "qeht_run_metadata")}
+    errors, _ = validate_exchange(r["OUTPUT"])
+    check("DEM uncertainty in the package (custom 1 m, N 2): unc_* on crossings, uncertainty_json, "
+          "validates",
+          not errors and all(c["unc_n"] == 2 for c in crq) and '"preset": "custom"' in mdq["uncertainty_json"])
     # ---- v0.26 (F16): Graphical Modeler example ------------------------------------
     from qgis.core import QgsProcessingModelAlgorithm
     model = QgsProcessingModelAlgorithm()

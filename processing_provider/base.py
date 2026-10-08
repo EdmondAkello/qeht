@@ -687,6 +687,52 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
             feedback.pushWarning(ro.note)
         return ro
 
+    def add_uncertainty_parameters(self, with_switch=True):
+        """DEM-error sensitivity (F15): no silent sigma - a preset with its source or a value."""
+        from qgis.core import (QgsProcessingParameterBoolean, QgsProcessingParameterEnum,
+                               QgsProcessingParameterNumber)
+        if with_switch:
+            self.addParameter(QgsProcessingParameterBoolean(
+                "UNC", "DEM uncertainty at crossings (Monte Carlo; slow)", defaultValue=False))
+        self.addParameter(QgsProcessingParameterEnum(
+            "UNC_PRESET", "DEM uncertainty: vertical error", options=[
+                "Choose...", "AW3D30: 4.4 m (Tadono et al. 2016, 4.40 m RMSE)",
+                "FABDEM: 2.5 m (ESTIMATE from Hawker et al. 2022: MAE 1.1-2.9 m by land cover)",
+                "Custom value below"], defaultValue=0))
+        for key, label, default, typ in (
+                ("UNC_SIGMA", "DEM uncertainty: custom sigma (m)", None, "d"),
+                ("UNC_CORR", "DEM uncertainty: correlation length (m)", 90.0, "d"),
+                ("UNC_N", "DEM uncertainty: realisations", 50, "i"),
+                ("UNC_SEED", "DEM uncertainty: random seed", 2026, "i")):
+            self.addParameter(self._advanced(QgsProcessingParameterNumber(
+                key, label, QgsProcessingParameterNumber.Type.Integer if typ == "i"
+                else QgsProcessingParameterNumber.Type.Double, defaultValue=default,
+                optional=default is None, minValue=0)))
+        self.addParameter(self._advanced(QgsProcessingParameterBoolean(
+            "UNC_SENS", "DEM uncertainty: correlation-length sensitivity (0.5x and 2x) for the "
+            "three largest crossings", defaultValue=True)))
+
+    def uncertainty_settings(self, parameters, context):
+        """-> (sigma, preset, source, corr, n, seed, sensitivity); refuses a missing sigma."""
+        from qgis.core import QgsProcessingException
+        from ..core.watershed.uncertainty import PRESETS
+        k = self.parameterAsEnum(parameters, "UNC_PRESET", context) if "UNC_PRESET" in parameters else 0
+        if k in (1, 2):
+            preset = ("AW3D30", "FABDEM")[k - 1]
+            sigma, src = PRESETS[preset]
+        elif k == 3 and parameters.get("UNC_SIGMA") not in (None, ""):
+            preset, sigma = "custom", self.parameterAsDouble(parameters, "UNC_SIGMA", context)
+            src = "user value"
+        else:
+            raise QgsProcessingException("DEM uncertainty needs the vertical error: choose a preset "
+                                         "(AW3D30, FABDEM) or give a custom sigma. There is no "
+                                         "default.")
+        g = lambda key, d: (self.parameterAsDouble(parameters, key, context)  # noqa: E731
+                            if parameters.get(key) not in (None, "") else d)
+        sens = self.parameterAsBool(parameters, "UNC_SENS", context) if "UNC_SENS" in parameters else True
+        return (sigma, preset, src, g("UNC_CORR", 90.0), max(1, int(g("UNC_N", 50))),
+                int(g("UNC_SEED", 2026)), sens)
+
     def load_scenario(self, parameters, context, info, runoff, feedback, erosion=None):
         """-> core.runoff.scenario.Scenario or None (no scenario raster)."""
         if not parameters.get("LANDCOVER_SCN") or \

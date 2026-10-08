@@ -265,6 +265,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             self.addParameter(self._advanced(QgsProcessingParameterNumber(
                 key, label, QgsProcessingParameterNumber.Type.Double, defaultValue=default,
                 minValue=0.0)))
+        self.add_uncertainty_parameters()
         self.addParameter(QgsProcessingParameterNumber(
             "TC_P2", "Time of concentration: 2-yr 24-h rainfall P2 for TR-55 (mm; no default)",
             QgsProcessingParameterNumber.Type.Double, optional=True, minValue=0.0))
@@ -639,6 +640,12 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             mapped_md = self._mapped_block(parameters, context, feedback, info, direction, valid,
                                            accum, alignment, crossings, catchments, extra_layers)
 
+        # -- DEM-error sensitivity per crossing (F15; off by default, slow) ------
+        unc_md = ""
+        if parameters.get("UNC") and self.parameterAsBool(parameters, "UNC", context):
+            unc_md = self._uncertainty_block(parameters, context, feedback, info, elevation,
+                                             raw_valid, crossings, snap_threshold, snap_radius)
+
         # -- time of concentration by five methods (F10) -------------------------
         tc_md = ""
         if self.parameterAsBool(parameters, "TC", context) if "TC" in parameters else True:
@@ -758,6 +765,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "tc_params_json": tc_md,
             "mapped_drainage_json": mapped_md,
             "autoclip_json": clip_md,
+            "uncertainty_json": unc_md,
             "scenario_json": scenario.meta_json(
                 next((f.get("source", "") for f in (erosion_run or {}).get("factors", [])
                       if f.get("factor") == "C"), "")) if scenario is not None else "",
@@ -956,6 +964,40 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                           "divergence reach(es).")
         return mp.params_json((self.parameterAsString(parameters, "MAPPED_SOURCE", context) or
                                src.sourceName()), km2, tol, mc, overall, len(lines), name_field)
+
+
+    def _uncertainty_block(self, parameters, context, feedback, info, elevation, raw_valid,
+                           crossings, snap_threshold, snap_radius):
+        """F15 in the package: unc_* on every crossing; returns uncertainty_json."""
+        from ..core.watershed import uncertainty as un
+        sigma, preset, src, corr, n, seed, sens = self.uncertainty_settings(parameters, context)
+        gt = info.geotransform
+        outlets, idx = [], []
+        for i, (_, a) in enumerate(crossings):
+            c = int((a["outlet_x"] - gt[0]) // gt[1])
+            r = int((a["outlet_y"] - gt[3]) // gt[5])
+            if 0 <= r < info.rows and 0 <= c < info.cols:
+                outlets.append((r, c))
+                idx.append(i)
+        thr = snap_threshold if snap_threshold > 0 else 200.0
+        snap = max(int(snap_radius), 1)
+        dem = np.where(raw_valid, elevation, 0.0)
+        res, inf = un.run(dem, raw_valid, gt, outlets, sigma, corr, n, seed, thr, snap,
+                          progress=lambda f: feedback.setProgress(100.0 * f),
+                          log=feedback.pushInfo)
+        for i, b in zip(idx, res):
+            crossings[i][1].update(b)
+        sensitivity, uids = None, None
+        if sens and outlets:
+            big = sorted(range(len(idx)), key=lambda k: -(crossings[idx[k]][1].get("acc_at_outlet_km2") or 0))[:3]
+            uids = [crossings[idx[k]][1]["outlet_uid"] for k in big]
+            feedback.pushInfo(f"Correlation-length sensitivity (0.5x, 2x) for {', '.join(uids)}")
+            sensitivity = un.corr_sensitivity(dem, raw_valid, gt, [outlets[k] for k in big], sigma,
+                                              corr, n, seed, thr, snap)
+        n_sw = sum(1 for _, a in crossings if (a.get("unc_switch_pct") or 0) > 0)
+        feedback.pushInfo(f"DEM uncertainty: sigma {sigma:g} m ({preset}), L {corr:g} m, N {n}, "
+                          f"seed {seed}; {n_sw} crossing(s) with catchment switching.")
+        return un.params_json(inf, preset, src, sensitivity, uids)
 
 
 def _touches_nodata(mask, valid):

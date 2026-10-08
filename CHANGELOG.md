@@ -3,6 +3,17 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.27.0] — unreleased (DEM-error sensitivity per crossing)
+### Added
+- **DEM uncertainty at crossings** (F15, group Road drainage, id `demuncertainty`), also a package and pipeline option (*UNC*, off by default):
+  - Monte Carlo over N realisations (50) of a correlated Gaussian DEM error (σ; correlation exp(−r²/L²), L = 90 m; FFT convolution; seed 2026, recorded);
+  - fill, D8 and accumulation per realisation, with the pour point snapped to the stream.
+- Per crossing: P10 / P50 / P90 / CV of area, longest flow path, 10–85 slope and Kirpich Tc (`unc_*`), `unc_lost_pct`, `unc_switch_pct` (area moved by more than 25 %), `unc_n`, `unc_note`. Metadata `uncertainty_json`.
+- Correlation-length sensitivity (0.5× and 2×) for the three largest crossings; time per realisation reported before the loop.
+- σ presets with their sources: AW3D30 4.4 m (Tadono et al. 2016, 4.40 m RMSE) and FABDEM 2.5 m (ESTIMATE from Hawker et al. 2022, MAE 1.1–2.9 m by land cover), or a custom value. There is no default; the run stops without one.
+- Run report section, KMZ card rows, characteristics group.
+- Tests: test_uncertainty 11 (new); smoke 80 (+3; 23 algorithms). Golden fixture regenerated: twenty crossing fields and one metadata key added, no existing value changed.
+
 ## [0.26.0] — unreleased (land-cover scenarios, Modeler example)
 ### Added
 - **Land-cover scenarios** (F14) in *Soil, rainfall and runoff parameters*, the package and the pipeline: *Land-cover scenario* raster and *Scenario name*. Same lookups and HSG as the baseline. Catchment fields:
@@ -69,7 +80,7 @@ development history of the numerical core and Processing tools.
 ### Added
 - **Approach-channel cross-section** (F5) at every crossing, existing and proposed, in *Build design hydrology package* and the pipeline (on by default; advanced parameters *distance downstream* 30 m, *half width* 150 m, *bank slope* 0.05, and an off switch). The section is 30 m down the D8 receivers, perpendicular to the flow direction over two cells up and down, sampled bilinearly from the raw DEM every half cell. Fields on crossings: `xs_dist_m`, `xs_bed_m`, `xs_bed_offset_m`, `xs_bankfull_w_m`, `xs_bankfull_d_m` (break of slope, lower bank governs), `xs_w_0p5_m`, `xs_w_1p0_m`, `xs_w_2p0_m`, `xs_side_slope_l`, `xs_side_slope_r` (H:V), `xs_station_elev_json`, `xs_quality` (high / medium / low) and `xs_note`. Optional layer `xs_transects`; metadata `xs_params_json`; downstream-use term "channel section". Labelled indicative.
 - Characteristics table group "channel section"; the run report lists low-quality sections under DEM checks.
-- Tests: test_section 34 (new); smoke 64 (+2). Golden fixture regenerated: thirteen crossing fields and one metadata key added, no existing value changed (golden_diff).
+- Tests: test_section 33 (new); smoke 64 (+2). Golden fixture regenerated: thirteen crossing fields and one metadata key added, no existing value changed (golden_diff).
 
 ## [0.18.0] — unreleased (floodplain width, raster quicklooks)
 ### Added

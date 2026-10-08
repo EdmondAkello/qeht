@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.26.0
+**Version:** 0.27.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -465,6 +465,27 @@ With an erosion folder, C_scn comes from the WorldCover → C lookup of the eros
 - one output, `design_hydrology_package`.
 
 The smoke test loads it from the file and runs it.
+
+### 4.32 DEM-error sensitivity (v0.27, F15)
+
+**Error field.** White noise w ~ N(0, 1) is generated on the grid padded by ⌈3L/cell⌉ + 1 cells. It is convolved by FFT with k(r) = exp(−2r²/L²), with r in cells over the periodic distances, and divided by √Σk², so the field has unit variance. It is then cropped and multiplied by σ. The autocorrelation of a field made with a Gaussian kernel is the kernel convolved with itself, here exp(−r²/L²): 1/e at the correlation length L. On a 200 × 200 test grid with σ = 2.5 m and L = 5 cells, the sample standard deviation is within 5 % of σ, and the correlations at L, 2L and 3L are 0.37, 0.02 and −0.01 (theory e⁻¹, e⁻⁴, ≈ 0).
+
+**Per realisation.** z + e is filled, routed with D8 (Barnes) and accumulated. The streams are the cells with accumulation ≥ the stream threshold. Each crossing's fixed pour point is snapped to the nearest stream cell within the snap radius; with none in reach the outlet is "lost". The catchment, longest flow path, 10–85 slope (outlet-referenced) and Kirpich Tc are computed as in the deterministic run (§4.9–4.10, §4.27), on the perturbed DEM.
+
+**Statistics.** Over the realisations where the outlet kept its stream:
+
+- P10, P50 and P90 (linear percentiles) and the coefficient of variation (standard deviation / mean);
+- unc_lost_pct = lost realisations / N;
+- unc_switch_pct = realisations with |A − A_det| > 0.25 A_det, divided by N, where A_det is the deterministic area.
+
+With σ = 0 every percentile equals the deterministic value, and a fixed seed repeats exactly. A steep V valley gives an area CV of about 3 %, almost all of it the snapped outlet moving one cell along the channel. A plateau that can drain to either of two valleys gives about 26 %.
+
+**Presets.**
+
+- **AW3D30, σ = 4.4 m:** Tadono et al. (2016) report 4.40 m RMSE at 5,121 check points.
+- **FABDEM, σ = 2.5 m:** Hawker et al. (2022, *Environ. Res. Lett.* 17, 024016) give the mean absolute error by land cover, 1.12 m in built-up areas and 2.88 m in forests, against LiDAR and ICESat. That is about 1.4–3.6 m RMSE for Gaussian errors (RMSE ≈ 1.25 MAE). The 2.5 m mid-range value is labelled an ESTIMATE.
+
+Neither preset is applied silently.
 
 ---
 

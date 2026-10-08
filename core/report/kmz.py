@@ -329,6 +329,11 @@ def crossing_card(c, ca, fp, md):
          " / ".join(f"{ca[k]:,.0f}" for k in ("elev_max_m", "elev_min_m", "elev_mean_m")) + " m"
          if all(_has(ca.get(k)) for k in ("elev_max_m", "elev_min_m", "elev_mean_m")) else None),
         ("Relief", fmt(ca.get("relief_m"), 1, "m")),
+        ("Area P10 / P50 / P90 under DEM error", " / ".join(fmt(c.get(k), 3) or "–" for k in (
+            "unc_area_p10", "unc_area_p50", "unc_area_p90")) + " km²"
+         if _has(c.get("unc_area_p50")) else None),
+        ("Catchment switching under DEM error", fmt(c.get("unc_switch_pct"), 0, "% of realisations")
+         if _has(c.get("unc_switch_pct")) and c["unc_switch_pct"] > 0 else None),
         ("Soil / HSG", " / ".join(str(v) for v in (ca.get("soil_texture"), ca.get("soil_hsg"))
                                   if _has(v)) or None),
         ("CN (AMC II) / exported", f"{fmt(ca.get('cn_ii'), 1)} / {fmt(ca.get('cn_export'), 1)} "

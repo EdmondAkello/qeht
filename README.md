@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.26.0
+# QEHT — QGIS Engineering Hydrology Toolkit v0.27.0
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -550,6 +550,24 @@ The tool reports the memory estimate before and after. The clipped DEM is tagged
 `scenario_name` is written on each catchment and the settings in `scenario_json`. The run report has a scenario table.
 
 **Graphical Modeler example.** `examples/qeht_corridor.model3` chains Fill → D8 → accumulation → streams → crossing candidates → Build design hydrology package, with DEM, road and stream threshold as inputs. Open it in the Graphical Modeler (*Model → Open Model*) as a starting point for your own chains. It is built by `tools/dev/build_model.py`, so it stays in step with the parameter names.
+
+## v0.27: DEM uncertainty at crossings
+
+A single catchment area from one DEM hides how much the DEM's error can move it. **DEM uncertainty at crossings** (Road drainage), or the package and pipeline option *DEM uncertainty at crossings*, runs a Monte Carlo:
+
+1. A spatially correlated Gaussian error is added to the raw DEM. Its standard deviation is σ and its correlation is exp(−r²/L²), with correlation length L = 90 m by default.
+2. The DEM is filled, routed and accumulated again, and each crossing's pour point is snapped to the stream.
+3. Area, longest flow path, 10–85 slope and Kirpich Tc are measured.
+4. This repeats for N = 50 realisations (seed 2026, recorded).
+
+Per crossing the run gives P10, P50, P90 and the coefficient of variation of each value (`unc_*`), plus two shares: `unc_lost_pct`, where the outlet lost its stream, and `unc_switch_pct`, where the area moved by more than 25 %, the sign of a catchment that switches between crossings. For the three largest crossings the run is repeated at 0.5× and 2× the correlation length.
+
+**Vertical error, with no default:**
+- **AW3D30:** 4.4 m, the 4.40 m RMSE of the JAXA validation (Tadono et al. 2016, 5,121 check points).
+- **FABDEM:** 2.5 m, an ESTIMATE from Hawker et al. (2022), whose mean absolute error runs from 1.1 m (built-up) to 2.9 m (forest).
+- **Custom:** your own value.
+
+The time per realisation is reported before the loop. Clip a large DEM to the road's contributing area first. Settings and sources are in `uncertainty_json`; the run report and the KMZ cards show the ranges.
 
 ### Data sources by region
 
