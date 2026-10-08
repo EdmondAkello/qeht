@@ -7,3 +7,8 @@ Thumbs.db
 *.qgs~
 *.aux.xml
 __pycache__/
+
+# local-only (not published)
+paper/
+docs/dev/
+private/
