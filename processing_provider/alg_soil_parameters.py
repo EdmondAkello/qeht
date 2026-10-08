@@ -91,6 +91,7 @@ class SoilParametersAlgorithm(QehtAlgorithm):
         _, _, info = read_dem(self.raster_path(parameters, REF, context))
         soil = self.load_soil(parameters, context, info, feedback, "SOIL")
         runoff = self.load_runoff(parameters, context, info, soil, feedback)
+        scenario = self.load_scenario(parameters, context, info, runoff, feedback)
         rain = self.load_rainfall(parameters, context, info, feedback)
         if soil is None and runoff is None and rain is None:
             raise QgsProcessingException("Give a soil source (polygons, a unit raster + table, "
@@ -102,11 +103,14 @@ class SoilParametersAlgorithm(QehtAlgorithm):
         existing = set(fields.names())
         from ..core.runoff.curve_number import RUNOFF_FIELDS
         from ..core.runoff.rainfall import RAIN_FIELDS, RAIN_TEXT
+        from ..core.runoff.scenario import SCN_FIELDS
         out_fields = (list(SOIL_FIELDS) if soil is not None else []) + (
             [(f, "text" if f in ("cn_amc", "cn_lookup_id", "lc_dataset") else "real")
              for f in RUNOFF_FIELDS] if runoff is not None else []) + (
             [(f, "text" if f in RAIN_TEXT else "real") for f in RAIN_FIELDS]
-            if rain is not None else [])
+            if rain is not None else []) + (
+            [(f, "text" if f == "scenario_name" else "real") for f in SCN_FIELDS]
+            if scenario is not None else [])
         for name, kind in out_fields:
             if name not in existing:
                 fields.append(self.qgs_field(name, kind))
@@ -130,6 +134,8 @@ class SoilParametersAlgorithm(QehtAlgorithm):
             block = soil.block(mask) if soil is not None else {}
             if runoff is not None:
                 block.update(runoff.block(mask))
+            if scenario is not None:
+                block.update(scenario.block(mask))
             if rain is not None:
                 rb = rain.block(mask)
                 block.update(rb)

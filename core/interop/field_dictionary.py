@@ -388,6 +388,28 @@ CATCHMENTS = [
     ("clip_edge", "int", "0/1", "1 when the catchment touches the edge of the automatic clip "
      "(grid edge or NoData outside the clip mask): enlarge the margin and run again",
      "catchment cells 8-adjacent to the grid edge or NoData", "QA"),
+    # land-cover scenario (v0.26, F14) - empty without a scenario raster
+    ("scenario_name", "text", "-", "name of the land-cover scenario", "", "land-cover scenario"),
+    ("cn_ii_scn", "real", "-", "area-weighted curve number (AMC II) under the scenario",
+     "same lookup and hydrologic soil groups as cn_ii; only land cover changes",
+     "land-cover scenario"),
+    ("cn_export_scn", "real", "-", "scenario curve number at cn_amc", "as cn_export",
+     "land-cover scenario"),
+    ("d_cn", "real", "-", "change in curve number", "cn_ii_scn - cn_ii", "land-cover scenario"),
+    ("rational_c_scn", "real", "-", "Rational C under the scenario (user lookup only)", "",
+     "land-cover scenario"),
+    ("d_rational_c", "real", "-", "change in Rational C", "rational_c_scn - rational_c",
+     "land-cover scenario"),
+] + [(f"lc_pct_{g}_scn", "real", "%", f"{g} share under the scenario", "as lc_pct_" + g,
+      "land-cover scenario") for g in ("tree", "shrub", "grass", "crop", "built", "bare", "water",
+                                       "wetland", "other")] + [
+    ("ero_c_mean_scn", "real", "-", "mean C under the scenario",
+     "WorldCover -> C lookup of the erosion tool", "land-cover scenario"),
+    ("ero_a_mean_tha_scn", "real", "t/ha/yr", "mean RUSLE soil loss under the scenario",
+     "per cell A x C_scn / C (R, K, LS, P unchanged); cells with C = 0 skipped",
+     "land-cover scenario"),
+    ("d_ero_a_mean_tha", "real", "t/ha/yr", "change in mean soil loss",
+     "scenario minus baseline over the same cells", "land-cover scenario"),
 ]
 
 FLOWPATHS = [
@@ -637,6 +659,7 @@ METADATA_KEYS = [
     ("fp_params_json", "floodplain width indicator settings: area limit, dz values, bed window, "
      "HAND on/off (empty = no road)"),
     ("quicklook_params_json", "raster quicklook settings: folder, maximum size (empty = none)"),
+    ("scenario_json", "land-cover scenario: name, dataset, lookups, erosion relation (empty = none)"),
     ("autoclip_json", "automatic corridor clip of the raw DEM (QEHT_AUTOCLIP tag): window, coarse "
      "factor, road buffer, margin, mode, memory estimate (empty = not clipped)"),
     ("mapped_drainage_json", "check against mapped drainage: source, name field, comparison "
@@ -702,6 +725,8 @@ DOWNSTREAM_USE = {
     "exit channel slope": "exit channel slope (tailwater rating)",
     "side-drain siltation": "side-drain siltation screening (low-gradient drain fed by a high "
                             "transport-capacity slope)",
+    "land-cover scenario": "change in runoff and soil loss from a land-cover scenario (same "
+                           "lookups and soils)",
     "mapped drainage check": "independent check that the DEM drainage follows the mapped "
                              "waterways",
     "time of concentration": "time of concentration by one published method (all methods side "

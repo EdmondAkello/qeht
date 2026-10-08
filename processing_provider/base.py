@@ -641,6 +641,11 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterEnum(
             "CN_AMC", "Antecedent moisture condition of the exported CN",
             options=["II (average)", "III (wet)", "I (dry)"], defaultValue=0))
+        from qgis.core import QgsProcessingParameterString as _PS
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            "LANDCOVER_SCN", "Land-cover scenario (same classes; optional, e.g. a planned "
+            "development)", optional=True))
+        self.addParameter(_PS("SCENARIO_NAME", "Scenario name", optional=True))
         self.addParameter(self._advanced(QgsProcessingParameterFile(
             "CN_CSV", "Curve number lookup CSV (class, A, B, C, D; replaces the TR-55 default)",
             optional=True, fileFilter="CSV (*.csv *.txt)")))
@@ -681,6 +686,29 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
         if ro.note:
             feedback.pushWarning(ro.note)
         return ro
+
+    def load_scenario(self, parameters, context, info, runoff, feedback, erosion=None):
+        """-> core.runoff.scenario.Scenario or None (no scenario raster)."""
+        if not parameters.get("LANDCOVER_SCN") or \
+                self.parameterAsRasterLayer(parameters, "LANDCOVER_SCN", context) is None:
+            return None
+        if runoff is None:
+            from qgis.core import QgsProcessingException
+            raise QgsProcessingException("A land-cover scenario needs the baseline land cover too.")
+        from ..core.runoff.scenario import Scenario
+        from ..core.raster import warp_to_grid
+        lc, desc = warp_to_grid(self.raster_path(parameters, "LANDCOVER_SCN", context), info,
+                                resampling="near")
+        name = (self.parameterAsString(parameters, "SCENARIO_NAME", context) or "").strip() \
+            if "SCENARIO_NAME" in parameters else ""
+        sc = Scenario(name or "scenario", lc, runoff,
+                      soil_loss=getattr(erosion, "soil_loss", None) if erosion is not None else None,
+                      c_grid=getattr(erosion, "c", None) if erosion is not None else None,
+                      lc_dataset=desc)
+        feedback.pushInfo(f"Land-cover scenario '{sc.name}': {desc}; same lookups and soil groups "
+                          "as the baseline" + (", erosion C from the WorldCover lookup"
+                                               if sc.c_scn is not None else ""))
+        return sc
 
     def add_rainfall_parameters(self, with_relation=True):
         """Rainfall zones, mean annual rainfall and R from rainfall (F3)."""

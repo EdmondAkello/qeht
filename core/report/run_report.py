@@ -281,6 +281,19 @@ def build_report(package_path, title=None, extra=None):
                            {"area_barnes_km2", "area_toward_km2", "flat_sensitivity_pct"})
                     if flagged else ""))
 
+    # land-cover scenario (F14)
+    sj = _json(md, "scenario_json")
+    if sj:
+        cats = gpkg.read_table(package_path, "catchments", with_geometry=False)
+        cols_ = [c for c in ("outlet_uid", "area_km2", "cn_ii", "cn_ii_scn", "d_cn", "rational_c",
+                             "rational_c_scn", "ero_a_mean_tha", "ero_a_mean_tha_scn",
+                             "d_ero_a_mean_tha") if any(_has(r.get(c)) for r in cats)]
+        P.append(f"<h2>Land-cover scenario: {_e(sj.get('name'))}</h2><p class='sub'>"
+                 f"{_e(sj.get('lc_dataset'))}. Same lookups and soil groups as the baseline, so "
+                 "the change comes from land cover only. " + _e(sj.get("erosion") or "") + "</p>"
+                 + _table(cols_, [{c: _fmt(r.get(c)) for c in cols_} for r in cats],
+                          set(cols_) - {"outlet_uid"}))
+
     # check against mapped drainage (F12)
     mj = _json(md, "mapped_drainage_json")
     if mj:

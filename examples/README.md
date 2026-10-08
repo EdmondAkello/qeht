@@ -45,3 +45,12 @@ Running this against `example_dem.tif` mirrors the validation workflow in
 `README.md` under "Validation", where QEHT's output on this DEM was compared
 cell-by-cell and catchment-by-catchment against a reference hydrology
 toolset's production results.
+
+## `qeht_corridor.model3` — Graphical Modeler example
+
+Fill → D8 flow direction (Barnes) → flow accumulation → stream network →
+road crossing candidates → Build design hydrology package, with three inputs:
+the DEM, the road alignment and the stream threshold (cells). Open it with
+*Processing → Graphical Modeler → Model → Open Model*, or add it to the
+toolbox with *Models → Add Model to Toolbox*. It is written by
+`tools/dev/build_model.py`, so it follows the current parameter names.

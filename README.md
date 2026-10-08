@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.25.0
+# QEHT — QGIS Engineering Hydrology Toolkit v0.26.0
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -537,6 +537,19 @@ QEHT holds the whole grid in memory, so a national FABDEM or ALOS mosaic will no
 4. The bounding box (or the mask) is read from the full-resolution DEM into `rasters/dem_clip.tif`.
 
 The tool reports the memory estimate before and after. The clipped DEM is tagged, and the design hydrology package then gives every catchment `clip_edge`: 1 when it touches the edge of the clip, with a warning to enlarge the margin. The settings are recorded in `autoclip_json`.
+
+## v0.26: land-cover scenarios and a Graphical Modeler example
+
+**Land-cover scenarios.** Give a second land-cover raster with the same classes (a planned development, a future land-use map) as *Land-cover scenario*, with a name, in *Soil, rainfall and runoff parameters*, the package or the pipeline. It runs through the same lookups and the same hydrologic soil groups as the baseline, so the change comes from land cover only:
+
+- `cn_ii_scn`, `cn_export_scn` and `d_cn`;
+- `rational_c_scn` and `d_rational_c`, with a user C lookup;
+- `lc_pct_<group>_scn`;
+- with an erosion folder, `ero_c_mean_scn` (WorldCover → C lookup), `ero_a_mean_tha_scn` and `d_ero_a_mean_tha`. Soil loss is scaled per cell by C_scn / C, which holds because A = R K LS C P.
+
+`scenario_name` is written on each catchment and the settings in `scenario_json`. The run report has a scenario table.
+
+**Graphical Modeler example.** `examples/qeht_corridor.model3` chains Fill → D8 → accumulation → streams → crossing candidates → Build design hydrology package, with DEM, road and stream threshold as inputs. Open it in the Graphical Modeler (*Model → Open Model*) as a starting point for your own chains. It is built by `tools/dev/build_model.py`, so it stays in step with the parameter names.
 
 ### Data sources by region
 

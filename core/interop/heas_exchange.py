@@ -129,7 +129,7 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
                            id_prefix="X", id_width=3, id_start=1,
                            id_order="downstream", soil=None, erosion=None, progress=None,
                            channel_threshold_cells=None, sheet_cap_m=100.0, runoff=None,
-                           channel_slope_m=200.0, rainfall=None):
+                           channel_slope_m=200.0, rainfall=None, scenario=None):
     """Run snap -> id -> catchment -> LFP -> characteristics for every outlet.
 
     Parameters
@@ -318,6 +318,8 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
                                                      erosion, eb, accumulation=accumulation,
                                                      valid=valid, elevation=elevation,
                                                      cell_size=(cw, ch)))
+        if scenario is not None:                                 # F14 land-cover scenario
+            chs.update(scenario.block(mask))
         polys = mask_to_polygons(mask, gt)
         catchments.append((polys, dict(
             chs, **link, outlet_uid=s["uid"], catchment_id=s["uid"],

@@ -467,6 +467,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             except (ValueError, FileNotFoundError) as e:
                 raise QgsProcessingException(str(e))
             feedback.pushInfo(f"Erosion block from {ero_folder} ({erosion.mode}).")
+        scenario = self.load_scenario(parameters, context, info, runoff, feedback, erosion)
         try:
             crossings, catchments, flowpaths, issues, id_info = build_exchange_records(
                 direction, valid, accum, elevation, info.geotransform, points,
@@ -476,7 +477,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                 id_prefix=prefix, id_order=order, soil=soil, erosion=erosion,
                 progress=self.make_progress(feedback, weight=0.9),
                 channel_threshold_cells=snap_threshold if snap_threshold > 0 else None,
-                sheet_cap_m=sheet_cap, runoff=runoff, rainfall=rainfall,
+                sheet_cap_m=sheet_cap, runoff=runoff, rainfall=rainfall, scenario=scenario,
                 channel_slope_m=(self.parameterAsDouble(parameters, "CH_SLOPE_DIST", context)
                                  if "CH_SLOPE_DIST" in parameters else 200.0))
         except ExchangeError as e:
@@ -514,6 +515,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                     prof, crossings,
                     build_kwargs=dict(local=False, stream_order=stream_order, soil=soil,
                                       erosion=erosion, runoff=runoff, rainfall=rainfall,
+                                      scenario=scenario,
                                       channel_threshold_cells=snap_threshold if snap_threshold > 0 else None,
                                       sheet_cap_m=sheet_cap,
                                       channel_slope_m=(self.parameterAsDouble(parameters, "CH_SLOPE_DIST", context)
@@ -756,6 +758,9 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "tc_params_json": tc_md,
             "mapped_drainage_json": mapped_md,
             "autoclip_json": clip_md,
+            "scenario_json": scenario.meta_json(
+                next((f.get("source", "") for f in (erosion_run or {}).get("factors", [])
+                      if f.get("factor") == "C"), "")) if scenario is not None else "",
             "n_proposed": str(n_proposed),
             "crossing_source": ("crossing candidates" if candidate_mode else "pour points"),
             "chainage_start_m": (f"{alignment.start_chainage:g}" if alignment is not None else ""),

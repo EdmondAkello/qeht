@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.25.0
+**Version:** 0.26.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -448,6 +448,23 @@ The coarse grid is filled (priority flood) and routed with D8 (Barnes). The road
 The window is read with `gdal.Translate` (`srcWin`), written as float32 with NoData −9999 and tagged `QEHT_AUTOCLIP` (window, k, buffer, margin, mode, memory estimate). In the design hydrology package, a catchment gets `clip_edge` = 1 when one of its cells lies on the grid edge or is 8-adjacent to a NoData cell. The flag is NULL when the raw DEM carries no clip tag.
 
 On the test grid (600 × 500 cells, k = 5) the clipped run gives exactly the unclipped areas at every road crossing. A window that removes the top of the catchments flags all of them.
+
+### 4.31 Land-cover scenarios and the Modeler example (v0.26, F14 / F16)
+
+The scenario raster is warped to the DEM grid by nearest neighbour and becomes a second `RunoffInputs` with the baseline's hydrologic soil groups, condition, AMC and CN / C lookups. Per catchment the block is computed as for the baseline (§4.18):
+
+- d_cn = cn_ii_scn − cn_ii;
+- d_rational_c = rational_c_scn − rational_c.
+
+With an erosion folder, C_scn comes from the WorldCover → C lookup of the erosion tool. Since A = R K LS C P, the scenario soil loss is A_scn = A · C_scn / C per cell, for cells with C > 0. Its mean, and the difference from the baseline mean over the same cells, are reported. When the baseline C came from another source (a C raster or a value), `scenario_json` records it, because the change then also reflects the change of source.
+
+`examples/qeht_corridor.model3` is a `QgsProcessingModelAlgorithm` written by `tools/dev/build_model.py`:
+
+- six children (filldepressions, flowdirection with Barnes, flowaccumulation, streamnetwork, crossingcandidates, buildheasexchange);
+- model inputs `dem`, `road` and `threshold`;
+- one output, `design_hydrology_package`.
+
+The smoke test loads it from the file and runs it.
 
 ---
 

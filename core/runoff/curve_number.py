@@ -192,6 +192,11 @@ class RunoffInputs(object):
     def __init__(self, classes, hsg=None, condition="fair", amc="II", cn_lookup=None,
                  cn_lookup_path=None, rc_lookup=None, rc_lookup_path=None, lc_dataset=""):
         self.classes = np.asarray(classes, float)
+        self.hsg = hsg
+        self.condition = condition
+        self.cn_lookup_path = cn_lookup_path
+        self.rc_lookup_in = rc_lookup
+        self.rc_lookup_path = rc_lookup_path
         self.amc = amc
         self.lc_dataset = lc_dataset
         self.cn_lookup = cn_lookup or tr55_lookup(condition)

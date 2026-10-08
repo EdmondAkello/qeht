@@ -3,6 +3,17 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.26.0] — unreleased (land-cover scenarios, Modeler example)
+### Added
+- **Land-cover scenarios** (F14) in *Soil, rainfall and runoff parameters*, the package and the pipeline: *Land-cover scenario* raster and *Scenario name*. Same lookups and HSG as the baseline. Catchment fields:
+  - `scenario_name`, `cn_ii_scn`, `cn_export_scn`, `d_cn`, `rational_c_scn`, `d_rational_c`;
+  - `lc_pct_<group>_scn`;
+  - with erosion: `ero_c_mean_scn`, `ero_a_mean_tha_scn` (A × C_scn / C per cell), `d_ero_a_mean_tha`.
+
+  Metadata `scenario_json`; run report table; characteristics group.
+- **Graphical Modeler example** (F16): `examples/qeht_corridor.model3` (Fill → D8 → accumulation → streams → crossing candidates → package; inputs DEM, road, stream threshold), built by `tools/dev/build_model.py`.
+- Tests: test_scenario 11 (new); smoke 77 (+3). Golden fixture regenerated: fifteen catchment fields and one metadata key added, no existing value changed.
+
 ## [0.25.0] — unreleased (corridor auto-clip)
 ### Added
 - **Clip DEM to the road's contributing area** (F13, group Road drainage, id `autoclip`): coarse copy by block minimum (k for at most 4 Mcells), fill and D8 on it, everything draining to the road buffer (200 m) by pointer jumping, margin 1 km plus 2 coarse cells, bounding box or mask, full-resolution window read (`gdal.Translate srcWin`), tag `QEHT_AUTOCLIP`, memory estimate before and after.

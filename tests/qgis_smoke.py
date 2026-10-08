@@ -496,6 +496,30 @@ def main(in_qgis=False):
           not errors and all(c["usle_k"] and c["soil_hsg"] for c in ca)
           and "SoilGrids" in md["soil_dataset"] and "hysogs" in md["soil_hsg_source"].lower()
           and all(c["cn_export"] for c in ca) and '"cn_proxy": true' in md["runoff_json"])
+    # ---- v0.26 (F14): land-cover scenario (grassland on the left becomes built-up) -----
+    _wr(out("worldcover_scn.tif"), np.where(left, 50, 40).astype(np.uint8), _g.GDT_Byte, 0)
+    r6 = processing.run("qeht:soilparameters", {
+        "CATCHMENTS": out("ch_c.gpkg"), "REF": out("fdr.tif"), "SOIL_HSG_R": out("hysogs.tif"),
+        "LANDCOVER": out("worldcover.tif"), "LANDCOVER_SCN": out("worldcover_scn.tif"),
+        "SCENARIO_NAME": "built-up west", "OUTPUT": out("ch_scn.gpkg")})
+    f6 = list(QgsVectorLayer(r6["OUTPUT"], "s6", "ogr").getFeatures())
+    check("scenario in the soil tool: grass -> built-up raises CN where there was grass (built share "
+          "= former grass share), no change elsewhere",
+          len(f6) == 3 and all(f["scenario_name"] == "built-up west"
+                               and abs(f["lc_pct_built_scn"] - f["lc_pct_grass"]) < 1e-6
+                               and (f["d_cn"] > 0) == (f["lc_pct_grass"] > 0) for f in f6),
+          ", ".join(f"{f['outlet_uid']} dCN {f['d_cn']:.2f}" for f in f6))
+    r = processing.run("qeht:buildheasexchange", {
+        "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "POINTS": ptsfile,
+        "ID_FIELD": "culvert", "SNAP": 5, "SNAP_THRESHOLD": 200, "SOIL_HSG_R": out("hysogs.tif"),
+        "LANDCOVER": out("worldcover.tif"), "LANDCOVER_SCN": out("worldcover_scn.tif"),
+        "SCENARIO_NAME": "built-up west", "OUTPUT": out("scn_exchange.gpkg")})
+    ca6 = gpkg.read_table(r["OUTPUT"], "catchments", with_geometry=False)
+    md6 = {row["key"]: row["value"] for row in gpkg.read_table(r["OUTPUT"], "qeht_run_metadata")}
+    errors, _ = validate_exchange(r["OUTPUT"])
+    check("scenario in the package: cn_ii_scn and d_cn on every catchment, scenario_json, validates",
+          not errors and all(c["cn_ii_scn"] is not None and c["d_cn"] is not None for c in ca6)
+          and "built-up west" in md6["scenario_json"])
 
     # ---- v0.17 (F3): rainfall zones, mean annual rainfall, R estimate ------
     zl = QgsVectorLayer(f"Polygon?crs={QgsRasterLayer(dem).crs().authid()}&field=zone:string",
@@ -753,6 +777,17 @@ def main(in_qgis=False):
     check("package reads dem_source and dem_prep from the DEM tags when left blank",
           mdt["dem_source"].startswith("FABDEM v1.2 (test tag)") and mdt["dem_prep"] ==
           "QEHT prepare DEM test", mdt["dem_source"])
+    # ---- v0.26 (F16): Graphical Modeler example ------------------------------------
+    from qgis.core import QgsProcessingModelAlgorithm
+    model = QgsProcessingModelAlgorithm()
+    loaded = model.fromFile(os.path.join(here, "examples", "qeht_corridor.model3"))
+    r = processing.run(model, {"dem": dem, "road": out("road.gpkg"), "threshold": 200,
+                               "design_hydrology_package": out("model_pkg.gpkg")})
+    pkm = r.get("design_hydrology_package") or out("model_pkg.gpkg")
+    errors, _ = validate_exchange(pkm)
+    check("Graphical Modeler example: loads, runs on the example DEM and road, package validates",
+          loaded and not errors and len(gpkg.read_table(pkm, "crossings", with_geometry=False)) > 0,
+          "; ".join(errors))
     # ---- v0.17 (F7/F8): one-click pipeline and run report --------------------
     import json as _json3
     from ..core.raster import read_dem as _rd3
