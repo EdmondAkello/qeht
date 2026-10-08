@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.24.0
+# QEHT — QGIS Engineering Hydrology Toolkit v0.25.0
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -526,6 +526,17 @@ Did the DEM put the river where the map does? Give *Build design hydrology packa
 - **Divergence:** DEM stream runs that leave the mapped course for at least 10 cells form the layer `drainage_divergence`, with length and the area flowing down them. A large area here is how a catchment that switches between crossings shows up. The mapped lines used are stored as `mapped_rivers_used`.
 
 The run report has a section for it, and the KMZ shows the mapped lines, the divergence reaches and an "on / off the mapped waterway" badge on each crossing.
+
+## v0.25: corridor auto-clip for large DEMs
+
+QEHT holds the whole grid in memory, so a national FABDEM or ALOS mosaic will not fit on a work laptop, and clipping by hand can cut catchments. **Clip DEM to the road's contributing area** (Road drainage), or the pipeline option *Clip the DEM to the road's contributing area first*, finds the area that drains to the road on a coarse copy of the DEM and reads only that window at full resolution:
+
+1. The coarse copy takes the **minimum** of each block, so valleys are kept. The block size is chosen so the copy has at most 4 Mcells.
+2. The copy is filled and routed with D8. Every coarse cell that drains to the road buffer (200 m) is kept.
+3. That area is widened by a margin (1 km plus 2 coarse cells).
+4. The bounding box (or the mask) is read from the full-resolution DEM into `rasters/dem_clip.tif`.
+
+The tool reports the memory estimate before and after. The clipped DEM is tagged, and the design hydrology package then gives every catchment `clip_edge`: 1 when it touches the edge of the clip, with a warning to enlarge the margin. The settings are recorded in `autoclip_json`.
 
 ### Data sources by region
 

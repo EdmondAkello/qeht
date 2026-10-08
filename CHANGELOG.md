@@ -3,6 +3,13 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.25.0] — unreleased (corridor auto-clip)
+### Added
+- **Clip DEM to the road's contributing area** (F13, group Road drainage, id `autoclip`): coarse copy by block minimum (k for at most 4 Mcells), fill and D8 on it, everything draining to the road buffer (200 m) by pointer jumping, margin 1 km plus 2 coarse cells, bounding box or mask, full-resolution window read (`gdal.Translate srcWin`), tag `QEHT_AUTOCLIP`, memory estimate before and after.
+- Pipeline option *AUTO_CLIP* (off by default) writing `rasters/dem_clip.tif`.
+- Package: catchment field `clip_edge` (touches the grid edge or NoData of a clipped DEM) with a warning; metadata `autoclip_json`.
+- Tests: test_autoclip 14 (new); smoke 74 (+2; 22 algorithms). Golden fixture regenerated: one catchment field and one metadata key added, no existing value changed.
+
 ## [0.24.0] — unreleased (check against mapped drainage)
 ### Added
 - **Check against mapped drainage** (F12) in the package and the pipeline: mapped waterways (lines, optional name field and source text), comparison threshold (default 1 km²), tolerance (60 m), shortest divergence run (10 cells).

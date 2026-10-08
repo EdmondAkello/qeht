@@ -610,6 +610,27 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                     feedback.pushWarning(f"  {a['outlet_uid']}: channel section low quality - "
                                          f"{a.get('xs_note')}")
 
+        # -- catchments cut by an automatic clip (F13) -----------------------------
+        from ..core.raster import raster_tags as _rtags
+        from ..core.conditioning.autoclip import TAG as _CLIPTAG
+        clip_md = _rtags(raw_path).get(_CLIPTAG, "")
+        if clip_md:
+            from ..core.geometry.rasterize import polygon_window
+            n_cut = 0
+            for g, a in catchments:
+                pw = polygon_window(g, info.geotransform, (info.rows, info.cols))
+                if pw is None:
+                    continue
+                r0, r1, c0, c1, lab = pw
+                at_edge = (r0 == 0 and lab[0].any()) or (r1 == info.rows and lab[-1].any()) \
+                    or (c0 == 0 and lab[:, 0].any()) or (c1 == info.cols and lab[:, -1].any())
+                cut = int(bool(at_edge) or _touches_nodata(lab, raw_valid[r0:r1, c0:c1]))
+                a["clip_edge"] = cut
+                n_cut += cut
+            if n_cut:
+                feedback.pushWarning(f"{n_cut} catchment(s) touch the edge of the automatic clip "
+                                     "(clip_edge = 1): enlarge the clip margin and run again.")
+
         # -- check against mapped drainage (F12) -----------------------------------
         mapped_md = ""
         if parameters.get("MAPPED") and self.parameterAsSource(parameters, "MAPPED", context) is not None:
@@ -734,6 +755,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "corridor_sti_params_json": csti_md,
             "tc_params_json": tc_md,
             "mapped_drainage_json": mapped_md,
+            "autoclip_json": clip_md,
             "n_proposed": str(n_proposed),
             "crossing_source": ("crossing candidates" if candidate_mode else "pour points"),
             "chainage_start_m": (f"{alignment.start_chainage:g}" if alignment is not None else ""),
@@ -856,7 +878,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         """F12: map_* fields, optional layers and coverage findings; returns mapped_drainage_json."""
         from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
         from ..core.network import mapped as mp
-        from ..core.geometry.rasterize import rasterize_polygons
+        from ..core.geometry.rasterize import polygon_window
         from ..core.interop.field_dictionary import OPTIONAL_LAYERS
         src = self.parameterAsSource(parameters, "MAPPED", context)
         name_field = self.field_parameter(parameters, "MAPPED_NAME_FIELD", context) \
@@ -888,17 +910,12 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         overall = mp.scores(ctx)
         shape = (info.rows, info.cols)
         for g, a in catchments:
-            pts = np.array([p for poly in (g or []) for ring in poly for p in ring], float)
-            if pts.size == 0:
+            pw = polygon_window(g, gt, shape)
+            if pw is None:
                 continue
-            c0 = max(int((pts[:, 0].min() - gt[0]) // gt[1]) - 1, 0)
-            c1 = min(int((pts[:, 0].max() - gt[0]) // gt[1]) + 2, info.cols)
-            r0 = max(int((pts[:, 1].max() - gt[3]) // gt[5]) - 1, 0)
-            r1 = min(int((pts[:, 1].min() - gt[3]) // gt[5]) + 2, info.rows)
-            wgt = (gt[0] + c0 * gt[1], gt[1], 0.0, gt[3] + r0 * gt[5], 0.0, gt[5])
-            lab = rasterize_polygons([(poly, 1) for poly in g], wgt, (r1 - r0, c1 - c0))
+            r0, r1, c0, c1, lab = pw
             region = np.zeros(shape, bool)
-            region[r0:r1, c0:c1] = lab > 0
+            region[r0:r1, c0:c1] = lab
             p, r, f1 = mp.scores(ctx, region)
             a.update({"map_precision": p, "map_recall": r, "map_f1": f1})
         for (_, a), b in zip(crossings, mp.crossing_fields([a for _, a in crossings], lines, names,
@@ -934,3 +951,15 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                           "divergence reach(es).")
         return mp.params_json((self.parameterAsString(parameters, "MAPPED_SOURCE", context) or
                                src.sourceName()), km2, tol, mc, overall, len(lines), name_field)
+
+
+def _touches_nodata(mask, valid):
+    """True when a mask cell is 8-adjacent to an invalid cell inside the window."""
+    inv = np.pad(~np.asarray(valid, bool), 1, constant_values=False)
+    m = np.asarray(mask, bool)
+    rows, cols = m.shape
+    for dr in (-1, 0, 1):
+        for dc in (-1, 0, 1):
+            if (m & inv[1 + dr:1 + dr + rows, 1 + dc:1 + dc + cols]).any():
+                return True
+    return False

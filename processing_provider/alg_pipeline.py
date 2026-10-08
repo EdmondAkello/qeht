@@ -55,7 +55,8 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
             "<b>quicklooks/</b> (PNG + world file + legend of the rasters, for "
             "viewing without a GIS), <b>report/run_report.html</b> and <b>settings.json</b>.\n\n"
             "<b>Steps:</b> optionally Prepare DEM (merge tiles, bilinear to the local UTM "
-            "zone; off by default) → DEM checks (NoData, nearest-neighbour resampling) → fill → D8 "
+            "zone; off by default) → optionally clip to the road's contributing area (large "
+            "DEMs; off by default) → DEM checks (NoData, nearest-neighbour resampling) → fill → D8 "
             "(Barnes by default) → accumulation → streams → with a road: crossing candidates "
             "(optionally burnt through the embankment, then routed again) → erosion "
             "indices / RUSLE → crossings, catchments and flow paths with soils, curve number, "
@@ -88,6 +89,9 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
         self.addParameter(QgsProcessingParameterBoolean(
             "PREPARE", "Prepare the DEM first (merge tiles, reproject bilinear to the local UTM "
             "zone at the native cell size, audit)", defaultValue=False))
+        self.addParameter(QgsProcessingParameterBoolean(
+            "AUTO_CLIP", "Clip the DEM to the road's contributing area first (large DEMs; needs a "
+            "road)", defaultValue=False))
         self.addParameter(_ML("DEM_TILES", "DEM tiles to prepare (optional; else the DEM above)",
                               QgsProcessing.SourceType.TypeRaster, optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
@@ -257,6 +261,16 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
             feedback.pushInfo(f"DEM value {nd:g} declared NoData in rasters/dem_input.tif; "
                               "every step uses that copy.")
             raw = R("dem_input.tif")
+        if (self.parameterAsBool(p, "AUTO_CLIP", context) if "AUTO_CLIP" in p else False):
+            if road is None:
+                warn("Automatic clip needs a road; the whole DEM is used.")
+            else:
+                fb.setProgressText("Clip the DEM to the road's contributing area")
+                cr_ = self._run("autoclip", {"DEM": raw, "ROAD": road, "OUTPUT": R("dem_clip.tif")},
+                                context, fb)
+                feedback.pushInfo(cr_.get("SUMMARY", ""))
+                raw = R("dem_clip.tif")
+                outputs["Clipped DEM"] = raw
         dem, valid, info = read_dem(raw)
         if not info.projection_wkt:
             raise QgsProcessingException("The DEM has no CRS; QEHT needs a projected, metric CRS.")

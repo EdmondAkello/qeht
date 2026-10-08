@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.24.0
+**Version:** 0.25.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -438,6 +438,16 @@ For each crossing, the distance from the outlet to every mapped polyline is comp
 Mapped lines are intersected with the alignment (the coverage-check intersection, §4.20). An intersection whose chainage is more than 50 m from every crossing is a `mapped_river_uncovered` finding.
 
 **Divergence reaches.** A divergence head is a stream cell outside M_t whose D8 donor is a stream cell inside M_t. From each head, largest accumulation first, the receivers are followed while the cells stay outside M_t and are not yet used. A run of at least `min_cells` cells is a reach. Its length is the sum of its D8 links, its area is the head's (accumulation + 1) × cell area, and `rejoins` = 1 when it ends on an agreeing cell.
+
+### 4.30 Corridor auto-clip (v0.25, F13)
+
+The coarse factor is the smallest k with ⌈R/k⌉⌈C/k⌉ ≤ the cell limit (4 × 10⁶). The coarse grid z_c(i, j) = min over the k × k block of the valid full-resolution cells (NaN for a block with none). Taking the minimum keeps every valley floor, so no channel is lost to averaging.
+
+The coarse grid is filled (priority flood) and routed with D8 (Barnes). The road cells are the coarse cells touched by the centreline offset by ±200 m, sampled at a third of a coarse cell. A cell drains to the road when its receiver chain reaches a road cell. This is found for the whole grid by pointer jumping, as for HAND (§4.23). The kept set (road cells and everything draining to them) is dilated by ⌈margin / coarse cell⌉ + 2 cells (square, separable), and its bounding box is converted to full-resolution rows and columns, clamped to the grid. In mask mode, full-resolution cells outside the dilated set become NoData.
+
+The window is read with `gdal.Translate` (`srcWin`), written as float32 with NoData −9999 and tagged `QEHT_AUTOCLIP` (window, k, buffer, margin, mode, memory estimate). In the design hydrology package, a catchment gets `clip_edge` = 1 when one of its cells lies on the grid edge or is 8-adjacent to a NoData cell. The flag is NULL when the raw DEM carries no clip tag.
+
+On the test grid (600 × 500 cells, k = 5) the clipped run gives exactly the unclipped areas at every road crossing. A window that removes the top of the catchments flags all of them.
 
 ---
 

@@ -63,10 +63,10 @@ def main(in_qgis=False):
         reg.addProvider(QehtProvider())
     algs = sorted(a.id() for a in reg.providerById("qeht").algorithms())
     print("QEHT algorithms:", ", ".join(algs))
-    check("provider loads with 21 algorithms incl. exchange, crossings, burn, relink, soils, "
+    check("provider loads with 22 algorithms incl. exchange, crossings, burn, relink, soils, "
           "erosion, alignment profile, pipeline, run report, prepare DEM",
-          len(algs) == 21 and all(a in algs for a in ("qeht:alignmentprofile", "qeht:drainagecoverage",
-              "qeht:preparedem", "qeht:exportpackage",
+          len(algs) == 22 and all(a in algs for a in ("qeht:alignmentprofile", "qeht:drainagecoverage",
+              "qeht:preparedem", "qeht:exportpackage", "qeht:autoclip",
               "qeht:hydrologypipeline", "qeht:runreport",
               "qeht:buildheasexchange", "qeht:crossingcandidates", "qeht:burncrossings",
               "qeht:renumberrelink", "qeht:soilparameters", "qeht:erosionindices",
@@ -834,6 +834,31 @@ def main(in_qgis=False):
           and "files/legend.png" in _zf.ZipFile(kz).namelist()
           and sum(1 for k in xc if k.startswith("A") and k[1:].isdigit() and int(k[1:]) >= 3) == len(cr3),
           f"{kml.count('<Placemark>')} placemarks, {len(xc)} cells")
+    # ---- v0.25 (F13): corridor auto-clip ------------------------------------------
+    r = processing.run("qeht:autoclip", {"DEM": dem, "ROAD": out("road.gpkg"), "MARGIN": 500.0,
+                                         "OUTPUT": out("dem_clip.tif")})
+    from ..core.raster import read_dem as _rdc, raster_tags as _rtc
+    _, _, cinf = _rdc(r["OUTPUT"])
+    _, _, finf = _rdc(dem)
+    ctag = _json3.loads(_rtc(r["OUTPUT"]).get("QEHT_AUTOCLIP", "{}"))
+    check("auto-clip: smaller grid on the same cell size, window and memory recorded in the tag",
+          cinf.rows * cinf.cols < finf.rows * finf.cols and abs(cinf.cell_width - finf.cell_width) < 1e-9
+          and ctag.get("clip_peak_gb", 9) < ctag.get("full_peak_gb", 0) and len(ctag["window"]) == 4,
+          r["SUMMARY"])
+    pfc = out("pipe_clip")
+    r = processing.run("qeht:hydrologypipeline", {
+        "DEM": dem, "ROAD": out("road.gpkg"), "START": 1000.0, "STREAM_KM2": km2_200, "AUTO_CLIP": True,
+        "EROSION": False, "QUICKLOOKS": False, "EXPORTS": False, "PACKAGE": True, "LOAD": False,
+        "OUTPUT": pfc})
+    pkc = os.path.join(pfc, "package", "design_hydrology.gpkg")
+    cac = gpkg.read_table(pkc, "catchments", with_geometry=False)
+    mdc = {row["key"]: row["value"] for row in gpkg.read_table(pkc, "qeht_run_metadata")}
+    errors, _ = validate_exchange(pkc)
+    check("pipeline with the auto-clip: runs on rasters/dem_clip.tif, every catchment has "
+          "clip_edge, autoclip_json recorded, validates",
+          not errors and os.path.exists(os.path.join(pfc, "rasters", "dem_clip.tif"))
+          and cac and all(c["clip_edge"] in (0, 1) for c in cac) and mdc.get("autoclip_json"),
+          f"{len(cac)} catchments, {sum(c['clip_edge'] for c in cac)} at the clip edge")
     # ---- v0.24 (F12): check against mapped drainage (the DEM's own streams as the map) --
     r = processing.run("qeht:buildheasexchange", {
         "FDR": os.path.join(pf, "rasters", "flow_direction.tif"),

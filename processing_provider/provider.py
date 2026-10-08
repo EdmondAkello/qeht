@@ -36,6 +36,7 @@ from .alg_pipeline import HydrologyPipelineAlgorithm
 from .alg_run_report import RunReportAlgorithm
 from .alg_prepare_dem import PrepareDemAlgorithm
 from .alg_export_package import ExportPackageAlgorithm
+from .alg_autoclip import AutoClipAlgorithm
 
 
 class QehtProvider(QgsProcessingProvider):
@@ -63,6 +64,7 @@ class QehtProvider(QgsProcessingProvider):
             HydrologyPipelineAlgorithm(),
             RunReportAlgorithm(),
             ExportPackageAlgorithm(),
+            AutoClipAlgorithm(),
         ):
             self.addAlgorithm(alg)
 

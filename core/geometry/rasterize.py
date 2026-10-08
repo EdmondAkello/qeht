@@ -60,3 +60,25 @@ def rasterize_polygons(polygons, geotransform, shape, fill=0, dtype=np.int32):
                 if c0 <= c1:
                     out[r, c0:c1 + 1] = value
     return out
+
+
+def polygon_window(polygons, geotransform, shape, pad=1):
+    """Cells of one (multi)polygon, rasterised in a window around it.
+
+    polygons: [[outer, hole, ...], ...]. Returns (r0, r1, c0, c1, mask) with
+    the window padded by `pad` cells (clamped to the grid), or None when empty.
+    """
+    gt = tuple(geotransform)
+    rows, cols = shape
+    pts = np.array([p for poly in (polygons or []) for ring in poly for p in ring], float)
+    if pts.size == 0:
+        return None
+    c0 = max(int((pts[:, 0].min() - gt[0]) // gt[1]) - pad, 0)
+    c1 = min(int((pts[:, 0].max() - gt[0]) // gt[1]) + 1 + pad, cols)
+    r0 = max(int((pts[:, 1].max() - gt[3]) // gt[5]) - pad, 0)
+    r1 = min(int((pts[:, 1].min() - gt[3]) // gt[5]) + 1 + pad, rows)
+    if r1 <= r0 or c1 <= c0:
+        return None
+    wgt = (gt[0] + c0 * gt[1], gt[1], 0.0, gt[3] + r0 * gt[5], 0.0, gt[5])
+    lab = rasterize_polygons([(poly, 1) for poly in polygons], wgt, (r1 - r0, c1 - c0))
+    return r0, r1, c0, c1, lab > 0

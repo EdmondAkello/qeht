@@ -384,6 +384,10 @@ CATCHMENTS = [
      "tolerance of a DEM stream", "mapped lines sampled every half cell", "mapped drainage check"),
     ("map_f1", "real", "0-1", "harmonic mean of map_precision and map_recall", "2PR / (P + R)",
      "mapped drainage check"),
+    # automatic corridor clip (v0.25, F13) - empty when the DEM was not auto-clipped
+    ("clip_edge", "int", "0/1", "1 when the catchment touches the edge of the automatic clip "
+     "(grid edge or NoData outside the clip mask): enlarge the margin and run again",
+     "catchment cells 8-adjacent to the grid edge or NoData", "QA"),
 ]
 
 FLOWPATHS = [
@@ -633,6 +637,8 @@ METADATA_KEYS = [
     ("fp_params_json", "floodplain width indicator settings: area limit, dz values, bed window, "
      "HAND on/off (empty = no road)"),
     ("quicklook_params_json", "raster quicklook settings: folder, maximum size (empty = none)"),
+    ("autoclip_json", "automatic corridor clip of the raw DEM (QEHT_AUTOCLIP tag): window, coarse "
+     "factor, road buffer, margin, mode, memory estimate (empty = not clipped)"),
     ("mapped_drainage_json", "check against mapped drainage: source, name field, comparison "
      "threshold, tolerance, overall precision / recall / F1 (empty = not run)"),
     ("tc_params_json", "time of concentration settings: validity ranges and sources, P2 and its "
