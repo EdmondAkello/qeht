@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.18.0
+**Version:** 0.19.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -320,7 +320,7 @@ in MJ mm ha⁻¹ h⁻¹ yr⁻¹. Neither was derived in East Africa. The value i
 
 The pipeline runs the standalone tools as child algorithms with the parameters below, so it introduces no numerical code of its own: Fill (min slope 0) → D8 (chosen flat method) → accumulation → streams (threshold = km² ÷ cell area, rounded) → crossing candidates (with a road and no crossing layer) → Burn crossings and the four routing steps again on the burned DEM (when asked) → stream polylines → Erosion indices (channel threshold = stream threshold; R from the R raster, else the value, else the rainfall estimate) → Build design hydrology package (snap 5 cells to the stream threshold for pour points; candidates keep their outlets; road, coverage check, soils, CN, rainfall, erosion folder and burn log passed through). After the package, the flat-method sensitivity (4.4, v0.13.1) is computed at every crossing outlet on the filled DEM. The package layers are copied to `layers/` with in-process GDAL `VectorTranslate`, the tables to `tables/`, and the characteristics table and report are built from the package.
 
-The **characteristics table** joins crossings, catchments and flow paths on `outlet_uid` (core columns always; groups for flow-path segments, channel slopes, flat check, soils, CN, rainfall, shape and erosion when at least one crossing has a value) and orders rows by chainage when present. The **run report** reads `qeht_run_metadata` and the layers only. Both are pure Python (`core/report`).
+The **characteristics table** joins crossings, catchments and flow paths on `outlet_uid` (core columns always; groups for flow-path segments, channel slopes, channel section, flat check, soils, CN, rainfall, shape and erosion when at least one crossing has a value) and orders rows by chainage when present. The **run report** reads `qeht_run_metadata` and the layers only. Both are pure Python (`core/report`).
 
 ### 4.23 Floodplain width indicator (v0.18, A4)
 
@@ -331,6 +331,23 @@ HAND (Rennó et al. 2008; Nobre et al. 2011) is z minus the elevation of the fir
 ### 4.24 Raster quicklooks (v0.18, A6)
 
 Each raster is downsampled by the integer factor k = ⌈long side / limit⌉: classified rasters take the cell nearest each block centre (class values preserved), continuous ones the mean of the block's finite cells. Classified rasters are coloured from their GDAL colour table (the same colours as their .qml) with their category names in the legend; flow accumulation uses a blue ramp on log₁₀(1 + cells) from 0 to the maximum; STI a yellow–red ramp over the 2nd–98th percentile; the relief is a hypsometric tint (2nd–98th percentile of elevation) multiplied by 0.35 + 0.65 × hillshade (Horn, azimuth 315°, altitude 45°). The PNG is RGBA with NoData transparent. The world file holds the pixel size and the centre of the upper-left pixel of the downsampled grid.
+
+### 4.25 Approach-channel cross-sections (v0.19, F5)
+
+For every crossing (existing and proposed) at outlet cell (r, c):
+
+1. **Location.** Follow the D8 receivers from the outlet, adding the cell width or the cell diagonal per step, until the distance reaches `dist_m` (30 m); the walk stops early at the grid edge, NoData or a cell with no receiver, and `xs_dist_m` is the distance reached. The section centre is the centre of that cell.
+2. **Direction.** The flow vector runs from the centre of the cell k = 2 steps upstream on the walked path to the cell 2 steps further down the receivers (whatever exists of them). The transect direction is the flow vector turned 90° clockwise, so offsets are positive on the right looking downstream.
+3. **Transect.** Stations s = −h … +h (h = 150 m) every Δs = half a cell; z(s) is the raw DEM, bilinear between cell centres (4.15), NaN outside the grid or next to NoData.
+4. **Bed.** z_bed is the lowest z within one cell of the centre (ties to the station nearest the centre), at station i₀.
+5. **Bank tops.** Walking outward from i₀ on each side, at station j the slope behind, g_b = (z_j − z_{j−n}) / |s_j − s_{j−n}|, uses the station n = 2 cells / Δs towards the bed (not past i₀), and the slope ahead, g_a = (z_{j+n} − z_j) / |s_{j+n} − s_j|, the station n outward. Station j is a break when g_b ≥ S_b and (g_a < S_b or g_a < 0.5 g_b), with S_b = 0.05 (1:20). The bank top is the station with the largest g_b − g_a in the first contiguous run of breaks; looking at the drop rather than the first break puts it on the corner of a trapezoid exactly instead of half a baseline early. No break before the end of the transect (or NoData) means no bank on that side.
+6. **Bank-full.** d = min(z_top,L, z_top,R) − z_bed over the banks found. The width is the contiguous run around i₀ with z ≤ z_bed + d, its ends interpolated linearly between the last station inside and the first outside (`run_width`, 4.23). The same run at z_bed + 0.5, 1 and 2 m gives `xs_w_*`. A run that reaches NoData or the grid edge is a lower bound and lowers the quality; one that reaches the planned transect end is a lower bound and is noted.
+7. **Side slopes.** On each side, the samples with z_bed + 0.01 d < z ≤ z_top (z_top = z_bed + 1 m without a bank) are fitted by least squares as |s − s_i₀| = a + m z; m is the side slope H:V.
+8. **Quality.** low: no bank on either side, or a bank-full width under 3 cells (a sub-grid channel). medium: a bank on one side only, or the walk, the bank search or a width cut by NoData or the grid edge. high: otherwise.
+
+On the analytic test channel (1 m grid; 6 m bed, 1:2 banks 2 m high, 1:20 floodplain) the bed level, the 14 m bank-full width, the 2 m depth and the 2.0 side slopes are exact; on the same channel running NE–SW the widths agree within a station step except at the bank-top corner, which bilinear interpolation rounds off across the diagonal (0.5 m on a 14 m width). A single-cell notch on a 10 m grid returns a 20 m bilinear V and quality low.
+
+The method is terrain only. On a 30 m DEM a channel narrower than about three cells is not resolved, and the first break of slope is often the valley shoulder: a bank-full depth of several metres means the valley, not the channel bank, was found. Use survey where available. Fields `xs_*` on crossings, layer `xs_transects`, metadata `xs_params_json`.
 
 ---
 

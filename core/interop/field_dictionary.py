@@ -134,6 +134,38 @@ CROSSINGS = [
      "or no road)", "see run metadata fp_params_json", "provenance"),
     ("fp_note", "text", "-", "truncation at the end of the profile or NoData (width is a lower "
      "bound)", "", "QA"),
+    # approach / exit channel cross-section (v0.19, F5) - terrain only, indicative
+    ("xs_dist_m", "real", "m", "distance downstream of the outlet to the section",
+     "along the D8 receivers (cell or cell x sqrt 2 per step) until xs_params_json dist_m is "
+     "reached; shorter where the grid edge or NoData stops the walk", "provenance"),
+    ("xs_bed_m", "real", "m", "bed level at the section",
+     "lowest raw-DEM sample (bilinear) within one cell of the section centre", "channel section"),
+    ("xs_bed_offset_m", "real", "m", "offset of the bed low point from the section centre",
+     "positive on the right looking downstream", "channel section"),
+    ("xs_bankfull_w_m", "real", "m", "bank-full width (break of slope)",
+     "width below the lower bank top, ends interpolated; bank top = sharpest break where the "
+     "slope over the next two cells is below xs bank_slope or under half the slope behind",
+     "channel section"),
+    ("xs_bankfull_d_m", "real", "m", "bank-full depth", "lower bank top - xs_bed_m",
+     "channel section"),
+    ("xs_w_0p5_m", "real", "m", "channel width below bed + 0.5 m",
+     "contiguous run of the transect around the bed, ends interpolated", "channel section"),
+    ("xs_w_1p0_m", "real", "m", "channel width below bed + 1.0 m", "as xs_w_0p5_m",
+     "channel section"),
+    ("xs_w_2p0_m", "real", "m", "channel width below bed + 2.0 m", "as xs_w_0p5_m",
+     "channel section"),
+    ("xs_side_slope_l", "real", "H:V", "left side slope looking downstream",
+     "least squares of offset on height, bed to bank top (bed + 1 m without a bank)",
+     "channel section"),
+    ("xs_side_slope_r", "real", "H:V", "right side slope looking downstream", "as xs_side_slope_l",
+     "channel section"),
+    ("xs_station_elev_json", "text", "m", "transect as [[station, z], ...] (JSON)",
+     "raw DEM bilinear every half cell from -half to +half width (default 150 m), perpendicular "
+     "to the local flow direction (D8 path 2 cells up to 2 cells down); 0.01 m", "channel section"),
+    ("xs_quality", "text", "-", "high / medium / low",
+     "low: bank-full width under 3 cells or no bank found; medium: one bank only, or the "
+     "transect or the walk cut by NoData or the grid edge", "QA"),
+    ("xs_note", "text", "-", "why the quality was lowered; widths that are lower bounds", "", "QA"),
 ]
 
 CATCHMENTS = [
@@ -458,6 +490,14 @@ OPTIONAL_LAYERS = {
         ("source_raster", "text", "-", "full-resolution GeoTIFF", "", "provenance"),
         ("kind", "text", "-", "classified or continuous", "", "quicklook"),
     ], "Raster quicklooks (PNG + world file + legend) for viewing outside a GIS"),
+    "xs_transects": ("LINESTRING", [
+        ("outlet_uid", "text", "-", "link key (see crossings)", "", "link key"),
+        ("xs_dist_m", "real", "m", "distance downstream of the outlet to the section", "",
+         "provenance"),
+        ("xs_station_elev_json", "text", "m", "transect as [[station, z], ...] (JSON); station "
+         "positive on the right looking downstream", "raw DEM bilinear", "channel section"),
+        ("xs_quality", "text", "-", "high / medium / low (see crossings)", "", "QA"),
+    ], "Channel cross-section transects downstream of each crossing (F5; indicative)"),
 }
 
 METADATA_KEYS = [
@@ -506,6 +546,8 @@ METADATA_KEYS = [
     ("fp_params_json", "floodplain width indicator settings: area limit, dz values, bed window, "
      "HAND on/off (empty = no road)"),
     ("quicklook_params_json", "raster quicklook settings: folder, maximum size (empty = none)"),
+    ("xs_params_json", "channel cross-section settings: distance downstream, half width, station "
+     "step, bank slope, stages (empty = not run)"),
     ("coverage_params_json", "coverage check, sag and flat-stretch settings (empty = not run)"),
     ("n_proposed", "number of proposed crossings added by the coverage check"),
     ("n_crossings", "number of crossings written"),
@@ -558,6 +600,8 @@ DOWNSTREAM_USE = {
     "deposition screening": "sediment deposition tendency at the culvert inlet (screening)",
     "approach channel slope": "approach channel slope (floodplain level, barrel comparison)",
     "exit channel slope": "exit channel slope (tailwater rating)",
+    "channel section": "approach / exit channel section for tailwater and waterway checks "
+                       "(indicative)",
     "MUSLE K": "soil erodibility for RUSLE / MUSLE",
     "MUSLE LS": "slope length-steepness factor for RUSLE / MUSLE",
     "MUSLE C": "cover factor for RUSLE / MUSLE",

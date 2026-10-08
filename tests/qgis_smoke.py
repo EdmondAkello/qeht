@@ -670,6 +670,26 @@ def main(in_qgis=False):
           ", ".join(f"{c['outlet_uid']} {c['acc_at_outlet_km2']:.1f} km2: {c['fp_w_1p0_m']:.0f} m "
                     f"(HAND {c['fp_hand_w_1p0_m'] if c['fp_hand_w_1p0_m'] is None else round(c['fp_hand_w_1p0_m'])})"
                     for c in big))
+    # ---- v0.19 (F5): channel cross-sections at crossings ----------------------
+    xst = gpkg.read_table(r["OUTPUT"], "xs_transects")
+    grow = all((c["xs_w_0p5_m"] is None or c["xs_w_1p0_m"] is None or c["xs_w_0p5_m"] <= c["xs_w_1p0_m"])
+               and (c["xs_w_1p0_m"] is None or c["xs_w_2p0_m"] is None or c["xs_w_1p0_m"] <= c["xs_w_2p0_m"])
+               for c in crf)
+    errors, _ = validate_exchange(r["OUTPUT"])
+    check("channel sections: every crossing has xs_quality, widths grow with dz, one transect "
+          "per crossing, settings in metadata, package validates",
+          not errors and crf and all(c["xs_quality"] in ("high", "medium", "low") for c in crf)
+          and grow and len(xst) == len(crf) and {t["outlet_uid"] for t in xst} == {c["outlet_uid"] for c in crf}
+          and '"dist_m": 30.0' in mdf["xs_params_json"],
+          ", ".join(f"{c['outlet_uid']} {c['xs_quality']} w1 {c['xs_w_1p0_m']}" for c in crf))
+    r = processing.run("qeht:buildheasexchange", {
+        "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "POINTS": out("cand.gpkg"),
+        "ROAD": out("road.gpkg"), "START": 1000.0, "COVERAGE": False, "XS": False,
+        "OUTPUT": out("xs_off_pkg.gpkg")})
+    check("channel sections can be switched off (no layer, fields empty)",
+          "xs_transects" not in dict(gpkg.list_tables(r["OUTPUT"]))
+          and all(c["xs_quality"] is None for c in gpkg.read_table(r["OUTPUT"], "crossings",
+                                                                   with_geometry=False)))
     # ---- v0.17 (F7/F8): one-click pipeline and run report --------------------
     import json as _json3
     from ..core.raster import read_dem as _rd3

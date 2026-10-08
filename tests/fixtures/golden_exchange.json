@@ -380,7 +380,20 @@
    "snap_dist_m": 17.691806,
    "source_id": null,
    "status": "existing",
-   "stream_order": 1
+   "stream_order": 1,
+   "xs_bankfull_d_m": null,
+   "xs_bankfull_w_m": null,
+   "xs_bed_m": null,
+   "xs_bed_offset_m": null,
+   "xs_dist_m": null,
+   "xs_note": null,
+   "xs_quality": null,
+   "xs_side_slope_l": null,
+   "xs_side_slope_r": null,
+   "xs_station_elev_json": null,
+   "xs_w_0p5_m": null,
+   "xs_w_1p0_m": null,
+   "xs_w_2p0_m": null
   },
   {
    "acc_at_outlet_km2": 0.2246,
@@ -437,7 +450,20 @@
    "snap_dist_m": 16.124515,
    "source_id": null,
    "status": "existing",
-   "stream_order": 2
+   "stream_order": 2,
+   "xs_bankfull_d_m": null,
+   "xs_bankfull_w_m": null,
+   "xs_bed_m": null,
+   "xs_bed_offset_m": null,
+   "xs_dist_m": null,
+   "xs_note": null,
+   "xs_quality": null,
+   "xs_side_slope_l": null,
+   "xs_side_slope_r": null,
+   "xs_station_elev_json": null,
+   "xs_w_0p5_m": null,
+   "xs_w_1p0_m": null,
+   "xs_w_2p0_m": null
   },
   {
    "acc_at_outlet_km2": 0.0169,
@@ -494,7 +520,20 @@
    "snap_dist_m": 17.804494,
    "source_id": null,
    "status": "existing",
-   "stream_order": 1
+   "stream_order": 1,
+   "xs_bankfull_d_m": null,
+   "xs_bankfull_w_m": null,
+   "xs_bed_m": null,
+   "xs_bed_offset_m": null,
+   "xs_dist_m": null,
+   "xs_note": null,
+   "xs_quality": null,
+   "xs_side_slope_l": null,
+   "xs_side_slope_r": null,
+   "xs_station_elev_json": null,
+   "xs_w_0p5_m": null,
+   "xs_w_1p0_m": null,
+   "xs_w_2p0_m": null
   }
  ],
  "crossings_vertices": [
@@ -663,6 +702,7 @@
   "soil_k_source": "",
   "stream_threshold_cells": "100",
   "stream_threshold_km2": "0.01",
-  "tie_rule": "lowest internal index (E, SE, S ...)"
+  "tie_rule": "lowest internal index (E, SE, S ...)",
+  "xs_params_json": ""
  }
 }

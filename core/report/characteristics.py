@@ -34,6 +34,8 @@ GROUPS = [
                             ("lfp_channel_m", "flowpaths"), ("lfp_channel_slope", "flowpaths"),
                             ("lfp_channel_slope_1085", "flowpaths")]),
     ("channel at the crossing", [("ch_slope_us", "crossings"), ("ch_slope_ds", "crossings")]),
+    ("channel section", [("xs_bankfull_w_m", "crossings"), ("xs_bankfull_d_m", "crossings"),
+                         ("xs_w_1p0_m", "crossings"), ("xs_quality", "crossings")]),
     ("floodplain width", [("fp_w_0p5_m", "crossings"), ("fp_w_1p0_m", "crossings"),
                           ("fp_w_2p0_m", "crossings"), ("fp_hand_w_1p0_m", "crossings"),
                           ("fp_note", "crossings")]),

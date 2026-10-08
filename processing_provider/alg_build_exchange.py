@@ -109,6 +109,12 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "(fp_w_*), from the alignment profile, and the same by height above nearest "
             "drainage (fp_hand_w_*). A terrain indicator for the split of the check flood "
             "between the main structure and relief culverts - not a flood level.\n\n"
+            "<b>Channel section at each crossing:</b> a transect of the raw DEM perpendicular to "
+            "the flow, 30 m downstream of the outlet by default: bed level, bank-full width and "
+            "depth by break of slope, widths below bed + 0.5, 1 and 2 m, side slopes H:V and the "
+            "station-elevation list (xs_*; layer xs_transects), with a quality flag. Indicative "
+            "only; on a 30 m DEM a small channel is below the grid resolution. Use survey where "
+            "available.\n\n"
             "<b>Rainfall (optional):</b> rainfall zone polygons give each catchment its "
             "dominant zone (rain_zone, rain_zone_pct, all shares in rain_zones_json; a "
             "warning when the dominant zone covers less than 80 %); a mean annual rainfall "
@@ -216,6 +222,17 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         self.addParameter(self._advanced(QgsProcessingParameterBoolean(
             "FP_HAND", "Floodplain width indicator: also by height above nearest drainage (HAND)",
             defaultValue=True)))
+        self.addParameter(self._advanced(QgsProcessingParameterBoolean(
+            "XS", "Channel cross-section downstream of each crossing (indicative)",
+            defaultValue=True)))
+        for key, label, default in (
+                ("XS_DIST", "Channel section: distance downstream of the outlet (m)", 30.0),
+                ("XS_HALF", "Channel section: half width of the transect (m)", 150.0),
+                ("XS_BANK_SLOPE", "Channel section: bank top where the side slope falls below (m/m)",
+                 0.05)):
+            self.addParameter(self._advanced(QgsProcessingParameterNumber(
+                key, label, QgsProcessingParameterNumber.Type.Double, defaultValue=default,
+                minValue=0.0)))
         self.addParameter(QgsProcessingParameterNumber(
             "PROFILE_STEP", "Alignment profile station spacing (m)",
             QgsProcessingParameterNumber.Type.Double, defaultValue=10.0, minValue=0.5))
@@ -520,6 +537,30 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                                if a.get("fp_hand_w_1p0_m") is not None else "")
                             + (f" - {a['fp_note']}" if a.get("fp_note") else ""))
 
+        # -- channel cross-section downstream of each crossing (F5) ------------
+        xs_md = ""
+        if self.parameterAsBool(parameters, "XS", context) if "XS" in parameters else True:
+            from ..core.watershed.section import section_block, params_json as _xs_params
+            from ..core.interop.field_dictionary import OPTIONAL_LAYERS
+            xp = {k: (self.parameterAsDouble(parameters, key, context) if key in parameters else dflt)
+                  for k, key, dflt in (("dist_m", "XS_DIST", 30.0), ("half_m", "XS_HALF", 150.0),
+                                       ("bank_slope", "XS_BANK_SLOPE", 0.05))}
+            blocks, xlines = section_block([a for _, a in crossings], direction, valid, elevation,
+                                           info.geotransform, **xp)
+            for (_, a), b in zip(crossings, blocks):
+                a.update(b)
+            xfields = [(f[0], f[1]) for f in OPTIONAL_LAYERS["xs_transects"][1]]
+            extra_layers.append(("xs_transects", "LINESTRING", xfields, xlines,
+                                 OPTIONAL_LAYERS["xs_transects"][2]))
+            xs_md = _xs_params(xp["dist_m"], xp["half_m"], None, xp["bank_slope"])
+            nq = {q: sum(1 for b in blocks if b["xs_quality"] == q) for q in ("high", "medium", "low")}
+            feedback.pushInfo(f"Channel sections {xp['dist_m']:g} m downstream: {nq['high']} high, "
+                              f"{nq['medium']} medium, {nq['low']} low quality (indicative).")
+            for _, a in crossings:
+                if a.get("xs_quality") == "low":
+                    feedback.pushWarning(f"  {a['outlet_uid']}: channel section low quality - "
+                                         f"{a.get('xs_note')}")
+
         # -- raster quicklooks (A6) ---------------------------------------------
         extra_tables, ql_md = [], ""
         ql_dir = self.parameterAsString(parameters, "QUICKLOOKS", context) \
@@ -587,6 +628,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "coverage_params_json": coverage_md,
             "fp_params_json": fp_md,
             "quicklook_params_json": ql_md,
+            "xs_params_json": xs_md,
             "n_proposed": str(n_proposed),
             "crossing_source": ("crossing candidates" if candidate_mode else "pour points"),
             "chainage_start_m": (f"{alignment.start_chainage:g}" if alignment is not None else ""),

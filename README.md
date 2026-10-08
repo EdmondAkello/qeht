@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.18.0
+# QEHT — QGIS Engineering Hydrology Toolkit v0.19.0
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -426,6 +426,19 @@ Steps: DEM checks → fill → D8 (Barnes) → accumulation → streams → cand
 **Floodplain width indicator (A4).** With a road, *Build design hydrology package* (and the pipeline) measures at every crossing of at least 10 km² how wide the valley floor is along the road: the run of the alignment profile around the lowest ground within 50 m of the crossing where the ground is below bed + 0.5, 1 and 2 m (`fp_w_0p5_m`, `fp_w_1p0_m`, `fp_w_2p0_m`, extent `fp_ch_from_m`–`fp_ch_to_m` at 1 m, `fp_z_bed_m`), and the same by height above nearest drainage (`fp_hand_w_*`). A width that runs off the end of the profile or into NoData is a lower bound and says so in `fp_note`. It informs the split of the check flood between the main structure and relief culverts. It is a terrain indicator, not a flood level.
 
 **Raster quicklooks (A6).** Give a quicklooks folder (the pipeline does by default) and the package writes, for the relief (hillshade over elevation), flow accumulation (log stretch) and the erosion class and STI rasters, a downsampled PNG (≤ 4,096 px), its world file (`.pgw`) and a legend JSON, and indexes them in the table `rasters`. Classified rasters keep their class values (nearest neighbour) and the colours of their `.qml` styles; continuous ones state their ramp and stretch. The run report draws its plan over the terrain.
+
+## v0.19: channel sections at crossings
+
+*Build design hydrology package* (and the pipeline) cuts a cross-section of the natural channel 30 m downstream of every crossing, existing and proposed, for the tailwater rating, the bridge waterway and the sediment-continuity check. The section sits on the D8 path and runs perpendicular to the local flow direction (taken from two cells upstream to two cells downstream, which smooths D8's 45° steps). The raw DEM is sampled bilinearly every half cell over ±150 m, offset positive on the right looking downstream.
+
+- `xs_bed_m`: lowest ground within one cell of the section centre (`xs_bed_offset_m`).
+- `xs_bankfull_w_m`, `xs_bankfull_d_m`: bank-full width and depth by break of slope. The bank top on each side is where the side slope over the next two cells falls below 1:20 or to less than half the slope behind; the lower bank governs.
+- `xs_w_0p5_m`, `xs_w_1p0_m`, `xs_w_2p0_m`: width below bed + 0.5, 1 and 2 m. These hold when there is no clear bank.
+- `xs_side_slope_l`, `xs_side_slope_r`: side slopes as H:V, least squares from the bed to the bank top (bed + 1 m without a bank).
+- `xs_station_elev_json`: the transect as `[[station, z], …]`, and the layer `xs_transects`.
+- `xs_quality`: `low` for a bank-full width under 3 cells or no bank on either side; `medium` for one bank only or a transect cut by NoData or the grid edge; `high` otherwise. `xs_note` says why.
+
+Indicative only; on a 30 m DEM a small channel is below the grid resolution. Use survey where available. On a coarse DEM the break of slope often finds the valley shoulder rather than the channel bank; a bank-full depth of several metres says which. Distance, half width and bank slope are advanced parameters (settings in `xs_params_json`); the section can be switched off. The characteristics table has a "channel section" group, and the run report lists low-quality sections under DEM checks.
 
 ### Data sources by region
 

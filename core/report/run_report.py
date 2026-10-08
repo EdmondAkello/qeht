@@ -281,6 +281,19 @@ def build_report(package_path, title=None, extra=None):
                            {"area_barnes_km2", "area_toward_km2", "flat_sensitivity_pct"})
                     if flagged else ""))
 
+    # channel sections of low quality (F5)
+    if "crossings" in tables:
+        xs = [r for r in gpkg.read_table(package_path, "crossings", with_geometry=False)
+              if r.get("xs_quality") == "low"]
+        if xs:
+            P.append("<h3>Channel sections of low quality</h3><p class='sub'>The channel "
+                     "cross-section downstream of these crossings is below the grid resolution "
+                     "or has no clear bank; use survey for the tailwater and waterway.</p>"
+                     + _table(["outlet_uid", "xs_bankfull_w_m", "xs_w_1p0_m", "xs_note"],
+                              [{k: _fmt(r.get(k)) for k in ("outlet_uid", "xs_bankfull_w_m",
+                                                           "xs_w_1p0_m", "xs_note")} for r in xs],
+                              {"xs_bankfull_w_m", "xs_w_1p0_m"}))
+
     # coverage
     if "coverage_check" in tables:
         cov = gpkg.read_table(package_path, "coverage_check", with_geometry=False)
