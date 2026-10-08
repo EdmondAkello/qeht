@@ -57,7 +57,7 @@ In both views, one common accumulation routine runs on every direction grid.
 
 ## Metrics
 
-All figures are medians over the 10 runs in each class and DEM.
+All figures are medians over the 20 runs (tiles) in each class and DEM.
 
 - **Stream F1.** Streams at 1 km² contributing area, compared with 1-cell tolerance. Exact stream IoU is also reported.
 - **Basin agreement.** For basins of 1 km² or more: area-weighted best-match IoU of the terminal basins.
