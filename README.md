@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.27.0
+# QEHT — QGIS Engineering Hydrology Toolkit v0.27.1
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -569,7 +569,7 @@ Per crossing the run gives P10, P50, P90 and the coefficient of variation of eac
 
 The time per realisation is reported before the loop. Clip a large DEM to the road's contributing area first. Settings and sources are in `uncertainty_json`; the run report and the KMZ cards show the ranges.
 
-### Data sources by region
+## Data sources by region
 
 QEHT does not ship data; it reads what you have. Global sources that work
 anywhere (national data is better where it exists):

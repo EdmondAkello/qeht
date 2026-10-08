@@ -60,9 +60,12 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
             "(Barnes by default) → accumulation → streams → with a road: crossing candidates "
             "(optionally burnt through the embankment, then routed again) → erosion "
             "indices / RUSLE → crossings, catchments and flow paths with soils, curve number, "
-            "rainfall and erosion blocks → drainage coverage check → floodplain width at large "
-            "crossings → quicklooks → flat-method check → "
-            "tables and report. Each step is the stand-alone tool of the same name.\n\n"
+            "rainfall, land-cover scenario and erosion blocks → drainage coverage check → "
+            "floodplain width at large crossings → channel sections → check against mapped "
+            "drainage (with mapped waterways) → DEM uncertainty (optional, slow) → time of "
+            "concentration → side-drain siltation → quicklooks → flat-method check → "
+            "tables (characteristics, time of concentration), report and KMZ / XLSX exports. "
+            "Each step is the stand-alone tool of the same name.\n\n"
             "<b>Crossings:</b> with a road and no crossing layer, the recommended candidates "
             "are used. To review them first, choose 'Stop after crossing candidates': edit "
             "<i>layers/crossing_candidates.gpkg</i> (set status to accepted / rejected, move "
@@ -89,11 +92,11 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
         self.addParameter(QgsProcessingParameterBoolean(
             "PREPARE", "Prepare the DEM first (merge tiles, reproject bilinear to the local UTM "
             "zone at the native cell size, audit)", defaultValue=False))
+        self.addParameter(_ML("DEM_TILES", "DEM tiles to prepare (optional; else the DEM above)",
+                              QgsProcessing.SourceType.TypeRaster, optional=True))
         self.addParameter(QgsProcessingParameterBoolean(
             "AUTO_CLIP", "Clip the DEM to the road's contributing area first (large DEMs; needs a "
             "road)", defaultValue=False))
-        self.addParameter(_ML("DEM_TILES", "DEM tiles to prepare (optional; else the DEM above)",
-                              QgsProcessing.SourceType.TypeRaster, optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
             "ROAD", "Road alignment (centreline; optional)",
             [QgsProcessing.SourceType.TypeVectorLine], optional=True))

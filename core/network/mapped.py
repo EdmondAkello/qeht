@@ -283,10 +283,11 @@ def clip_lines(lines, names, gt, shape):
     return rows_
 
 
-def params_json(source, threshold_km2, tol_m, min_cells, overall, n_lines, name_field):
+def params_json(source, threshold_km2, tol_m, min_cells, overall, n_lines, name_field,
+                far_m=1000.0, road_search_m=50.0):
     p, r, f = overall
     return json.dumps({"source": source, "name_field": name_field or "",
                        "comparison_threshold_km2": threshold_km2, "tolerance_m": tol_m,
                        "divergence_min_cells": min_cells, "lines": n_lines,
-                       "precision": p, "recall": r, "f1": f, "far_m": 1000.0,
-                       "road_search_m": 50.0}, sort_keys=True)
+                       "precision": p, "recall": r, "f1": f, "far_m": far_m,
+                       "road_search_m": road_search_m}, sort_keys=True)

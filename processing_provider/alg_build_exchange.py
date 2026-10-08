@@ -248,20 +248,40 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             self.addParameter(self._advanced(QgsProcessingParameterNumber(
                 key, label, QgsProcessingParameterNumber.Type.Double, defaultValue=default,
                 minValue=0.0)))
+        self.addParameter(QgsProcessingParameterNumber(
+            "PROFILE_STEP", "Alignment profile station spacing (m)",
+            QgsProcessingParameterNumber.Type.Double, defaultValue=10.0, minValue=0.5))
+        self.add_soil_parameters("SOIL", optional=True)
+        self.add_runoff_parameters()
+        self.add_rainfall_parameters()
+        from qgis.core import QgsProcessingParameterFeatureSource as _FS, QgsProcessing as _QP
+        self.addParameter(_FS(
+            "BURN_LOG", "Breach log from 'Burn crossings through embankments' (optional; "
+            "recorded in the package)", [_QP.SourceType.TypeVectorLine], optional=True))
+        from qgis.core import QgsProcessingParameterFile as _PF
+        self.addParameter(_PF(
+            "EROSION", "Erosion output folder (optional; adds the ero_* erosion block)",
+            behavior=_PF.Behavior.Folder, optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
             "MAPPED", "Mapped waterways for the drainage check (lines, e.g. OSM or HydroRIVERS; "
             "optional)", [QgsProcessing.SourceType.TypeVectorLine], optional=True))
         self.addParameter(QgsProcessingParameterField(
             "MAPPED_NAME_FIELD", "Mapped waterways: name field", parentLayerParameterName="MAPPED",
             optional=True))
-        self.addParameter(QgsProcessingParameterString(
+        self.addParameter(self._advanced(QgsProcessingParameterString(
             "MAPPED_SOURCE", "Mapped waterways: source for the record (e.g. OSM 2026-09)",
-            optional=True))
+            optional=True)))
         for key, label, default in (
                 ("MAPPED_KM2", "Mapped drainage: comparison threshold (km2; about 1 for OSM, 10 for "
                  "HydroRIVERS)", 1.0),
                 ("MAPPED_TOL", "Mapped drainage: tolerance (m)", 60.0),
-                ("MAPPED_MIN_CELLS", "Mapped drainage: shortest divergence reach (cells)", 10.0)):
+                ("MAPPED_MIN_CELLS", "Mapped drainage: shortest divergence reach (cells)", 10.0),
+                ("MAPPED_FAR", "Mapped drainage: no comparison beyond (m from the outlet)", 1000.0),
+                ("CSTI_HALF", "Side-drain siltation: corridor half-width (m)", 50.0),
+                ("CSTI_OFFSET", "Side-drain siltation: sampling interval across the road (m)", 10.0),
+                ("CSTI_ROAD_HALF", "Side-drain siltation: road strip half-width (m)", 5.0),
+                ("CSTI_DRAIN_SLOPE", "Side-drain siltation: flag below this longitudinal slope (%)",
+                 1.0)):
             self.addParameter(self._advanced(QgsProcessingParameterNumber(
                 key, label, QgsProcessingParameterNumber.Type.Double, defaultValue=default,
                 minValue=0.0)))
@@ -283,20 +303,6 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                             "(class, value; replaces the PROXY)")):
             self.addParameter(self._advanced(_PF2(key, label, optional=True,
                                                   fileFilter="CSV (*.csv)")))
-        self.addParameter(QgsProcessingParameterNumber(
-            "PROFILE_STEP", "Alignment profile station spacing (m)",
-            QgsProcessingParameterNumber.Type.Double, defaultValue=10.0, minValue=0.5))
-        self.add_soil_parameters("SOIL", optional=True)
-        self.add_runoff_parameters()
-        self.add_rainfall_parameters()
-        from qgis.core import QgsProcessingParameterFeatureSource as _FS, QgsProcessing as _QP
-        self.addParameter(_FS(
-            "BURN_LOG", "Breach log from 'Burn crossings through embankments' (optional; "
-            "recorded in the package)", [_QP.SourceType.TypeVectorLine], optional=True))
-        from qgis.core import QgsProcessingParameterFile as _PF
-        self.addParameter(_PF(
-            "EROSION", "Erosion output folder (optional; adds the ero_* erosion block)",
-            behavior=_PF.Behavior.Folder, optional=True))
         self.addParameter(QgsProcessingParameterBoolean(
             CSV, "Also write one CSV per layer (for spreadsheets)", defaultValue=False))
         self.addParameter(QgsProcessingParameterFileDestination(
@@ -669,9 +675,13 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             def _slope_at(ch_):
                 return psl[np.abs(pch[None, :] - np.asarray(ch_)[:, None]).argmin(axis=1)] \
                     if pch.size else np.full(len(ch_), np.nan)
+            gp_ = lambda k, d: self.parameterAsDouble(parameters, k, context) if k in parameters else d  # noqa: E731
+            cs_half, cs_off = gp_("CSTI_HALF", 50.0), gp_("CSTI_OFFSET", 10.0)
+            cs_road, cs_slope = gp_("CSTI_ROAD_HALF", 5.0), gp_("CSTI_DRAIN_SLOPE", 1.0)
             sst, srr, sbr = corridor_sti(alignment, erosion.sti, direction, valid, info.geotransform,
                                          reaches, channel=erosion.channel, slope_at=_slope_at,
-                                         step=profile_step)
+                                         step=profile_step, half_width=cs_half, offset_step=cs_off,
+                                         road_half_m=cs_road, drain_slope_pct=cs_slope)
             lay = OPTIONAL_LAYERS["corridor_sti"]
             crow = []
             for r_, b_ in zip(reaches, srr):
@@ -682,7 +692,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                     crow.append((line_, dict(r_, **b_)))
             extra_layers.append(("corridor_sti", "LINESTRING", [(f[0], f[1]) for f in lay[1]], crow,
                                  lay[2]))
-            csti_md = _cs_params(profile_step, 50.0, 10.0, 5.0, 1.0, sbr,
+            csti_md = _cs_params(profile_step, cs_half, cs_off, cs_road, cs_slope, sbr,
                                  "alignment profile on the raw DEM (centred difference)")
             for side, lbl in (("lhs", "left"), ("rhs", "right")):
                 flen = sum(b_.get(f"siltation_len_{side}_m") or 0.0 for b_ in srr)
@@ -916,6 +926,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                     names.append(nm)
         gp = lambda k, d: self.parameterAsDouble(parameters, k, context) if k in parameters else d  # noqa: E731
         km2, tol, mc = gp("MAPPED_KM2", 1.0), gp("MAPPED_TOL", 60.0), int(gp("MAPPED_MIN_CELLS", 10.0))
+        far, search = gp("MAPPED_FAR", 1000.0), gp("COV_SEARCH", 50.0)
         gt = info.geotransform
         cell_area = info.cell_width * info.cell_height
         stream = extract_streams(accum, valid, threshold_cells=max(1.0, km2 * 1e6 / cell_area))
@@ -932,12 +943,13 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             p, r, f1 = mp.scores(ctx, region)
             a.update({"map_precision": p, "map_recall": r, "map_f1": f1})
         for (_, a), b in zip(crossings, mp.crossing_fields([a for _, a in crossings], lines, names,
-                                                            tol, km2)):
+                                                            tol, km2, far_m=far)):
             a.update(b)
         n_unc = 0
         if alignment is not None:
             found = mp.uncovered_rivers(lines, names, alignment,
-                                        [a.get("chainage_m") for _, a in crossings])
+                                        [a.get("chainage_m") for _, a in crossings],
+                                        search_m=search)
             n_unc = len(found)
             if found:
                 cov = [e for e in extra_layers if e[0] == "coverage_check"]
@@ -963,7 +975,8 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                           f"off the map, {n_unc} mapped river(s) without a crossing, {len(div)} "
                           "divergence reach(es).")
         return mp.params_json((self.parameterAsString(parameters, "MAPPED_SOURCE", context) or
-                               src.sourceName()), km2, tol, mc, overall, len(lines), name_field)
+                               src.sourceName()), km2, tol, mc, overall, len(lines), name_field,
+                              far_m=far, road_search_m=search)
 
 
     def _uncertainty_block(self, parameters, context, feedback, info, elevation, raw_valid,
@@ -982,6 +995,9 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         thr = snap_threshold if snap_threshold > 0 else 200.0
         snap = max(int(snap_radius), 1)
         dem = np.where(raw_valid, elevation, 0.0)
+        if sens:
+            feedback.pushInfo("The correlation-length sensitivity adds 2 x N realisations "
+                              "(about three times the run time); switch it off to save time.")
         res, inf = un.run(dem, raw_valid, gt, outlets, sigma, corr, n, seed, thr, snap,
                           progress=lambda f: feedback.setProgress(100.0 * f),
                           log=feedback.pushInfo)

@@ -95,6 +95,9 @@ class DemUncertaintyAlgorithm(QehtAlgorithm):
         thr = self.parameterAsDouble(parameters, "THRESHOLD", context)
         snap = self.parameterAsInt(parameters, "SNAP", context)
         dem = np.where(valid, z, 0.0)
+        if sens:
+            feedback.pushInfo("The correlation-length sensitivity adds 2 x N realisations "
+                              "(about three times the run time); switch it off to save time.")
         res, inf = un.run(dem, valid, gt, outlets, sigma, corr, n, seed, thr, snap,
                           progress=lambda f_: feedback.setProgress(100.0 * f_), log=feedback.pushInfo)
         for (_, a), b in zip(rows_, res):

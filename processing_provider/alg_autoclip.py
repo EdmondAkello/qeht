@@ -44,9 +44,10 @@ class AutoClipAlgorithm(QehtAlgorithm):
         for key, label, default in (("BUFFER", "Road buffer (m)", 200.0),
                                     ("MARGIN", "Margin around the contributing area (m)", 1000.0),
                                     ("MAX_MCELLS", "Coarse grid at most (million cells)", 4.0)):
-            self.addParameter(QgsProcessingParameterNumber(
+            prm = QgsProcessingParameterNumber(
                 key, label, QgsProcessingParameterNumber.Type.Double, defaultValue=default,
-                minValue=0.0 if key != "MAX_MCELLS" else 0.01))
+                minValue=0.0 if key != "MAX_MCELLS" else 0.01)
+            self.addParameter(self._advanced(prm) if key == "MAX_MCELLS" else prm)
         self.addParameter(QgsProcessingParameterEnum("MODE", "Clip to", options=MODES, defaultValue=0))
         self.addParameter(QgsProcessingParameterRasterDestination("OUTPUT", "Clipped DEM"))
         self.addOutput(QgsProcessingOutputString("SUMMARY", "Summary"))
@@ -68,6 +69,10 @@ class AutoClipAlgorithm(QehtAlgorithm):
         except ValueError as e:
             raise QgsProcessingException(str(e))
         del z
+        if w["k"] == 1:
+            feedback.pushWarning("The DEM is already under the coarse-grid limit, so the clip was "
+                                 "found at full resolution (a full fill and D8 run). The clip pays "
+                                 "off on DEMs larger than the limit.")
         mem = memory_note(w["full_cells"], w.get("clip_cells_valid", w["clip_cells"]))
         meta = {"k": w["k"], "road_buffer_m": buf, "margin_m": mar, "mode": mode,
                 "full_shape": [info.rows, info.cols], "source": path, **mem}

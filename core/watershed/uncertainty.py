@@ -73,20 +73,56 @@ def correlated_field(shape, sigma, corr_len_m, cell, rng):
     return sigma * f[pad:pad + rows, pad:pad + cols]
 
 
+def upstream_lengths(direction, valid, cw, ch):
+    """Longest flow length arriving at every cell, in one topological pass.
+
+    For a full (overlapping) catchment the longest flow path to an outlet
+    is the longest path arriving at that cell, so one pass serves every
+    outlet. Returns (length grid flattened, from_cell: the upstream
+    neighbour on that path, -1 at a divide)."""
+    from ..grid import receivers_from_direction, neighbour_distances
+    shape = direction.shape
+    rec = receivers_from_direction(np.where(valid, direction, -1), shape)
+    dist = neighbour_distances(cw, ch)
+    dflat = np.asarray(direction).ravel()
+    n = rec.size
+    live = np.asarray(valid).ravel() & (rec >= 0)
+    indeg = np.bincount(rec[live], minlength=n)
+    length = np.zeros(n)
+    from_cell = np.full(n, -1, dtype=np.int64)
+    front = np.flatnonzero(np.asarray(valid).ravel() & (indeg == 0))
+    while front.size:
+        f = front[live[front]]
+        if f.size == 0:
+            break
+        tgt = rec[f]
+        cand = length[f] + dist[dflat[f]]
+        order = np.lexsort((f, cand))            # ascending: the last write per target wins
+        tgt_o, cand_o, f_o = tgt[order], cand[order], f[order]
+        better = cand_o > length[tgt_o]
+        length[tgt_o[better]] = cand_o[better]
+        from_cell[tgt_o[better]] = f_o[better]
+        np.subtract.at(indeg, tgt, 1)
+        nxt = np.unique(tgt)
+        front = nxt[indeg[nxt] == 0]
+    return length, from_cell
+
+
 def measure(dem, valid, cw, ch, outlets, threshold_cells, snap_cells=5):
     """Route dem and measure each outlet -> list of dicts (None = lost)."""
     from ..conditioning.fill import fill_depressions
     from ..flow.direction import d8_direction
     from ..flow.accumulation import flow_accumulation
-    from .delineate import extract_streams, snap_pour_point, delineate_catchment, longest_flow_path
-    from .statistics import catchment_characteristics, horn_slope
+    from .delineate import extract_streams, snap_pour_point
+    from .statistics import path_10_85
     from ..runoff.tc import kirpich_min
     z = np.where(valid, dem, 0.0)
     filled, _, _ = fill_depressions(z, valid, cell_width=cw, cell_height=ch)
     d, _ = d8_direction(filled, valid, cw, ch)
     acc, _ = flow_accumulation(d, valid)
     streams = extract_streams(acc, valid, threshold_cells=threshold_cells)
-    slope = horn_slope(np.where(valid, dem, np.nan), valid, cw, ch)
+    length, from_cell = upstream_lengths(d, valid, cw, ch)
+    cols = dem.shape[1]
     out = []
     for r0, c0 in outlets:
         r, c, _, _ = snap_pour_point(r0, c0, acc, valid, search_radius_cells=snap_cells,
@@ -94,12 +130,16 @@ def measure(dem, valid, cw, ch, outlets, threshold_cells, snap_cells=5):
         if not streams[r, c]:
             out.append(None)
             continue
-        mask = delineate_catchment(d, valid, [(r, c)]) > 0
-        lfp = longest_flow_path(d, valid, (r, c), elevation=dem, cell_width=cw, cell_height=ch,
-                                catchment_mask=mask)
-        chs = catchment_characteristics(mask, dem, valid, cw, ch, flow_path=lfp, slope_raster=slope)
-        L, S = chs.get("lfp_length_m"), chs.get("lfp_slope_1085")
-        out.append({"area": chs.get("area_km2"), "lfp_length_m": L, "lfp_slope_1085": S,
+        path, k = [], r * cols + c
+        while k >= 0:
+            path.append(divmod(int(k), cols))
+            k = from_cell[k]
+        cells = path[::-1]                                    # divide -> outlet
+        p = path_10_85(cells, dem, cw, ch)
+        L = float(length[r * cols + c])
+        S = p["slope"] if math.isfinite(p["slope"]) else None
+        out.append({"area": (float(acc[r, c]) + 1.0) * cw * ch / 1e6, "lfp_length_m": L,
+                    "lfp_slope_1085": S,
                     "tc_kirpich_min": kirpich_min(L, S) if L and S and S > 0 else None,
                     "cell": (r, c)})
     return out

@@ -14,6 +14,8 @@ SUITES="core interop crossings soils soils_any flats erosion alignment morphomet
 for t in $SUITES; do r=$($PY -m qeht.tests.test_$t 2>&1); echo "pure $t: pass=$(echo "$r"|grep -c '\[PASS\]') fail=$(echo "$r"|grep -c '\[FAIL\]')"; done
 QT_QPA_PLATFORM=offscreen $PY -m qeht.tests.qgis_smoke > smoke_3x.log 2>&1
 echo "smoke QGIS 3.x: pass=$(grep -c '\[PASS\]' smoke_3x.log) fail=$(grep -c '\[FAIL\]' smoke_3x.log) done=$(grep -c 'ALL QGIS SMOKE CHECKS PASSED' smoke_3x.log)  (a segfault AFTER the final line is a known Ubuntu-3.34 teardown issue)"
+QT_QPA_PLATFORM=offscreen $PY -m qeht.tests.qgis_e2e > e2e_3x.log 2>&1
+echo "end-to-end QGIS 3.x (synthetic site): pass=$(grep -c '\[PASS\]' e2e_3x.log) fail=$(grep -c '\[FAIL\]' e2e_3x.log) done=$(grep -c 'ALL END-TO-END CHECKS PASSED' e2e_3x.log)"
 if [ -d /opt/trixie/usr/share/qgis/python ]; then
   for m in proc sys dev; do mountpoint -q /opt/trixie/$m || mount --bind /$m /opt/trixie/$m; done
   mkdir -p /opt/trixie/work; mountpoint -q /opt/trixie/work || mount --bind "$PARENT" /opt/trixie/work

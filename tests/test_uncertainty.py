@@ -12,7 +12,7 @@ import sys
 import numpy as np
 
 from ..core.watershed.uncertainty import (correlated_field, run, measure, params_json, PRESETS,
-                                          UNC_FIELDS)
+                                          UNC_FIELDS, upstream_lengths)
 
 FAILURES = []
 CS = 10.0
@@ -101,7 +101,30 @@ def test_runs():
           and "uncertainty_json" in [k for k, _ in METADATA_KEYS])
 
 
+def test_lengths():
+    print("\n3. One-pass longest flow lengths")
+    from .test_interop import synthetic_case
+    from ..core.conditioning.fill import fill_depressions
+    from ..core.flow.direction import d8_direction
+    from ..core.watershed.delineate import longest_flow_path
+    z, v, gt, cs = synthetic_case()
+    f, _, _ = fill_depressions(z, v, cell_width=cs, cell_height=cs)
+    d, _ = d8_direction(f, v, cs, cs)
+    L, fc = upstream_lengths(d, v, cs, cs)
+    pts = [(55, 20), (20, 20), (25, 38), (59, 20), (40, 10)]
+    ref = [longest_flow_path(d, v, rc, cell_width=cs, cell_height=cs) for rc in pts]
+    check("longest flow length at any cell = longest_flow_path to that outlet (5 outlets)",
+          all(math.isclose(a["length"], L[r * z.shape[1] + c]) for a, (r, c) in zip(ref, pts)))
+    r, c = pts[0]
+    k, n = r * z.shape[1] + c, 1
+    while fc[k] >= 0:
+        k, n = fc[k], n + 1
+    check("traced path starts at a divide and has as many cells as the reference path",
+          n == len(ref[0]["cells"]))
+
+
 def main(argv=None):
+    test_lengths()
     test_field()
     test_runs()
     print()

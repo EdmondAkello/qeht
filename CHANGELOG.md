@@ -3,6 +3,17 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.27.1] — unreleased (final check of 0.19-0.27)
+### Added
+- `tests/qgis_e2e.py`: every 0.19-0.27 feature through QGIS Processing on a fully synthetic site (trapezoidal channel with a thalweg on a 2 m grid, road, mapped waterway, land cover, soil groups, scenario). Expected values come from the generator geometry or are recomputed with the core functions from the package's own fields; 25 checks, run by `tools/dev/run_tests.sh`.
+- Package parameters for values that were fixed in code: side-drain corridor half-width, sampling interval, road strip and drain slope limit (`CSTI_*`), the mapped-drainage comparison limit (`MAPPED_FAR`, 1 km); uncovered mapped rivers use the coverage search distance (`COV_SEARCH`).
+
+### Changed
+- DEM uncertainty: catchment area from the accumulation and the longest flow length of every cell in one topological pass, instead of a delineation per crossing per realisation (identical lengths; about 8x faster per realisation at 33 crossings on 4 Mcells). The run log says the correlation-length check adds 2 x N realisations.
+- Auto-clip warns when the DEM is already under the coarse-grid limit (the clip then costs a full run); the coarse limit is an advanced parameter.
+- Package dialog: mapped waterways, P2 and DEM uncertainty grouped after the data inputs; mapped-waterway source advanced. Pipeline: DEM tiles next to *Prepare*; help lists the 0.19-0.27 steps. README: *Data sources by region* is its own section again.
+- Tests: test_uncertainty 13 (+2: one-pass lengths equal `longest_flow_path`).
+
 ## [0.27.0] — unreleased (DEM-error sensitivity per crossing)
 ### Added
 - **DEM uncertainty at crossings** (F15, group Road drainage, id `demuncertainty`), also a package and pipeline option (*UNC*, off by default):

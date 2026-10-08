@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.27.0
+**Version:** 0.27.1
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
