@@ -665,6 +665,7 @@
   "channel_slope_m": "",
   "conditioning": "priority-flood fill, min_slope 0",
   "conditioning_burn": "",
+  "corridor_sti_params_json": "",
   "coverage_params_json": "",
   "crossing_source": "",
   "crs_epsg": "32737",

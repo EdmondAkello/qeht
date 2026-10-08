@@ -97,7 +97,8 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "ch_slope_us (main stem upstream) and ch_slope_ds (D8 path downstream) over "
             "200 m by default. With an erosion folder, each crossing also gets the "
             "deposition indicator (ero_dep_ratio / ero_dep_flag) and the local overland "
-            "STI.\n\n"
+            "STI; with a road too, the side-drain siltation indicator per side along the "
+            "corridor (layer corridor_sti; relative classes, screening only).\n\n"
             "<b>Curve number and Rational C (optional):</b> give a land-cover raster "
             "(ESA WorldCover classes) with a soil source: per cell land cover x hydrologic "
             "soil group -> CN from TR-55 Table 2-2 (a PROXY match to WorldCover, condition "
@@ -561,6 +562,43 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                     feedback.pushWarning(f"  {a['outlet_uid']}: channel section low quality - "
                                          f"{a.get('xs_note')}")
 
+        # -- side-drain siltation indicator along the corridor (STI R3) ---------
+        csti_md = ""
+        if alignment is not None and erosion is not None and getattr(erosion, "sti", None) is not None:
+            from ..core.erosion import io as _eio
+            from ..core.erosion.corridor import sample_corridor
+            from ..core.erosion.side_drain import corridor_sti, params_json as _cs_params
+            from ..core.interop.field_dictionary import OPTIONAL_LAYERS
+            comb, cv, _ = read_dem(_eio.path_of(ero_folder, "combined_class"))
+            _, reaches = sample_corridor(alignment, {}, np.where(cv, comb, 0).astype(np.uint8),
+                                         info.geotransform, step=profile_step)
+            pch = np.array([r_["chainage_m"] for r_ in prof])
+            psl = np.array([np.nan if r_["slope_long_pct"] is None else r_["slope_long_pct"]
+                            for r_ in prof])
+
+            def _slope_at(ch_):
+                return psl[np.abs(pch[None, :] - np.asarray(ch_)[:, None]).argmin(axis=1)] \
+                    if pch.size else np.full(len(ch_), np.nan)
+            sst, srr, sbr = corridor_sti(alignment, erosion.sti, direction, valid, info.geotransform,
+                                         reaches, channel=erosion.channel, slope_at=_slope_at,
+                                         step=profile_step)
+            lay = OPTIONAL_LAYERS["corridor_sti"]
+            crow = []
+            for r_, b_ in zip(reaches, srr):
+                cs_ = [r_["ch_start"]] + [s_["chainage"] for s_ in sst
+                                          if r_["ch_start"] < s_["chainage"] < r_["ch_end"]] + [r_["ch_end"]]
+                line_ = [alignment.point_at(c_) for c_ in cs_]
+                if len(line_) >= 2:
+                    crow.append((line_, dict(r_, **b_)))
+            extra_layers.append(("corridor_sti", "LINESTRING", [(f[0], f[1]) for f in lay[1]], crow,
+                                 lay[2]))
+            csti_md = _cs_params(profile_step, 50.0, 10.0, 5.0, 1.0, sbr,
+                                 "alignment profile on the raw DEM (centred difference)")
+            for side, lbl in (("lhs", "left"), ("rhs", "right")):
+                flen = sum(b_.get(f"siltation_len_{side}_m") or 0.0 for b_ in srr)
+                feedback.pushInfo(f"Side drains, {lbl}: {flen:,.0f} m flagged for siltation "
+                                  "(screening; layer corridor_sti).")
+
         # -- raster quicklooks (A6) ---------------------------------------------
         extra_tables, ql_md = [], ""
         ql_dir = self.parameterAsString(parameters, "QUICKLOOKS", context) \
@@ -629,6 +667,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             "fp_params_json": fp_md,
             "quicklook_params_json": ql_md,
             "xs_params_json": xs_md,
+            "corridor_sti_params_json": csti_md,
             "n_proposed": str(n_proposed),
             "crossing_source": ("crossing candidates" if candidate_mode else "pour points"),
             "chainage_start_m": (f"{alignment.start_chainage:g}" if alignment is not None else ""),

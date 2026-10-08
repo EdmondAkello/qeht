@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v0.19.0
+# QEHT — QGIS Engineering Hydrology Toolkit v0.20.0
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
@@ -439,6 +439,18 @@ Steps: DEM checks → fill → D8 (Barnes) → accumulation → streams → cand
 - `xs_quality`: `low` for a bank-full width under 3 cells or no bank on either side; `medium` for one bank only or a transect cut by NoData or the grid edge; `high` otherwise. `xs_note` says why.
 
 Indicative only; on a 30 m DEM a small channel is below the grid resolution. Use survey where available. On a coarse DEM the break of slope often finds the valley shoulder rather than the channel bank; a bank-full depth of several metres says which. Distance, half width and bank slope are advanced parameters (settings in `xs_params_json`); the section can be switched off. The characteristics table has a "channel section" group, and the run report lists low-quality sections under DEM checks.
+
+## v0.20: side-drain siltation indicator
+
+Side drains silt up where a low-gradient drain is fed by a slope with a high sediment-transport capacity. *Sample erosion along alignment* now measures that per side of the road when you also give the **flow direction** (and, for the flag, the **raw DEM**):
+
+- At each station, the cells sampled on each side (10 … 50 m out) are kept when their D8 path reaches the road strip (5 m either side of the centreline) without entering a channel. Those cells are the slope that feeds the side drain.
+- Station fields: `sti_p50_lhs`, `sti_p90_lhs`, `n_lhs` and the same for `rhs` (left / right looking up-chainage), from the overland STI raster of *Erosion indices and RUSLE*; NULL when no cell drains to that side.
+- Classes `sti_class_lhs` / `_rhs` (low, moderate, high, very high) come from the 50 / 75 / 90th percentiles of this corridor's own station values. They describe relative transport capacity, not severity.
+- `slope_long_pct` is the longitudinal ground slope from the alignment profile, and `siltation_lhs` / `_rhs` = 1 where the class is high or very high and the slope is under 1 %. A screening flag.
+- Reach fields: `sti_p90_lhs` / `_rhs` (p90 of the station values), `sti_max_*`, `sti_class_*` and `siltation_len_lhs_m` / `_rhs_m`. The chart gains an LHS / RHS panel.
+
+*Build design hydrology package* writes the same reaches as layer `corridor_sti` when an erosion folder and a road are given (settings and class breaks in `corridor_sti_params_json`). The indicator is not used in the erosion classes, RUSLE or the composite score.
 
 ### Data sources by region
 

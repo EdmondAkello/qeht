@@ -582,6 +582,41 @@ def main(in_qgis=False):
           chs[0] == 1000.0 and all(b > a for a, b in zip(chs, chs[1:])) and rl.featureCount() >= 1
           and abs(sum(f["length_m"] for f in rl.getFeatures()) - (chs[-1] - chs[0])) < 1e-6,
           f"{st.featureCount()} stations, {rl.featureCount()} reaches, chart {os.path.exists(out('ero.png'))}")
+    # ---- v0.20 (STI R3): side-drain siltation indicator --------------------
+    r = processing.run("qeht:erosioncorridor", {
+        "EROSION": ef, "ROAD": out("road.gpkg"), "START": 1000.0, "STEP": 10, "HALF_WIDTH": 50,
+        "FDR": out("fdr.tif"), "RAW_DEM": dem,
+        "STATIONS": out("sd_st.gpkg"), "REACHES": out("sd_re.gpkg"), "CHART": out("sd.png")})
+    st = QgsVectorLayer(r["STATIONS"], "s", "ogr"); rl = QgsVectorLayer(r["REACHES"], "r", "ogr")
+    sf, rf_ = st.fields().names(), rl.fields().names()
+    need_s = ["sti_p50_lhs", "sti_p90_lhs", "n_lhs", "sti_p50_rhs", "sti_p90_rhs", "n_rhs",
+              "slope_long_pct", "siltation_lhs", "siltation_rhs"]
+    need_r = ["sti_p90_lhs", "sti_p90_rhs", "sti_max_lhs", "sti_max_rhs", "sti_class_lhs",
+              "sti_class_rhs", "siltation_len_lhs_m", "siltation_len_rhs_m"]
+    feats = list(st.getFeatures())
+    differ = sum(1 for f in feats if f["n_lhs"] != f["n_rhs"])
+    check("side drains: station and reach fields, LHS and RHS differ, slope joined, chart written",
+          all(k in sf for k in need_s) and all(k in rf_ for k in need_r) and differ > 0
+          and any(f["slope_long_pct"] is not None and str(f["slope_long_pct"]) != "NULL" for f in feats)
+          and os.path.exists(out("sd.png")),
+          f"{differ} of {len(feats)} stations with different LHS/RHS counts; flagged "
+          f"{sum(1 for f in feats if f['siltation_lhs'] == 1)} L / "
+          f"{sum(1 for f in feats if f['siltation_rhs'] == 1)} R")
+    r = processing.run("qeht:buildheasexchange", {
+        "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "POINTS": out("cand.gpkg"),
+        "ROAD": out("road.gpkg"), "START": 1000.0, "COVERAGE": False, "EROSION": ef,
+        "OUTPUT": out("sd_pkg.gpkg")})
+    errors, _ = validate_exchange(r["OUTPUT"])
+    cst = gpkg.read_table(r["OUTPUT"], "corridor_sti", with_geometry=False) \
+        if "corridor_sti" in dict(gpkg.list_tables(r["OUTPUT"])) else []
+    mds = {row["key"]: row["value"] for row in gpkg.read_table(r["OUTPUT"], "qeht_run_metadata")}
+    check("package with erosion folder and road: corridor_sti reaches, settings in metadata, "
+          "validates",
+          not errors and cst and abs(sum(c["length_m"] for c in cst)
+                                     - (cst[-1]["ch_end"] - cst[0]["ch_start"])) < 1e-6
+          and any(c["sti_class_lhs"] or c["sti_class_rhs"] for c in cst)
+          and "class_breaks_p50_p75_p90" in mds["corridor_sti_params_json"],
+          f"{len(cst)} reaches; " + "; ".join(errors))
     r = processing.run("qeht:buildheasexchange", {
         "FDR": out("fdr.tif"), "FAC": out("fac.tif"), "RAW_DEM": dem, "POINTS": ptsfile,
         "ID_FIELD": "culvert", "SNAP": 5, "SNAP_THRESHOLD": 200, "SOIL_POLYGONS": out("soil.gpkg"),

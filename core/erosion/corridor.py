@@ -132,7 +132,9 @@ def profile_chart(path, stations, title, class_names=None):
         warnings.simplefilter("ignore", RuntimeWarning)
         spi = best("ln_spi"); a = best("soil_loss")
     ws = np.array([s["worst_score"] or 0 for s in stations], dtype=float)
-    fig, axes = plt.subplots(3, 1, figsize=(12, 7), sharex=True)
+    sd = any(s.get("sti_p90_lhs") is not None or s.get("sti_p90_rhs") is not None
+             for s in stations)
+    fig, axes = plt.subplots(4 if sd else 3, 1, figsize=(12, 9 if sd else 7), sharex=True)
     axes[0].plot(ch, spi, lw=0.8, color="#2b83ba"); axes[0].set_ylabel("max ln(SPI)")
     if np.isfinite(a).any():
         axes[1].plot(ch, a, lw=0.8, color="#d7191c"); axes[1].set_ylabel("max A (t/ha/yr)")
@@ -141,7 +143,14 @@ def profile_chart(path, stations, title, class_names=None):
     colours = {0: "#cccccc", 1: "#1a9641", 2: "#a6d96a", 3: "#ffffbf", 4: "#fdae61", 5: "#d7191c"}
     axes[2].bar(ch, ws, width=(ch[1] - ch[0]) if ch.size > 1 else 0.01,
                 color=[colours[int(v)] for v in ws])
-    axes[2].set_ylabel("worst score"); axes[2].set_ylim(0, 5.5); axes[2].set_xlabel("chainage (km)")
+    axes[2].set_ylabel("worst score"); axes[2].set_ylim(0, 5.5)
+    if sd:                                           # STI R3: side-drain feed, per side
+        for side, colour in (("lhs", "#5e3c99"), ("rhs", "#e66101")):
+            v = np.array([s.get(f"sti_p90_{side}") if s.get(f"sti_p90_{side}") is not None
+                          else np.nan for s in stations])
+            axes[3].plot(ch, v, lw=0.8, color=colour, label=side.upper())
+        axes[3].set_ylabel("STI p90 to drain"); axes[3].legend(loc="upper right", fontsize=8)
+    axes[-1].set_xlabel("chainage (km)")
     fig.suptitle(title)
     fig.tight_layout()
     fig.savefig(path, dpi=120)

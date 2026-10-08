@@ -3,6 +3,12 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [0.20.0] — unreleased (side-drain siltation indicator)
+### Added
+- **Side-drain siltation indicator** (STI advisory R3) in *Sample erosion along alignment*, with the new optional inputs *Flow direction* and *Raw DEM* (advanced: road strip half-width 5 m, drain slope limit 1 %). Per station and side (LHS / RHS looking up-chainage) the overland STI over the corridor cells whose D8 path reaches the road strip without entering a channel: `sti_p50_lhs`, `sti_p90_lhs`, `n_lhs`, `sti_p50_rhs`, `sti_p90_rhs`, `n_rhs`, relative classes `sti_class_lhs` / `_rhs` from the corridor's own 50 / 75 / 90th percentiles, `slope_long_pct` from the alignment profile and `siltation_lhs` / `_rhs` (class high or very high on a slope under 1 %). Reach fields `sti_p90_*`, `sti_max_*`, `sti_class_*`, `siltation_len_*_m`. An LHS / RHS panel on the chart.
+- *Build design hydrology package*: optional layer `corridor_sti` (reaches with those fields) when an erosion folder and a road are given; metadata `corridor_sti_params_json`; downstream-use term "side-drain siltation". Not used in the erosion classes, RUSLE or the composite.
+- Tests: test_corridor_sti 23 (new); smoke 66 (+2). Golden fixture regenerated: one metadata key added, no existing value changed.
+
 ## [0.19.0] — unreleased (channel sections at crossings)
 ### Added
 - **Approach-channel cross-section** (F5) at every crossing, existing and proposed, in *Build design hydrology package* and the pipeline (on by default; advanced parameters *distance downstream* 30 m, *half width* 150 m, *bank slope* 0.05, and an off switch). The section is 30 m down the D8 receivers, perpendicular to the flow direction over two cells up and down, sampled bilinearly from the raw DEM every half cell. Fields on crossings: `xs_dist_m`, `xs_bed_m`, `xs_bed_offset_m`, `xs_bankfull_w_m`, `xs_bankfull_d_m` (break of slope, lower bank governs), `xs_w_0p5_m`, `xs_w_1p0_m`, `xs_w_2p0_m`, `xs_side_slope_l`, `xs_side_slope_r` (H:V), `xs_station_elev_json`, `xs_quality` (high / medium / low) and `xs_note`. Optional layer `xs_transects`; metadata `xs_params_json`; downstream-use term "channel section". Labelled indicative.

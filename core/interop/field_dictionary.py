@@ -498,6 +498,33 @@ OPTIONAL_LAYERS = {
          "positive on the right looking downstream", "raw DEM bilinear", "channel section"),
         ("xs_quality", "text", "-", "high / medium / low (see crossings)", "", "QA"),
     ], "Channel cross-section transects downstream of each crossing (F5; indicative)"),
+    "corridor_sti": ("LINESTRING", [
+        ("ch_start", "real", "m", "reach start chainage", "reaches of 'Sample erosion along "
+         "alignment' (runs of equal worst erosion class; bounds half-way between stations)",
+         "side-drain siltation"),
+        ("ch_end", "real", "m", "reach end chainage", "", "side-drain siltation"),
+        ("length_m", "real", "m", "reach length", "", "side-drain siltation"),
+        ("n_stations", "int", "-", "stations in the reach", "", "QA"),
+        ("sti_p90_lhs", "real", "-", "90th percentile of the station sti_p90 on the left side "
+         "(looking up-chainage)", "station sti_p90 = 90th percentile of overland STI over the "
+         "corridor cells whose D8 path reaches the road strip without entering a channel",
+         "side-drain siltation"),
+        ("sti_p90_rhs", "real", "-", "as sti_p90_lhs, right side", "", "side-drain siltation"),
+        ("sti_max_lhs", "real", "-", "highest station sti_p90 on the left side", "",
+         "side-drain siltation"),
+        ("sti_max_rhs", "real", "-", "highest station sti_p90 on the right side", "",
+         "side-drain siltation"),
+        ("sti_class_lhs", "text", "-", "relative transport capacity of the reach, left side "
+         "(low / moderate / high / very high; not a severity)",
+         "sti_p90_lhs against the 50 / 75 / 90th percentiles of this corridor's station values "
+         "(both sides; breaks in corridor_sti_params_json)", "side-drain siltation"),
+        ("sti_class_rhs", "text", "-", "as sti_class_lhs, right side", "", "side-drain siltation"),
+        ("siltation_len_lhs_m", "real", "m", "length of the reach flagged for siltation, left side",
+         "stations with class high or very high and |longitudinal ground slope| below "
+         "drain_slope_pct (default 1 %); screening only", "side-drain siltation"),
+        ("siltation_len_rhs_m", "real", "m", "as siltation_len_lhs_m, right side", "",
+         "side-drain siltation"),
+    ], "Side-drain siltation indicator per side along the road (STI R3; screening, relative)"),
 }
 
 METADATA_KEYS = [
@@ -546,6 +573,9 @@ METADATA_KEYS = [
     ("fp_params_json", "floodplain width indicator settings: area limit, dz values, bed window, "
      "HAND on/off (empty = no road)"),
     ("quicklook_params_json", "raster quicklook settings: folder, maximum size (empty = none)"),
+    ("corridor_sti_params_json", "side-drain siltation indicator settings: station step, half "
+     "width, offset step, road strip, drain slope limit, class breaks, slope source "
+     "(empty = not run)"),
     ("xs_params_json", "channel cross-section settings: distance downstream, half width, station "
      "step, bank slope, stages (empty = not run)"),
     ("coverage_params_json", "coverage check, sag and flat-stretch settings (empty = not run)"),
@@ -600,6 +630,8 @@ DOWNSTREAM_USE = {
     "deposition screening": "sediment deposition tendency at the culvert inlet (screening)",
     "approach channel slope": "approach channel slope (floodplain level, barrel comparison)",
     "exit channel slope": "exit channel slope (tailwater rating)",
+    "side-drain siltation": "side-drain siltation screening (low-gradient drain fed by a high "
+                            "transport-capacity slope)",
     "channel section": "approach / exit channel section for tailwater and waterway checks "
                        "(indicative)",
     "MUSLE K": "soil erodibility for RUSLE / MUSLE",

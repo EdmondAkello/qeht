@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 0.19.0
+**Version:** 0.20.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -298,6 +298,16 @@ Per cell, land cover (WorldCover, nearest-neighbour onto the DEM grid) × HSG (4
 **Deposition indicator.** The main stem upstream of a crossing is followed by taking, at each cell, the donor with the largest accumulation. On channel cells, median SPI over 0–100 m (near) and 100–500 m (far) upstream; ero_dep_ratio = near / far; below 0.7 deposition-prone, above 1.3 scour-prone (editable). Both reach slopes (drop / length) are exported, because over a short reach the ratio is mostly the slope break — unless the area grows fast along it, which the ratio then includes. Null with a note when the channel upstream is shorter than 90 % of the far distance.
 
 **Channel slopes.** ch_slope_us along the main stem upstream and ch_slope_ds along the D8 receivers downstream, each over 200 m (or less at the divide or grid edge, reported in ch_len_us_m / ch_len_ds_m), from raw-DEM end-point elevations.
+
+### 4.19a Side-drain siltation indicator (v0.20, STI R3)
+
+Stations every `step` m of chainage, as in the corridor sampler (4.14). For station i with point p_i and left unit normal n_i (left looking up-chainage, the sign of the alignment's signed offset), the cells containing p_i ± o n_i for o = offset_step … half_width (10 … 50 m) are sampled on each side. The road strip is the set of cells touched by the centreline offset by −r … +r (r = 5 m) at quarter-cell spacing; strip cells are the road and are not sampled. A sampled cell is kept when its D8 receiver chain reaches a strip cell within ⌈half_width / cell⌉ + 1 steps without entering a channel cell (the erosion folder's channel mask) or leaving the grid. Each kept cell counts once per station and side.
+
+Per station and side: sti_p50 and sti_p90 are the 50th and 90th percentiles (linear interpolation) of the overland STI (4.19) over the kept cells with a value, and n is their count; both are NULL when n = 0. The class breaks B₅₀, B₇₅, B₉₀ are the percentiles of every station sti_p90 in the corridor, both sides pooled, so the classes are relative to the corridor and unchanged when all STI values are scaled: low (v ≤ B₅₀), moderate (≤ B₇₅), high (≤ B₉₀), very high (> B₉₀). siltation = 1 where the class is high or very high and |slope_long_pct| < 1 % (the A1 longitudinal ground slope, centred difference of the raw DEM profile, joined at the nearest profile station); NULL without a slope or a class.
+
+Reaches are the corridor sampler's runs of equal worst erosion score. Per reach and side: sti_p90 is the 90th percentile and sti_max the maximum of the station sti_p90 values in the reach, sti_class its class against the corridor breaks, and siltation_len the summed station spacing (half-way bounds) of flagged stations.
+
+The indicator screens where a side drain is likely to silt; it does not size the drain or estimate a sediment load, and it is kept out of the erosion classes, RUSLE and the composite score (advisory rule R4).
 
 ### 4.20 Drainage coverage check (v0.16)
 
