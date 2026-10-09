@@ -364,7 +364,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                                        id_field=id_field,
                                        extra_fields=[f for f, _ in CANDIDATE_FIELDS])
         extra_layers = []
-        points, candidate_mode, all_points = self.candidate_selection(points, feedback)
+        points, candidate_mode, all_points = self.candidate_selection(points, feedback, info.cell_width)
         if candidate_mode:
             extra_layers.append(("crossing_candidates", "POINT", CANDIDATE_FIELDS,
                                  [((p["x"], p["y"]), {f: p.get("attr_" + f)
@@ -516,6 +516,13 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                 if "COV_MIN_AREA" in parameters else 0.0
             pprefix = (self.parameterAsString(parameters, "PROPOSED_PREFIX", context) or "P").strip() \
                 if "PROPOSED_PREFIX" in parameters else "P"
+            from ..core.network.coverage import cluster_cover
+            clusters = None
+            if candidate_mode:
+                fid_cl = {p_.get("fid"): p_.get("attr_cluster_id") for p_ in all_points}
+                clusters = cluster_cover(
+                    [(p_.get("attr_cluster_id"), p_.get("attr_chainage_m")) for p_ in all_points],
+                    [(fid_cl.get(a_.get("outlet_id")), a_["outlet_uid"]) for _, a_ in crossings])
             try:
                 cov = run_coverage(
                     direction, valid, accum, elevation, fill_for_wall, info.geotransform, alignment,
@@ -528,7 +535,8 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                                       channel_slope_m=(self.parameterAsDouble(parameters, "CH_SLOPE_DIST", context)
                                                        if "CH_SLOPE_DIST" in parameters else 200.0)),
                     min_area_km2=min_a if min_a > 0 else None, proposed_prefix=pprefix,
-                    stream_threshold_cells=snap_threshold if snap_threshold > 0 else 200.0, **cp)
+                    stream_threshold_cells=snap_threshold if snap_threshold > 0 else 200.0,
+                    cluster_chainages=clusters, **cp)
             except ExchangeError as e:
                 raise QgsProcessingException(str(e))
             for msg in cov["issues"]:
@@ -985,13 +993,14 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         from ..core.watershed import uncertainty as un
         sigma, preset, src, corr, n, seed, sens = self.uncertainty_settings(parameters, context)
         gt = info.geotransform
-        outlets, idx = [], []
+        outlets, idx, refs = [], [], []
         for i, (_, a) in enumerate(crossings):
             c = int((a["outlet_x"] - gt[0]) // gt[1])
             r = int((a["outlet_y"] - gt[3]) // gt[5])
             if 0 <= r < info.rows and 0 <= c < info.cols:
                 outlets.append((r, c))
                 idx.append(i)
+                refs.append(a.get("acc_at_outlet_km2"))
         thr = snap_threshold if snap_threshold > 0 else 200.0
         snap = max(int(snap_radius), 1)
         dem = np.where(raw_valid, elevation, 0.0)
@@ -1000,7 +1009,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
                               "(about three times the run time); switch it off to save time.")
         res, inf = un.run(dem, raw_valid, gt, outlets, sigma, corr, n, seed, thr, snap,
                           progress=lambda f: feedback.setProgress(100.0 * f),
-                          log=feedback.pushInfo)
+                          log=feedback.pushInfo, ref_areas=refs)
         for i, b in zip(idx, res):
             crossings[i][1].update(b)
         sensitivity, uids = None, None

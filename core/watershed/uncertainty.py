@@ -155,12 +155,24 @@ def _stats(v):
 
 
 def run(dem, valid, gt, outlets, sigma, corr_len_m=DEFAULT_CORR_M, n=DEFAULT_N, seed=DEFAULT_SEED,
-        threshold_cells=200.0, snap_cells=5, switch_frac=0.25, progress=None, log=None):
-    """Monte Carlo over n realisations -> (list of UNC field dicts per outlet, info dict)."""
+        threshold_cells=200.0, snap_cells=5, switch_frac=0.25, progress=None, log=None,
+        ref_areas=None):
+    """Monte Carlo over n realisations -> (list of UNC field dicts per outlet, info dict).
+
+    ref_areas : optional contributing area (km2) of each crossing as built. When the snapped
+        outlet on the unperturbed DEM drains an area that differs from it by more than
+        switch_frac, the snap reached another channel and the crossing is not assessed.
+    """
     cw, ch = abs(gt[1]), abs(gt[5])
     t0 = time.time()
     base = measure(dem, valid, cw, ch, outlets, threshold_cells, snap_cells)
     per_run = time.time() - t0
+    other = [False] * len(outlets)
+    if ref_areas is not None:
+        for j, (b0, a_ref) in enumerate(zip(base, ref_areas)):
+            if b0 is not None and a_ref and abs(b0["area"] - a_ref) > switch_frac * a_ref:
+                other[j] = True
+                base[j] = None
     if log is not None:
         log(f"DEM uncertainty: {n} realisations at about {per_run:.1f} s each "
             f"(about {per_run * n / 60.0:.1f} min).")
@@ -179,15 +191,22 @@ def run(dem, valid, gt, outlets, sigma, corr_len_m=DEFAULT_CORR_M, n=DEFAULT_N, 
         kept = [v for v in vals if v is not None]
         b["unc_n"] = n
         b["unc_lost_pct"] = 100.0 * (n - len(kept)) / n if n else None
-        for key, pre in QUANT:
-            p10, p50, p90, cv = _stats([v[key] for v in kept])
-            b[f"{pre}_p10"], b[f"{pre}_p50"], b[f"{pre}_p90"], b[f"{pre}_cv"] = p10, p50, p90, cv
+        # Without a stream at the deterministic outlet, a realisation that finds one has
+        # snapped to another channel: its values would describe that channel, so none are kept.
+        if base[j] is not None:
+            for key, pre in QUANT:
+                p10, p50, p90, cv = _stats([v[key] for v in kept])
+                b[f"{pre}_p10"], b[f"{pre}_p50"], b[f"{pre}_p90"], b[f"{pre}_cv"] = p10, p50, p90, cv
         a0 = base[j]["area"] if base[j] is not None else None
         if a0 and kept:
             b["unc_switch_pct"] = 100.0 * sum(1 for v in kept if abs(v["area"] - a0) > switch_frac * a0) / n
         notes = []
-        if base[j] is None:
-            notes.append("no stream within the snap radius on the deterministic DEM")
+        if other[j]:
+            notes.append("not assessed: on the deterministic DEM the snap reached another "
+                         "channel (crossing below the stream threshold)")
+        elif base[j] is None:
+            notes.append("not assessed: no stream within the snap radius on the deterministic DEM "
+                         "(crossing below the stream threshold)")
         if b["unc_lost_pct"]:
             notes.append(f"outlet lost its stream in {b['unc_lost_pct']:.0f} % of realisations")
         if b["unc_switch_pct"]:

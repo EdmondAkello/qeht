@@ -328,6 +328,23 @@ def find_crossing_candidates(direction, valid, accumulation, stream_mask, geotra
     return candidates, parallel, summary
 
 
+def candidate_moved(x, y, outlet_x, outlet_y, cell=None):
+    """True when a candidate point no longer marks its stored outlet.
+
+    A candidate sits where the D8 link crosses the road; its outlet is the
+    centre of the link's upstream cell, at most one cell diagonal away. A point
+    more than two cells from it was moved by the user, and a point without an
+    outlet was added. cell: the DEM cell size (30 m when unknown).
+    """
+    if outlet_x is None or outlet_y is None:
+        return True
+    try:
+        d = math.hypot(float(x) - float(outlet_x), float(y) - float(outlet_y))
+    except (TypeError, ValueError):
+        return True
+    return d > 2.0 * float(cell or 30.0)
+
+
 def select_crossings(features, status_field="status", recommended_field="recommended"):
     """Which candidate features become crossings.
 

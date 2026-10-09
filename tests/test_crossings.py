@@ -17,7 +17,7 @@ from ..core.flow.accumulation import flow_accumulation
 from ..core.grid import DROW, DCOL
 from ..core.watershed.delineate import extract_streams
 from ..core.network.alignment import Alignment
-from ..core.network.crossings import find_crossing_candidates, select_crossings
+from ..core.network.crossings import find_crossing_candidates, select_crossings, candidate_moved
 from ..core.interop.heas_exchange import build_exchange_records
 from ..core.linking.relink import renumber_log
 
@@ -269,6 +269,16 @@ def test_relink():
     check("new ids gapless", sorted(r["new_uid"] for r in rows if r["new_uid"]) == ["X001", "X002", "X003"])
 
 
+def test_moved_candidates():
+    print("\n[Moved and added candidates]")
+    check("candidate on its link (outlet one diagonal away): kept at its outlet",
+          not candidate_moved(1000.0, 2000.0, 1021.2, 1978.8, 30.0))
+    check("candidate moved 150 m by the user: snapped from the new position",
+          candidate_moved(1150.0, 2000.0, 1000.0, 2000.0, 30.0))
+    check("point added to the layer (no stored outlet): snapped",
+          candidate_moved(1000.0, 2000.0, None, None, 30.0))
+
+
 def main(argv=None):
     print("=" * 62)
     print("QEHT CROSSINGS - v0.10 (WP-A candidates, WP-D burn, D3 relink)")
@@ -281,6 +291,7 @@ def main(argv=None):
     test_selection_and_exchange()
     test_burn()
     test_relink()
+    test_moved_candidates()
     print("\n" + "=" * 62)
     if FAILURES:
         print(f"{len(FAILURES)} FAILURE(S):")

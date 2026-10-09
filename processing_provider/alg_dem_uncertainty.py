@@ -32,7 +32,11 @@ class DemUncertaintyAlgorithm(QehtAlgorithm):
             "within the snap radius, or recorded as lost.\n\n"
             "<b>Outputs per crossing:</b> P10, P50, P90 and the coefficient of variation of each "
             "value (unc_*), the share of realisations where the outlet lost its stream and where "
-            "the area moved by more than 25 % (catchment switching).\n\n"
+            "the area moved by more than 25 % (catchment switching). A crossing is not assessed "
+            "(its percentiles stay empty) when the unperturbed DEM has no stream within the snap "
+            "radius, or when the snapped stream drains more than 25 % more or less than the "
+            "crossing's own area (acc_at_outlet_km2 or acc_km2, when the layer has it): the snap "
+            "then reached another channel.\n\n"
             "<b>Vertical error:</b> no default. Presets with their sources: AW3D30 4.4 m "
             "(Tadono et al. 2016, 4.40 m RMSE at 5,121 check points); FABDEM 2.5 m, an ESTIMATE "
             "from Hawker et al. 2022 (mean absolute error 1.1 m built-up to 2.9 m forest); or a "
@@ -76,7 +80,9 @@ class DemUncertaintyAlgorithm(QehtAlgorithm):
         tr = QgsCoordinateTransform(pts.sourceCrs(), dcrs, QgsProject.instance()) \
             if dcrs.isValid() and pts.sourceCrs() != dcrs else None
         gt = info.geotransform
-        rows_, outlets = [], []
+        rows_, outlets, refs = [], [], []
+        names = pts.fields().names()
+        ref_field = next((n_ for n_ in ("acc_at_outlet_km2", "acc_km2") if n_ in names), None)
         for f in pts.getFeatures():
             g = f.geometry()
             if g is None or g.isEmpty():
@@ -90,6 +96,8 @@ class DemUncertaintyAlgorithm(QehtAlgorithm):
             uid = str(f[idf]) if idf else str(f.id())
             rows_.append(((p.x(), p.y()), {"outlet_uid": uid}))
             outlets.append((r, c))
+            v = f[ref_field] if ref_field else None
+            refs.append(float(v) if v not in (None, "") and str(v) != "NULL" else None)
         if not outlets:
             raise QgsProcessingException("No crossing lies on the DEM.")
         thr = self.parameterAsDouble(parameters, "THRESHOLD", context)
@@ -99,7 +107,8 @@ class DemUncertaintyAlgorithm(QehtAlgorithm):
             feedback.pushInfo("The correlation-length sensitivity adds 2 x N realisations "
                               "(about three times the run time); switch it off to save time.")
         res, inf = un.run(dem, valid, gt, outlets, sigma, corr, n, seed, thr, snap,
-                          progress=lambda f_: feedback.setProgress(100.0 * f_), log=feedback.pushInfo)
+                          progress=lambda f_: feedback.setProgress(100.0 * f_), log=feedback.pushInfo,
+                          ref_areas=refs if ref_field else None)
         for (_, a), b in zip(rows_, res):
             a.update(b)
         sensitivity, uids = None, None

@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 1.0.0
+**Version:** 1.0.1
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -34,80 +34,39 @@ qeht/
 
   core/                  NO QGIS IMPORTS - pure NumPy + lazy GDAL
     grid.py              neighbour conventions, D8 encode/decode, receivers
-    raster.py            GDAL I/O, in-process gdal.Polygonize(), NoData audit
-    conditioning/
-      fill.py            priority-flood depression filling
-    flow/
-      direction.py       D8 steepest descent, distance-weighted, tie rule
-      flats.py           flat resolution (toward-lower and Barnes 2014)
-      accumulation.py    topological accumulation, Strahler ordering
-      streamlines.py     stream-network vectorisation into reaches
-    watershed/
-      delineate.py       streams, snapping, catchments, longest flow path
-      statistics.py      catchment and flow-path morphometry, 10-85 slope
-      morphometry.py     overland/channel split of the LFP, basin shape and network indices
-      channel.py         approach / exit channel slopes, crossing deposition indicator
-    linking/
-      ids.py             outlet_uid generation and uniqueness
-      relink.py          renumber_log for renumber-and-relink (D3)
-    geometry/
-      polygonize.py      cell mask -> OGC-valid (multi)polygon, pure NumPy
-    soils/
-      usle_k.py          Williams/EPIC and Dg-based K, CFRG, USDA texture, HSG proxy (scalar + vectorised)
-      sotwis.py          SOTWIS SQLite loader, generic attribute loader, CSV table loader
-      sources.py         SoilGrid: any soil source on one per-cell model; SoilGrids, HYSOGs
-      catchment.py       per-catchment soil block (field list)
-    runoff/
-      curve_number.py    curve number (TR-55 x WorldCover proxy, user lookups), AMC, Rational C
-      rainfall.py        rainfall zones, mean annual rainfall, R estimate from rainfall
-    geometry/
-      rasterize.py       polygons -> grid, cell-centre rule
-    erosion/
-      terrain.py         A_s, SPI, ln SPI, TWI, LS (Moore & Burch, Desmet & Govers)
-      rusle.py           source-tagged R, K, C, P; WorldCover C/P lookups; LS-only fallback
-      classes.py         class schemes, severity scores, combination matrix, class rasters
-      summary.py         catchment and crossing erosion blocks, SDR, impact score
-      corridor.py        stations and reaches along an alignment
-      io.py              the erosion output folder and its run record
-    network/
-      alignment.py       linear referencing: chainage, signed offset, intersections
-      crossings.py       road x drainage candidates, parallel reaches, clusters
-      profile.py         alignment ground profile
-      coverage.py        missing crossings, sag points (walled routing), flat stretches
-      floodplain.py      floodplain width at large crossings (profile, HAND)
-    interop/
-      field_dictionary.py  the qeht-heas-1 contract (every exchange field)
-      gpkg.py            standard-library GeoPackage 1.2 writer/reader
-      heas_exchange.py   pipeline, writer, validator, CSV export
-    report/
-      characteristics.py one row per crossing from a package (the characteristics table)
-      run_report.py      HTML run report from a package (nothing recalculated)
-      quicklooks.py      PNG + world file + legend for rasters (pure-Python PNG writer)
+    raster.py            GDAL I/O, in-process gdal.Polygonize(), NoData and resampling audits
+    memory.py            peak-memory estimates per step
+    conditioning/        fill.py (priority flood), burn.py (breach embankments),
+                         prepare.py (Prepare DEM), autoclip.py (corridor clip)
+    flow/                direction.py (D8, tie rule), flats.py (toward-lower, Barnes 2014),
+                         accumulation.py (topological, Strahler), streamlines.py (reaches),
+                         sensitivity.py (flat-method check), _reference.py (v0.8.3 oracles)
+    watershed/           delineate.py (streams, snapping, catchments, longest flow path),
+                         statistics.py (morphometry, 10-85 slope), morphometry.py (LFP segments,
+                         shape, network), channel.py (channel slopes, deposition indicator),
+                         section.py (channel cross-sections), uncertainty.py (DEM-error Monte Carlo)
+    linking/             ids.py (outlet_uid), relink.py (renumber_log)
+    geometry/            polygonize.py (cell mask -> valid polygon), rasterize.py (cell-centre rule)
+    soils/               usle_k.py, sotwis.py, sources.py (SoilGrid: any source), catchment.py
+    runoff/              curve_number.py, rainfall.py, scenario.py, tc.py (five Tc methods)
+    erosion/             terrain.py, rusle.py, classes.py, summary.py, corridor.py,
+                         side_drain.py (siltation indicator), io.py
+    network/             alignment.py, crossings.py, profile.py, coverage.py, floodplain.py,
+                         mapped.py (check against mapped drainage)
+    interop/             field_dictionary.py (the qeht-heas-1 contract), gpkg.py (standard-library
+                         GeoPackage writer), heas_exchange.py (package, validator, CSV)
+    report/              characteristics.py, run_report.py, quicklooks.py, kmz.py, xlsx.py,
+                         xlsx_layout.py
 
   processing_provider/   the only QGIS-aware code
-    provider.py          registers the nineteen algorithms
+    provider.py          registers the 23 algorithms
     base.py              shared base class and helpers (pour points, IDs)
     alg_*.py             one file per algorithm
 
-  tests/
-    test_core.py         47 analytic checks, runnable without QGIS
-    test_interop.py      77 checks: outlet_uid, slopes, exchange, golden fixture
-    test_crossings.py    45 checks: alignment, candidates, clusters, burn, relink
-    test_soils.py        33 checks: USLE K, texture, HSG, SOTWIS and CSV loaders, soil block
-    test_flats.py        36 checks: v0.8.3 oracles, Barnes == RichDEM port, edge drains, DEM QA
-    test_erosion.py      50 checks: analytic plane/valley, A14 2025 anchors, RUSLE, classes, corridor
-    test_alignment.py    15 checks: ground profile on a plane and a valley
-    test_morphometry.py  22 checks: LFP split, perimeter/shape ratios, drainage density, links
-    test_soils_any.py    18 checks: vectorised = scalar, v0.14 regression, SoilGrids, HYSOGs, overrides
-    test_runoff.py       17 checks: CN mosaic, dual groups, AMC, lookups, pipeline
-    test_channel.py      16 checks: STI identity, channel slopes, deposition ratio
-    test_coverage.py     21 checks: missing crossings, sags, walled sag areas, flat stretches
-    test_rainfall.py     35 checks: zone shares and ties, rainfall mean and units, R relations
-    test_report.py       15 checks: characteristics table, run report
-    test_floodplain.py   19 checks: analytic valleys, truncation, HAND on a V valley
-    test_quicklooks.py   14 checks: PNG round trip, world file, legends, downsampling
+  tests/                 test_*.py: 25 pure suites (676 checks at 1.0.1), runnable without QGIS
     fixtures/            golden_exchange.gpkg + .json (shared with HEAS)
-    qgis_smoke.py        every Processing tool run inside QGIS
+    qgis_smoke.py        every Processing tool run inside QGIS (80 checks)
+    qgis_e2e.py          the pipeline on a synthetic road site (25 checks)
 ```
 
 The dependency direction is strict and one-way: `processing_provider` imports `core`; `core` never imports `processing_provider` or `qgis`. GDAL imports inside `core` are function-local and lazy, so the numeric modules remain importable where GDAL is absent.
@@ -116,7 +75,7 @@ The dependency direction is strict and one-way: `processing_provider` imports `c
 
 ## 3. Processing algorithms
 
-QEHT registers nineteen algorithms under the "Engineering Hydrology" provider.
+QEHT registers 23 algorithms under the "Engineering Hydrology" provider.
 
 | Algorithm | Commercial reference analogue |
 |---|---|
@@ -139,6 +98,10 @@ QEHT registers nineteen algorithms under the "Engineering Hydrology" provider.
 | Drainage coverage check along a road | none — missing crossings, sags, flat stretches (Section 4.20) |
 | Run hydrology pipeline (one click) | none — the whole chain, one output folder, run report (Section 4.22) |
 | Run report from a design hydrology package | none — HTML report and characteristics table (Section 4.22) |
+| Prepare DEM for hydrology | none — mosaic, clip, bilinear reprojection to the local UTM zone, audits (Section 4.26) |
+| Export package to KMZ / XLSX | none — Google Earth file and workbook (Section 4.28) |
+| Clip DEM to the road's contributing area | none — corridor window of a large DEM (Section 4.30) |
+| DEM uncertainty at crossings | none — Monte Carlo DEM-error ranges (Section 4.32) |
 
 Each is a `QgsProcessingAlgorithm` registered through a `QgsProcessingProvider`. Exposing the tools this way — rather than as bespoke dialogs — means they gain input validation, batch mode, the Graphical Modeler, the history log, and `processing.run()` scriptability at no additional cost. Chaining tools in the Modeler is much of a commercial hydrology extension's practical value, and this design reproduces it.
 
@@ -478,6 +441,8 @@ The smoke test loads it from the file and runs it.
 - unc_lost_pct = lost realisations / N;
 - unc_switch_pct = realisations with |A − A_det| > 0.25 A_det, divided by N, where A_det is the deterministic area.
 
+A crossing whose pour point has no stream within the snap radius on the deterministic DEM (for example a proposed sag crossing below the stream threshold) is not assessed: its percentiles, CVs and unc_switch_pct are NULL and unc_note says so. A realisation that does find a stream there has snapped to another channel, and its values would describe that channel. unc_lost_pct is still reported.
+
 With σ = 0 every percentile equals the deterministic value, and a fixed seed repeats exactly. A steep V valley gives an area CV of about 3 %, almost all of it the snapped outlet moving one cell along the channel. A plateau that can drain to either of two valleys gives about 26 %.
 
 **Presets.**
@@ -519,13 +484,9 @@ Neither preset is applied silently.
 
 QEHT is validated at three levels.
 
-**Level 1 — synthetic analytic DEMs.** 47 checks in `tests/test_core.py`, runnable on bare Python + NumPy, covering encoding round-trips, distance weighting, fill spill levels, accumulation on analytic surfaces, catchment areas, longest-flow-path geometry, snapping, Strahler rules, and the Barnes saddle convergence test. A further 74 checks in `tests/test_interop.py` cover the 10–85 conventions on an analytic profile, the slope domains, `outlet_uid` rules, the polygon tracer, the GeoPackage writer, the CRS rule and the exchange package against the golden fixture. All pass. (Earlier documentation quoted 48 core checks; the suite has 47.)
+**Level 1 — synthetic analytic DEMs.** 25 pure-Python suites with 676 checks at 1.0.1, runnable on bare Python with NumPy (`tests/test_*.py`). They cover D8 encoding, distance weighting, fill spill levels, accumulation and catchments on analytic surfaces, the 10–85 conventions on an analytic profile, the slope domains, the polygon tracer, the v0.8.3 reference implementations (bit for bit), Barnes against a per-cell port of RichDEM, road crossings and burning, soils and USLE K, curve numbers, rainfall, erosion against the A14 study's tables, channel sections, Tc, the exports, mapped drainage, auto-clip, scenarios and the DEM-error field, and the package against its golden fixture.
 
-**Road crossings.** 43 checks in `tests/test_crossings.py`: linear referencing (chainage, signed offset, multi-part, reverse); a square crossing (exact chainage, 90°, side); a 45° road (45° exactly); a stream weaving across the centreline for ~600 m (11 raw intersections → one cluster, the exit recommended, a 748 m parallel reach); two tributaries 100 m apart (merge 50 m → two clusters, 150 m → one); candidate selection rules; candidates → exchange (numbered along chainage, outlets not snapped); an embanked valley (pond removed, breach confined to the culvert line, flow through the culvert); renumber-log rules.
-
-**Soils.** 31 checks in `tests/test_soils.py`: hand-computed Williams factors, the 0.0256 coefficient, K monotonic in organic carbon and texture, Dg-K bounds, CFRG, 12 USDA classes, HSG rules, the SOTWIS loader on a synthetic database with the SOTWIS schema (component and depth weighting, shallow layers, −1 values, TTR), exact cell weights and partial coverage on a three-unit map, no-overlap case, and the soil block on exchange catchments.
-
-**QGIS level.** `tests/qgis_smoke.py` runs every Processing tool through `processing.run()` inside QGIS on the example DEM and checks outputs, `outlet_uid` consistency and the exchange package. Passes on QGIS 3.34.4 (headless).
+**QGIS level.** `tests/qgis_smoke.py` runs every Processing tool through `processing.run()` on the example DEM and checks outputs, `outlet_uid` consistency and the package (80 checks). `tests/qgis_e2e.py` runs the pipeline on a synthetic road site with known structure (25 checks). Both pass on QGIS 3.34.4 and 4.2.3.
 
 **Level 3 — reference hydrology toolset production output (Site A, steep).** 718×775 cells, EPSG:21037, 16 road-crossing pour points with reference catchments and longest flow paths. Catchment area median ratio 1.009 (15/16 within ±30%), longest-flow-path length median ratio 0.999 (15/16 within ±20%), best individual match 0.05%, zero flow-direction cycles. Cell-by-cell on an aligned grid, flow direction agrees with the reference toolset on 98.5%.
 
@@ -544,56 +505,14 @@ The two datasets bound the expected accuracy: near-exact on moderate-to-steep te
 
 ---
 
-## 8. Release readiness (GitHub and QGIS Plugin Store)
+## 8. Release
 
-Completed as of 0.8.2:
+QEHT 1.0 is the first stable release (`experimental=False`). The plugin zip holds the plugin folder `qeht/` without the development tools (`tools/`), which stay in the repository. The example DEM (`examples/example_dem.tif`) is synthetic, made by `tools/dev/make_example_dem.py`, and the user guide's demonstration data by `tools/guide/make_demo_site.py`; neither describes a real place.
 
-- README version header corrected to 0.8.2.
-- `LICENSE` file added (GPL-2.0-or-later), author attributed to Edmond Akello.
-- `CITATION.cff` added, author attributed to Edmond Akello.
-- `metadata.txt`: author, email, and real homepage/repository/tracker URLs
-  (`https://github.com/EdmondAkello/qeht`) populated; `changelog` pointer
-  added.
-- `CHANGELOG.md` added, derived from the version history.
-- Reproducible example datasets added: a DEM (`examples/example_dem.tif`; real terrain up
-  to 0.27, replaced in 1.0.0 by a synthetic projected DEM from `tools/dev/make_example_dem.py`)
-  and a synthetic geographic DEM with no real-world correspondence
-  (`examples/synthetic_dem.tif`, ~0.4 MB), both with a documented end-to-end
-  workflow (`examples/README.md`).
-- Documentation pass replacing project-identifying site names with generic
-  labels throughout, ahead of public distribution.
+## 9. Citation
 
-Still recommended before a 1.0 / plugin-store submission:
+See `CITATION.cff`. In brief: Akello, E. QEHT: QGIS Engineering Hydrology Toolkit, version 1.0.1, GPL-2.0-or-later, https://github.com/EdmondAkello/qeht.
 
-- Add a QGIS-level smoke test (provider loads, one algorithm runs against
-  the bundled example DEM) alongside the core tests — the core test suite
-  covers the numerical engine but does not exercise the QGIS Processing
-  wiring itself.
-- Decide whether to clear the `experimental` flag; it is honest to retain
-  it until the QGIS-level smoke test above is in place, even though the
-  example dataset is now bundled.
-- Establish a DOI/archive (e.g. Zenodo) for the citable release.
-
-The Processing-provider architecture QEHT uses is explicitly consistent with QGIS's recommended approach for analytical plugins, and the in-process, no-binary design aligns with the store's cross-platform and no-external-binary expectations.
-
----
-
-## 9. Publication strategy
-
-The material supports two distinct outputs, and they should not be collapsed into one.
-
-**Software paper — QEHT itself.** A comprehensive description of architecture, algorithms, interoperability, testing, and validation. Natural venues: the Journal of Open Source Software (JOSS), which reviews the software, its documentation and tests, and expects a public open-development history of at least six months — so the GitHub repository should be established early; or SoftwareX, which pairs a short software paper with the open-source release.
-
-**Research paper — the flat-resolution finding.** This is the stronger scholarly contribution, and it is a genuine result rather than a tool description: *the influence of DEM flat-resolution algorithm on drainage-network structure and engineering catchment characteristics*. The controlled comparison of toward-lower versus canonical Barnes across terrain regimes — quantified on flow-direction agreement, accumulation, stream IoU, catchment area, longest-flow-path length, and slope, and traceable through to time of concentration and design discharge — is a defensible, reproducible experiment. The finding that a theoretically canonical convergent algorithm reproduces a widely-used reference implementation *less* well than a simpler method, on a specific and common terrain regime, is the kind of result that is worth reporting. Natural venue: Environmental Modelling & Software, whose scope explicitly covers hydrological modelling, GIS, and quantitative comparison of alternative methods. Computers & Geosciences is possible but would require framing the contribution as more than a standard implementation.
-
-The recommended sequencing is to establish the public GitHub repository now — as both the product repository and the experimental record, holding the benchmark datasets, scripts, and validation results — so that the open-development history accrues while the research paper's controlled benchmarks are assembled. A v0.9 focused on reproducibility and a formal validation framework, rather than new features, is the right next step; the v0.8 code already contains the substance both papers need.
-
----
-
-## 10. Citation
-
-See `CITATION.cff`. In brief: QEHT: QGIS Engineering Hydrology Toolkit, v0.14.0, GPL-2.0-or-later.
-
-## 11. Licence
+## 10. Licence
 
 GNU General Public License v2 or later. See `LICENSE`.

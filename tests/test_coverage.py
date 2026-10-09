@@ -12,7 +12,7 @@ import numpy as np
 
 from ..core.network.alignment import Alignment
 from ..core.network.profile import profile_with_crossings
-from ..core.network.coverage import (missing_crossings, sag_points, flat_stretches,
+from ..core.network.coverage import (cluster_cover, missing_crossings, sag_points, flat_stretches,
                                      walled_accumulation, sag_areas, run_coverage, smooth,
                                      alignment_wall)
 from ..core.interop.heas_exchange import build_exchange_records
@@ -177,11 +177,29 @@ def test_flats():
     check("cross-fall above the limit -> not flat", flat_stretches(pt, tilted, gt, al, 0.5, 100.0, 300.0) == [])
 
 
+def test_cluster_cover():
+    print("\n[Clustered candidates cover their stream]")
+    cands = [("c1", 100.0), ("c1", 160.0), ("c1", 240.0), ("c2", 900.0), (None, 1500.0)]
+    used = [("c1", "X001")]
+    cov = cluster_cover(cands, used)
+    check("every member of a used cluster is covered by that crossing; other clusters are not",
+          cov == [("X001", 100.0), ("X001", 160.0), ("X001", 240.0)], str(cov))
+    # a stream beside the road crosses the centreline at 100, 160 and 240 m; the crossing used
+    # is at 100 m, so with a 50 m search the crossings at 160 and 240 m count as missing
+    # unless the cluster covers them
+    prof = [{"chainage_m": c, "x": c, "y": 0.0, "acc_km2": 30.0, "stream": 1} for c in (100.0, 160.0, 240.0)]
+    plain = missing_crossings(prof, [("X001", 100.0)], 1.0, 30.0, 50.0)
+    clus = missing_crossings(prof, [("X001", 100.0)] + cov, 1.0, 30.0, 50.0)
+    check("parallel stream: missing without the cluster, covered with it",
+          sum(not m["covered"] for m in plain) == 2 and all(m["covered"] for m in clus))
+
+
 def main(argv=None):
     test_missing()
     test_sags()
     test_sag_area()
     test_flats()
+    test_cluster_cover()
     print()
     if FAILURES:
         print(f"{len(FAILURES)} CHECK(S) FAILED: " + "; ".join(FAILURES))

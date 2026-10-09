@@ -11,7 +11,7 @@ import sys
 
 import numpy as np
 
-from ..core.watershed.uncertainty import (correlated_field, run, measure, params_json, PRESETS,
+from ..core.watershed.uncertainty import (QUANT, correlated_field, run, measure, params_json, PRESETS,
                                           UNC_FIELDS, upstream_lengths)
 
 FAILURES = []
@@ -89,6 +89,24 @@ def test_runs():
                   snap_cells=1)
     check("pour point far from any stream: lost in every realisation, noted",
           lost[0]["unc_lost_pct"] == 100.0 and lost[0]["unc_area_p50"] is None and lost[0]["unc_note"])
+    zp = v_valley()
+    near, _ = run(zp, np.ones(zp.shape, bool), GT, [(45, 8)], 3.0, 30.0, n=12, seed=5,
+                  threshold_cells=20, snap_cells=1)
+    check("no stream at the deterministic outlet: no percentiles or switching from other channels",
+          all(near[0][f"{pre}_{q}"] is None for _, pre in QUANT for q in ("p10", "p50", "p90", "cv"))
+          and near[0]["unc_switch_pct"] is None and "not assessed" in near[0]["unc_note"]
+          and 0 < near[0]["unc_lost_pct"] < 100, f"lost {near[0]['unc_lost_pct']:.0f} %")
+    zr = v_valley()
+    base_ok, _ = run(zr, np.ones(zr.shape, bool), GT, [(45, 20)], 0.5, 30.0, n=4, seed=1,
+                     threshold_cells=20)
+    a_true = base_ok[0]["unc_area_p50"]
+    other, _ = run(zr, np.ones(zr.shape, bool), GT, [(45, 20)], 0.5, 30.0, n=4, seed=1,
+                   threshold_cells=20, ref_areas=[a_true * 0.1])
+    same, _ = run(zr, np.ones(zr.shape, bool), GT, [(45, 20)], 0.5, 30.0, n=4, seed=1,
+                  threshold_cells=20, ref_areas=[a_true])
+    check("snap reached another channel (area 10x the crossing's own): not assessed",
+          other[0]["unc_area_p50"] is None and "another channel" in other[0]["unc_note"]
+          and same[0]["unc_area_p50"] == a_true)
     pj = json.loads(params_json(info, "FABDEM", PRESETS["FABDEM"][1]))
     check("presets carry their sources; parameters JSON records N, sigma, L, seed, timing",
           PRESETS["AW3D30"][0] == 4.4 and "Tadono" in PRESETS["AW3D30"][1]

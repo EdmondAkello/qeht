@@ -224,10 +224,13 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
             out[k] = text
         return out
 
-    def candidate_selection(self, points, feedback):
+    def candidate_selection(self, points, feedback, cell=None):
         """Pour points read from a 'Road crossing candidates' layer: keep the
         accepted candidates (or the recommended ones), each at its own outlet
-        cell (no snapping) with its chainage. Returns (points, is_candidate_layer,
+        cell (no snapping) with its chainage. A candidate moved by the user
+        (more than two cells from its stored outlet) and a point added to the
+        layer (no stored outlet) are snapped from where they now are, and their
+        chainage is taken from the road. Returns (points, is_candidate_layer,
         all_points). Other layers pass through unchanged."""
         from ..core.network.crossings import select_crossings
         is_cand = any("attr_status" in p and "attr_outlet_x" in p for p in points)
@@ -239,10 +242,20 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
         if not chosen:
             raise QgsProcessingException(
                 "No candidate is accepted or recommended - nothing to export.")
+        from ..core.network.crossings import candidate_moved
+        moved = 0
         for p in chosen:
-            p["outlet_x"], p["outlet_y"] = p.get("attr_outlet_x"), p.get("attr_outlet_y")
-            p["chainage"] = p.get("attr_chainage_m")
+            ox, oy = p.get("attr_outlet_x"), p.get("attr_outlet_y")
+            if candidate_moved(p["x"], p["y"], ox, oy, cell):
+                p["outlet_x"] = p["outlet_y"] = p["chainage"] = None
+                moved += ox is not None and oy is not None
+            else:
+                p["outlet_x"], p["outlet_y"] = ox, oy
+                p["chainage"] = p.get("attr_chainage_m")
         feedback.pushInfo(f"Candidate layer: {len(chosen)} of {len(points)} crossing(s) used ({rule}).")
+        if moved:
+            feedback.pushInfo(f"  {moved} candidate(s) moved by more than two cells from their outlet: "
+                              "snapped from the new position, chainage from the road.")
         return chosen, True, points
 
     def _advanced(self, param):

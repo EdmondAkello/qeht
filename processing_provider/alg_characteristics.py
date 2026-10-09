@@ -170,7 +170,7 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
         from ..core.network.crossings import CANDIDATE_FIELDS
         points=self.read_pour_points(parameters,POINTS,context,info,feedback,id_field=id_field,
                                      extra_fields=[f for f,_ in CANDIDATE_FIELDS])
-        points,_,_=self.candidate_selection(points,feedback)
+        points,_,_=self.candidate_selection(points, feedback, info.cell_width)
 
         try:
             crossings,catchments,flowpaths,issues,_=build_exchange_records(

@@ -64,6 +64,25 @@ def _nearest(ch, existing):
     return best
 
 
+def cluster_cover(candidates, used):
+    """Chainages covered through a candidate cluster.
+
+    A stream that runs beside the road crosses the centreline many times on a DEM; Road crossing
+    candidates puts those intersections in one cluster and recommends one of them. The others
+    are the same drainage line, so they are covered by the crossing used for the cluster.
+
+    candidates : [(cluster_id, chainage_m)] for every candidate
+    used : [(cluster_id, uid)] for the candidates used as crossings
+    Returns [(uid, chainage_m)] for every candidate whose cluster holds a used crossing.
+    """
+    by_cluster = {}
+    for cl, uid in used:
+        if cl is not None:
+            by_cluster.setdefault(cl, uid)
+    return [(by_cluster[cl], float(ch)) for cl, ch in candidates
+            if cl is not None and ch is not None and cl in by_cluster]
+
+
 def missing_crossings(profile, existing, min_area_km2=0.0, merge_m=30.0, search_m=50.0):
     """Uncovered stream crossings.
 
@@ -313,7 +332,7 @@ def run_coverage(direction, valid, accumulation, elevation, filled, geotransform
                  search_m=50.0, small_area_km2=0.01, sag_smooth_m=30.0, sag_min_depth_m=0.3,
                  sag_min_area_km2=0.05, flat_slope_pct=0.5, crossfall_m=100.0,
                  flat_min_len_m=300.0, proposed_prefix="P", stream_threshold_cells=200.0,
-                 progress=None):
+                 progress=None, cluster_chainages=None):
     """Coverage check + sags + flat stretches, and the proposed crossings
     delineated and characterised exactly like the existing ones.
 
@@ -324,6 +343,8 @@ def run_coverage(direction, valid, accumulation, elevation, filled, geotransform
     Returns dict(crossings, catchments, flowpaths, coverage, sags, flats,
     issues) - the first three hold only the PROPOSED features, tagged
     status = 'proposed'.
+    cluster_chainages : [(uid, chainage_m)] from cluster_cover(): the other
+        intersections of a clustered stream, covered by the crossing used for it.
     """
     from ..interop.heas_exchange import build_exchange_records, ExchangeError
     gt = tuple(geotransform)
@@ -334,7 +355,8 @@ def run_coverage(direction, valid, accumulation, elevation, filled, geotransform
     issues, coverage = [], []
 
     # A2 missing crossings
-    miss = missing_crossings(profile, existing, min_area_km2, merge_m, search_m)
+    covered = existing + list(cluster_chainages or [])
+    miss = missing_crossings(profile, covered, min_area_km2, merge_m, search_m)
     uncovered = [m for m in miss if not m["covered"]]
     for _, a in crossings:
         ar = a.get("acc_at_outlet_km2")
@@ -346,7 +368,7 @@ def run_coverage(direction, valid, accumulation, elevation, filled, geotransform
                         "redundant or misplaced? (review only)"}))
 
     # A3 sags (walled routing) and flat stretches
-    sags = ponding_sags(profile, existing, search_m, sag_smooth_m, sag_min_depth_m)
+    sags = ponding_sags(profile, covered, search_m, sag_smooth_m, sag_min_depth_m)
     walled_dir = walled_acc = wall = None
     if sags:
         if progress is not None:

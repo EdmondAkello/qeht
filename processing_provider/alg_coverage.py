@@ -13,7 +13,7 @@ from .base import QehtAlgorithm
 from ..core.raster import read_dem
 from ..core.grid import decode_d8
 from ..core.network.profile import profile_with_crossings
-from ..core.network.coverage import (missing_crossings, ponding_sags, flat_stretches,
+from ..core.network.coverage import (cluster_cover, missing_crossings, ponding_sags, flat_stretches,
                                      walled_accumulation, sag_areas, COVERAGE_FIELDS,
                                      SAG_FIELDS, FLAT_FIELDS, _nearest)
 from ..core.network.crossings import CANDIDATE_FIELDS
@@ -106,19 +106,27 @@ class DrainageCoverageAlgorithm(QehtAlgorithm):
         prof, _ = profile_with_crossings(al, raw, info.geotransform, direction=direction,
                                          valid=valid, accumulation=acc, filled=filled,
                                          stream_threshold_cells=thr, step=P("STEP"))
-        existing, pts = [], []
+        existing, pts, existing_cov = [], [], []
         if parameters.get("CROSSINGS"):
             pts = self.read_pour_points(parameters, "CROSSINGS", context, info, feedback,
                                         extra_fields=[f for f, _ in CANDIDATE_FIELDS])
-            pts, _, _ = self.candidate_selection(pts, feedback)
+            pts, cand_mode, all_pts = self.candidate_selection(pts, feedback, info.cell_width)
             ch, _, _ = al.locate([p.get("outlet_x") or p["x"] for p in pts],
                                  [p.get("outlet_y") or p["y"] for p in pts])
             existing = [(f"existing {k + 1}" if p.get("source_id") is None else str(p["source_id"]),
                          float(c)) for k, (p, c) in enumerate(zip(pts, ch))]
+            if cand_mode:
+                # the other intersections of a clustered stream are covered by its crossing
+                existing_names = [u for u, _ in existing]
+                existing_cov = cluster_cover(
+                    [(p.get("attr_cluster_id"), p.get("attr_chainage_m")) for p in all_pts],
+                    [(p.get("attr_cluster_id"), u) for p, u in zip(pts, existing_names)])
+            else:
+                existing_cov = []
         cell_km2 = info.cell_width * info.cell_height / 1e6
         min_a = P("MIN_AREA") or (thr + 1.0) * cell_km2
-        miss = missing_crossings(prof, existing, min_a, P("MERGE"), P("SEARCH"))
-        sags = ponding_sags(prof, existing, P("SEARCH"), P("SAG_SMOOTH"), P("SAG_DEPTH"))
+        miss = missing_crossings(prof, existing + existing_cov, min_a, P("MERGE"), P("SEARCH"))
+        sags = ponding_sags(prof, existing + existing_cov, P("SEARCH"), P("SAG_SMOOTH"), P("SAG_DEPTH"))
         if sags:
             feedback.setProgressText("Routing with the alignment as a wall (sag areas)")
             gaps = [(p_.get("outlet_x") or p_["x"], p_.get("outlet_y") or p_["y"])

@@ -1,0 +1,832 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QEHT {{VERSION}} — User Guide and Technical Manual</title>
+<style>
+:root {
+  --ink: #1d2330; --muted: #5b6575; --line: #d9dee7; --soft: #f4f6f9;
+  --navy: #1f2a44; --accent: #1f6f8b; --accent-soft: #e6f1f5;
+  --high: #c0392b; --medium: #d9822b; --low: #b7950b; --fill: #3a9e5f; --cut: #d9822b;
+}
+@page { size: A4; margin: 20mm 17mm 20mm 17mm; }
+@page cover { margin: 0; }
+* { box-sizing: border-box; }
+html { font-family: Inter, "Liberation Sans", sans-serif; font-size: 9.6pt; color: var(--ink); line-height: 1.5; }
+body { margin: 0; }
+h1, h2, h3, h4 { font-family: "Inter Display", Inter, sans-serif; color: var(--navy); line-height: 1.2; }
+h1.part { page-break-before: always; font-size: 26pt; margin: 0 0 4mm; padding-top: 30mm; letter-spacing: -0.01em; }
+h1.part .num { display: block; font-size: 10pt; letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent); margin-bottom: 3mm; }
+p.part-intro { font-size: 11pt; color: var(--muted); max-width: 140mm; margin-bottom: 10mm; }
+h2 { font-size: 15pt; margin: 9mm 0 3mm; padding-bottom: 1.5mm; border-bottom: 1.5px solid var(--navy); page-break-after: avoid; }
+h2 .sec { color: var(--accent); margin-right: 3mm; }
+h3 { font-size: 11pt; margin: 6mm 0 2mm; page-break-after: avoid; }
+h4 { font-size: 9.8pt; margin: 4mm 0 1.5mm; page-break-after: avoid; }
+p { margin: 0 0 2.6mm; }
+ul, ol { margin: 0 0 3mm; padding-left: 6mm; }
+li { margin-bottom: 1mm; }
+code, .mono { font-family: "DejaVu Sans Mono", monospace; font-size: 8.4pt; background: var(--soft); padding: 0 1mm; border-radius: 1mm; }
+pre { font-family: "DejaVu Sans Mono", monospace; font-size: 8.2pt; background: var(--soft); border: 1px solid var(--line); border-radius: 2mm; padding: 3mm 4mm; white-space: pre-wrap; page-break-inside: avoid; }
+table { width: 100%; border-collapse: collapse; margin: 2mm 0 4mm; font-size: 8.6pt; page-break-inside: auto; }
+thead { display: table-header-group; }
+tr { page-break-inside: avoid; }
+th { text-align: left; background: var(--navy); color: white; font-weight: 600; padding: 1.6mm 2.2mm; }
+td { padding: 1.5mm 2.2mm; border-bottom: 1px solid var(--line); vertical-align: top; }
+tbody tr:nth-child(even) td { background: #fafbfc; }
+td.num, th.num { text-align: right; white-space: nowrap; }
+td.code { font-weight: 700; color: var(--accent); white-space: nowrap; }
+figure { margin: 3mm 0 5mm; page-break-inside: avoid; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: 1.5mm; display: block; }
+figure.half img { width: 70%; margin: 0 auto; }
+figcaption { font-size: 8.3pt; color: var(--muted); margin-top: 1.5mm; }
+figcaption b { color: var(--ink); }
+.note, .tip, .warn { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 2.5mm 4mm; margin: 3mm 0 4mm; border-radius: 0 1.5mm 1.5mm 0; page-break-inside: avoid; }
+.tip { border-color: var(--fill); background: #e9f5ee; }
+.warn { border-color: var(--high); background: #fbeceb; }
+.note b:first-child, .tip b:first-child, .warn b:first-child { display: block; font-size: 8pt; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 0.8mm; }
+.steps { counter-reset: step; list-style: none; padding-left: 0; }
+.steps > li { counter-increment: step; position: relative; padding-left: 9mm; margin-bottom: 2mm; }
+.steps > li::before { content: counter(step); position: absolute; left: 0; top: 0.2mm; width: 5.6mm; height: 5.6mm; border-radius: 50%; background: var(--navy); color: white; font-size: 8pt; font-weight: 700; text-align: center; line-height: 5.6mm; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; }
+.card-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3mm; margin: 3mm 0 5mm; }
+.card { border: 1px solid var(--line); border-radius: 2mm; padding: 3mm; page-break-inside: avoid; }
+.card h4 { margin: 0 0 1mm; color: var(--accent); }
+.card p { margin: 0; font-size: 8.6pt; color: var(--muted); }
+.kbd { font-weight: 600; }
+.sev { display: inline-block; padding: 0 2mm; border-radius: 1mm; color: white; font-size: 7.8pt; font-weight: 700; }
+.sev.h { background: var(--high); } .sev.m { background: var(--medium); } .sev.l { background: var(--low); }
+.keep { page-break-inside: avoid; }
+.pb { page-break-before: always; }
+
+/* cover */
+.cover { page: cover; height: 297mm; width: 210mm; position: relative; overflow: hidden; background: var(--navy); color: white; }
+.cover .hero { position: absolute; top: 0; left: 0; right: 0; height: 170mm; background: url(figures/cover_map.png) center 55% / cover no-repeat; }
+.cover .hero::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(31,42,68,0) 35%, rgba(31,42,68,0.85) 70%, rgba(31,42,68,1) 88%); }
+.cover .text { position: absolute; left: 20mm; right: 20mm; top: 150mm; }
+.cover .kicker { font-size: 10pt; letter-spacing: 0.22em; text-transform: uppercase; color: #9fd3e3; margin-bottom: 5mm; }
+.cover h1 { color: white; font-size: 34pt; margin: 0 0 4mm; letter-spacing: -0.015em; }
+.cover .sub { font-size: 15pt; color: #d6deea; margin-bottom: 14mm; }
+.cover .meta { display: grid; grid-template-columns: 38mm 1fr; row-gap: 1.6mm; font-size: 9.5pt; color: #d6deea; }
+.cover .meta b { color: white; font-weight: 600; }
+.cover .foot { position: absolute; left: 20mm; right: 20mm; bottom: 14mm; font-size: 8pt; color: #9aa7bd; border-top: 1px solid #3a4766; padding-top: 3mm; }
+
+/* contents */
+.toc { columns: 2; column-gap: 10mm; font-size: 9pt; }
+.toc .part-title { font-weight: 700; color: var(--accent); margin: 3mm 0 1mm; break-after: avoid; text-transform: uppercase; font-size: 8pt; letter-spacing: 0.1em; }
+.toc a { color: var(--ink); text-decoration: none; display: block; padding: 0.6mm 0; }
+.toc a span { color: var(--accent); display: inline-block; width: 8mm; font-weight: 600; }
+a { color: var(--accent); }
+/* QEHT additions */
+figure.dlg img { width: auto; max-width: 80%; max-height: 125mm; margin: 0 auto; }
+figure.dlg2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; }
+figure.dlg2 img { width: 100%; max-height: 215mm; object-fit: contain; }
+figure.dlg2 figcaption { grid-column: 1 / span 2; }
+figure.narrow img { width: 88%; margin: 0 auto; }
+figure.report img { border: 1px solid var(--line); }
+.eq { font-family: "DejaVu Serif", serif; font-size: 9.4pt; background: var(--soft); border-radius: 1.5mm; padding: 2mm 4mm; margin: 2mm 0 3mm; page-break-inside: avoid; }
+.kv { display: grid; grid-template-columns: 36mm 1fr; row-gap: 1mm; column-gap: 4mm; font-size: 8.8pt; margin: 2mm 0 4mm; }
+.kv b { color: var(--navy); }
+table.params td:first-child { white-space: nowrap; font-family: "DejaVu Sans Mono", monospace; font-size: 7.6pt; color: var(--accent); }
+table.params td:nth-child(3) { white-space: nowrap; }
+table.params { font-size: 8pt; }
+table.fields td:first-child { white-space: nowrap; font-family: "DejaVu Sans Mono", monospace; font-size: 7.4pt; }
+table.fields { font-size: 7.8pt; }
+h3.alg { margin-top: 7mm; border-top: 1px solid var(--line); padding-top: 2mm; }
+.small { font-size: 8.2pt; color: var(--muted); }
+.tag { display: inline-block; padding: 0 1.6mm; border-radius: 1mm; font-size: 7.6pt; font-weight: 700; color: white; background: var(--accent); }
+.tag.proxy { background: var(--medium); } .tag.est { background: var(--low); }
+/* compact contents */
+.toc { font-size: 8.4pt; } .toc a { padding: 0.25mm 0; } .toc .part-title { margin: 2mm 0 0.6mm; }
+.card p { font-size: 8.2pt; }
+</style>
+</head>
+<body>
+
+<!-- ============================== COVER ============================== -->
+<section class="cover">
+  <div class="hero"></div>
+  <div class="text">
+    <div class="kicker">QGIS plugin · Version {{VERSION}}</div>
+    <h1>QEHT — QGIS Engineering Hydrology Toolkit</h1>
+    <div class="sub">User Guide and Technical Manual</div>
+    <div class="meta">
+      <b>Author</b><span>Edmond Akello</span>
+      <b>Contact</b><span>francenicklaus@gmail.com</span>
+      <b>Repository</b><span>github.com/EdmondAkello/qeht</span>
+      <b>QGIS</b><span>3.34 to 4.x (Qt5 and Qt6 builds)</span>
+      <b>Licence</b><span>GNU General Public License v2 or later</span>
+      <b>Edition</b><span>{{EDITION}}</span>
+    </div>
+  </div>
+  <div class="foot">Every figure in this guide was produced by the plugin from a synthetic demonstration site: invented terrain, road, soils, land cover, rainfall and river names at an invented location. No project data is shown.</div>
+</section>
+
+<!-- ============================== CONTENTS ============================== -->
+<h2 style="margin-top:0">Contents</h2>
+<div class="toc">
+  <div class="part-title">About this guide</div>
+  <a href="#about"><span>0</span>What QEHT does</a>
+  <div class="part-title">Part A — Getting started</div>
+  <a href="#overview"><span>1</span>Overview</a>
+  <a href="#install"><span>2</span>Installing and updating</a>
+  <a href="#inputs"><span>3</span>Preparing the inputs</a>
+  <a href="#demo"><span>4</span>The demonstration site</a>
+  <div class="part-title">Part B — The one-click pipeline</div>
+  <a href="#pipeline"><span>5</span>Running the pipeline</a>
+  <a href="#review"><span>6</span>Reviewing crossings and running again</a>
+  <a href="#folder"><span>7</span>The output folder</a>
+  <a href="#report"><span>8</span>The run report</a>
+  <a href="#exports"><span>9</span>KMZ and XLSX exports</a>
+  <div class="part-title">Part C — Terrain and drainage</div>
+  <a href="#prepare"><span>10</span>Prepare DEM for hydrology</a>
+  <a href="#routing"><span>11</span>Fill, flow direction and flats</a>
+  <a href="#streams"><span>12</span>Accumulation and streams</a>
+  <a href="#catchments"><span>13</span>Catchments and flow paths</a>
+  <div class="part-title">Part D — Road drainage</div>
+  <a href="#candidates"><span>14</span>Road crossing candidates</a>
+  <a href="#burn"><span>15</span>Burning crossings through embankments</a>
+  <a href="#profile"><span>16</span>Alignment ground profile</a>
+  <a href="#coverage"><span>17</span>Drainage coverage check</a>
+  <a href="#sections"><span>18</span>Channel sections and floodplain width</a>
+  <a href="#mapped"><span>19</span>Check against mapped drainage</a>
+  <a href="#autoclip"><span>20</span>Large DEMs: clip to the contributing area</a>
+  <a href="#uncertainty"><span>21</span>DEM uncertainty at crossings</a>
+  <div class="part-title">Part E — Soils, runoff and erosion</div>
+  <a href="#soils"><span>22</span>Soils and USLE K</a>
+  <a href="#runoff"><span>23</span>Curve number, Rational C and scenarios</a>
+  <a href="#rainfall"><span>24</span>Rainfall</a>
+  <a href="#tc"><span>25</span>Time of concentration</a>
+  <a href="#erosion"><span>26</span>Erosion indices and RUSLE</a>
+  <a href="#corridor"><span>27</span>Erosion along the road and side drains</a>
+  <div class="part-title">Part F — The design hydrology package</div>
+  <a href="#package"><span>28</span>What the package holds</a>
+  <a href="#relink"><span>29</span>Editing crossings: renumber and relink</a>
+  <a href="#automation"><span>30</span>Batch, Modeler and scripts</a>
+  <div class="part-title">Part G — Technical reference</div>
+  <a href="#methods"><span>31</span>Methods and equations</a>
+  <a href="#validation"><span>32</span>Validation</a>
+  <a href="#limits"><span>33</span>Known limitations</a>
+  <a href="#qc"><span>34</span>Quality-control checklist</a>
+  <a href="#trouble"><span>35</span>Troubleshooting</a>
+  <div class="part-title">Appendices</div>
+  <a href="#app-params"><span>A</span>Parameter reference</a>
+  <a href="#app-fields"><span>B</span>Field dictionary</a>
+  <a href="#app-refs"><span>C</span>References</a>
+</div>
+
+<h2 id="about"><span class="sec">0</span>What QEHT does</h2>
+<p>QEHT turns a digital elevation model (DEM) into the drainage quantities a road or catchment study needs: conditioned terrain, flow direction and accumulation, streams, catchments, longest flow paths and their slopes, crossings along a road, and the soils, runoff, rainfall, erosion and time-of-concentration inputs of a design-flood calculation. Everything runs inside QGIS, using only NumPy and the GDAL bindings that QGIS already ships. It starts no external program and needs no extra Python package, so it works on managed workstations where tools that start external programs are blocked.</p>
+<div class="card-grid">
+  <div class="card"><h4>Terrain and drainage</h4><p>DEM preparation and checks, priority-flood fill, D8 with Barnes (2014) flat resolution, accumulation, Strahler streams, catchments, longest flow paths and four named slopes.</p></div>
+  <div class="card"><h4>Road drainage</h4><p>Crossing candidates with chainage, embankment burning, the ground profile, a coverage check that proposes missing crossings, channel sections, floodplain width, mapped-river check.</p></div>
+  <div class="card"><h4>Design inputs</h4><p>Soil texture and USLE K from any soil source, curve numbers and Rational C, rainfall zones, five time-of-concentration methods side by side, land-cover scenarios.</p></div>
+  <div class="card"><h4>Erosion</h4><p>SPI, TWI, LS and RUSLE with source-tagged factors, severity classes, erosion along the road and a side-drain siltation indicator.</p></div>
+  <div class="card"><h4>Uncertainty and QA</h4><p>Flat-method sensitivity per crossing, DEM-error Monte Carlo ranges of area and Tc, undeclared-NoData and resampling audits, provenance in every output.</p></div>
+  <div class="card"><h4>Delivery</h4><p>One-click pipeline into one folder: layers, tables, an HTML run report, KMZ for Google Earth, an XLSX workbook and a self-describing GeoPackage.</p></div>
+</div>
+<p><b>Rules the plugin keeps.</b> No engineering value ships as a default when it is not known: a land-cover proxy is labelled <span class="tag proxy">PROXY</span>, a relation used outside its origin is labelled <span class="tag est">ESTIMATE</span>, and both labels travel into every table, report and package. Where a design method needs a choice (which slope, which Tc method, which flat method), QEHT reports the alternatives and records which was used; it does not choose for you.</p>
+
+<!-- ============================== PART A ============================== -->
+<h1 class="part"><span class="num">Part A</span>Getting started</h1>
+<p class="part-intro">Install the plugin, prepare a DEM it can trust and the optional inputs, and meet the demonstration site used throughout this guide.</p>
+
+<h2 id="overview"><span class="sec">1</span>Overview</h2>
+<p>QEHT is a QGIS Processing provider. Its tools appear in the Processing Toolbox under <b>Engineering Hydrology</b> and behave like any other Processing algorithm: they validate their inputs, run in batch mode, chain in the Graphical Modeler, log to the history and can be called from Python with <code>processing.run()</code>.</p>
+<figure>
+  <img src="figures/map_overview.png" alt="Demonstration site">
+  <figcaption><b>Figure 1.</b> The demonstration site after one pipeline run: 22 km of road with 20 existing crossings (blue) and 15 proposed ones (orange), their catchments and longest flow paths, and streams of at least 0.5 km² drawn by Strahler order over the relief quicklook. The road crosses the slopes of a volcano, runs 2.5 km beside a main valley and ends on the flat bed of an old lake.</figcaption>
+</figure>
+<table>
+  <thead><tr><th style="width:24%">Toolbox group</th><th>Tools</th></tr></thead>
+  <tbody>
+    <tr><td>Terrain and drainage</td><td>Prepare DEM for hydrology · Fill depressions · D8 flow direction · Flow accumulation · Stream network and Strahler order · Stream network to polylines · Delineate catchments from pour points · Longest flow path · Catchment and flow path characteristics</td></tr>
+    <tr><td>Road drainage</td><td>Road crossing candidates · Burn crossings through embankments · Alignment ground profile · Drainage coverage check along a road · Clip DEM to the road's contributing area · DEM uncertainty at crossings</td></tr>
+    <tr><td>Soils and erosion</td><td>Soil, rainfall and runoff parameters for catchments · Erosion indices and RUSLE soil loss · Sample erosion along alignment</td></tr>
+    <tr><td>Interoperability</td><td>Build design hydrology package · Renumber and relink exchange package</td></tr>
+    <tr><td>Workflow</td><td>Run hydrology pipeline (one click) · Run report from a design hydrology package · Export package to KMZ / XLSX</td></tr>
+  </tbody>
+</table>
+<h3>A typical workflow</h3>
+<ol class="steps">
+  <li><b>Prepare the DEM</b>: one product, projected in metres, resampled bilinearly, NoData declared (section 3 and 10).</li>
+  <li><b>Run the pipeline</b> with the DEM and the road centreline, and stop after the crossing candidates (section 5).</li>
+  <li><b>Review the candidates</b>: accept, reject, move or add crossings; then run again with the reviewed layer (section 6).</li>
+  <li><b>Read the run report</b>: DEM checks, flat-sensitive crossings, coverage findings, uncertainty ranges and warnings (section 8).</li>
+  <li><b>Adopt or delete proposed crossings</b> and relink the package if you edited it (section 29).</li>
+  <li><b>Take the numbers into design</b>: the characteristics table, the Tc table and the XLSX workbook, with the slope and Tc method you use stated in the design report.</li>
+</ol>
+
+<h2 id="install"><span class="sec">2</span>Installing and updating</h2>
+<h3>From the QGIS plugin repository</h3>
+<ol class="steps">
+  <li>Open <span class="kbd">Plugins → Manage and Install Plugins…</span></li>
+  <li>Search for <b>QEHT</b> and press <span class="kbd">Install</span> (or <span class="kbd">Upgrade</span>).</li>
+  <li>Open <span class="kbd">Processing → Toolbox</span> and expand <b>Engineering Hydrology</b>.</li>
+</ol>
+<h3>From a ZIP file</h3>
+<p>Use <span class="kbd">Plugins → Manage and Install Plugins → Install from ZIP</span> with <code>qeht-{{VERSION}}.zip</code>. The zip holds one folder, <code>qeht</code>; keep that name, because the tests and the plugin import <code>qeht.core</code>.</p>
+<div class="note"><b>Requirements</b>QGIS 3.34 or later, including QGIS 4 (Qt6), on Windows, macOS or Linux. Nothing else: no SAGA, GRASS, WhiteboxTools, TauDEM or pip packages. Matplotlib, which QGIS ships on most installs, is used only for the KMZ legend and the optional profile charts.</div>
+<h3>Memory</h3>
+<p>QEHT holds the whole grid in memory. Every tool estimates its peak before it runs and warns when the estimate approaches the free RAM. As a guide, the routing steps need about 50–170 bytes per cell: a 4,000 × 4,000 DEM (16 million cells) needs 1–3 GB. For a national mosaic, clip to the road's contributing area first (section 20).</p>
+
+<h2 id="inputs"><span class="sec">3</span>Preparing the inputs</h2>
+<h3>The DEM</h3>
+<p>Every result depends on the DEM, so most of the checks in QEHT are about it. A DEM QEHT can trust is:</p>
+<ul>
+  <li><b>Projected, in metres.</b> A geographic DEM (degrees) is refused before any computation. <b>Prepare DEM for hydrology</b> reprojects to the local UTM zone (section 10).</li>
+  <li><b>One product at its native resolution.</b> FABDEM, Copernicus GLO-30 and ALOS AW3D30 are 30 m. Mixing products or exporting finer than native adds no information.</li>
+  <li><b>Resampled bilinearly, never nearest neighbour.</b> Nearest neighbour repeats whole rows and columns wherever the output grid is finer than the source. The repeats create exact ties and artificial flats, and routing across them is decided by the flat method rather than the terrain.</li>
+  <li><b>With its NoData declared.</b> A block of zeros with no NoData in the header is read as a sea at 0 m that the whole catchment drains into.</li>
+</ul>
+<figure>
+  <img src="figures/chart_dem_checks.png" alt="DEM checks">
+  <figcaption><b>Figure 2.</b> The two DEM defects QEHT audits. Left and centre: the demonstration DEM regridded from 30 m to 27 m. Nearest neighbour repeats one row and column in ten (the stripes in the hillshade); bilinear repeats none. Right: the last 40 columns of one row of the demonstration DEM, which ends in a strip of zeros that the file does not declare as NoData. Fill, D8 and the pipeline print a warning for both, with the share of cells affected.</figcaption>
+</figure>
+<p>When the audit reports undeclared NoData, give the value in <b>Treat this DEM value as NoData</b> (pipeline) or <b>Treat this value as NoData</b> (Fill depressions). When it reports repeated rows or columns in the <i>input</i>, the damage happened before QEHT: get the native product and prepare it again. A FABDEM export from Earth Engine at a scale slightly finer than its native 1″ grid (for example 0.000269°) repeats about one row and column in 33; export in the native projection and scale.</p>
+
+<h3>The road centreline</h3>
+<p>A line layer, in any CRS (it is transformed to the DEM's). Chainage runs along the parts in layer order and the digitising direction from the <b>Start chainage</b>; tick <b>Reverse chainage direction</b> to run it the other way. A rough digitised centreline is enough before the geometric design exists: crossings, chainages and the ground profile are then provisional and are re-run on the design alignment later.</p>
+
+<h3>Optional inputs</h3>
+<table>
+  <thead><tr><th style="width:24%">Input</th><th style="width:34%">Global source (national data is better)</th><th>Used for</th></tr></thead>
+  <tbody>
+    <tr><td>Soil map or rasters</td><td>SoilGrids 2.0 (ISRIC, 250 m); HWSD v2 units; SOTWIS / SOTER databases</td><td>Texture, USLE K, hydrologic soil group proxy (section 22)</td></tr>
+    <tr><td>Hydrologic soil group</td><td>HYSOGs250m (ORNL DAAC)</td><td>Overrides the texture-based group</td></tr>
+    <tr><td>Land cover</td><td>ESA WorldCover 2021 (10 m)</td><td>Curve number, Rational C, C factor, Tc retardance (sections 23, 25, 26)</td></tr>
+    <tr><td>Rainfall zones</td><td>A national design-rainfall zoning</td><td>Zone per catchment (section 24)</td></tr>
+    <tr><td>Mean annual rainfall</td><td>CHIRPS climatology</td><td>MAP per catchment; R estimate</td></tr>
+    <tr><td>Rainfall erosivity R</td><td>GloREDa (ESDAC)</td><td>RUSLE (section 26)</td></tr>
+    <tr><td>2-yr 24-h rainfall P2</td><td>A national IDF study</td><td>TR-55 sheet-flow Tc (section 25)</td></tr>
+    <tr><td>Mapped waterways</td><td>OpenStreetMap waterways, HydroRIVERS</td><td>Check against mapped drainage (section 19)</td></tr>
+  </tbody>
+</table>
+
+<h2 id="demo"><span class="sec">4</span>The demonstration site</h2>
+<p>Every figure in this guide comes from one pipeline run on a synthetic site that ships with the repository. Nothing in it describes a real place. <code>tools/dev/make_example_dem.py</code> builds the DEM (<code>examples/example_dem.tif</code>): 760 × 720 cells at 30 m in EPSG:32737 at an invented origin, with a volcanic cone and crater, dendritic valleys carved by QEHT's own flow accumulation, a low plain stored in whole metres like ALOS, and an undeclared NoData strip along the east edge. <code>tools/guide/make_demo_site.py</code> adds the rest:</p>
+<table>
+  <thead><tr><th style="width:30%">File</th><th>Content</th></tr></thead>
+  <tbody>
+    <tr><td><code>demo_dem.tif</code></td><td>The example DEM with an old lake bed on the south-east plain: a plane falling 0.15 % in whole metres, so it has real flats.</td></tr>
+    <tr><td><code>demo_road.gpkg</code></td><td>"Demo Road", 22 km: across the volcano's slopes, 2.5 km beside a main valley, then over the lake bed.</td></tr>
+    <tr><td><code>demo_landcover.tif</code>, <code>demo_landcover_2040.tif</code></td><td>WorldCover classes from elevation, slope and noise, with a town on the road; the 2040 scenario turns cropland within 1 km of the road into built-up land.</td></tr>
+    <tr><td><code>demo_soils.gpkg</code></td><td>Three soil units with <code>sand</code>, <code>silt</code>, <code>clay</code>, <code>oc</code>, <code>drain</code> and <code>hsg</code> fields.</td></tr>
+    <tr><td><code>demo_rain_zones.gpkg</code>, <code>demo_map.tif</code>, <code>demo_r.tif</code></td><td>Two rainfall zones, mean annual rainfall 760–1,140 mm/yr, and an erosivity raster.</td></tr>
+    <tr><td><code>demo_rivers.gpkg</code></td><td>"Mapped" rivers of at least 8 km², traced on the DEM plus a smooth error field so that they depart from the DEM streams the way a real map does.</td></tr>
+  </tbody>
+</table>
+<pre>python3 qeht/tools/guide/make_demo_site.py demo_site</pre>
+<p>Run it from the folder that contains the <code>qeht</code> repository with the Python that QGIS uses (on Windows, the OSGeo4W shell). The pipeline run behind the figures used the parameters in Figure 3 and took under two minutes on a laptop, including 30 DEM-uncertainty realisations.</p>
+
+<!-- ============================== PART B ============================== -->
+<h1 class="part"><span class="num">Part B</span>The one-click pipeline</h1>
+<p class="part-intro">One tool runs the whole chain, from DEM checks to the run report, and writes one folder. Each step is the stand-alone tool of the same name, so the results are the same as running the tools one by one.</p>
+
+<h2 id="pipeline"><span class="sec">5</span>Running the pipeline</h2>
+<p>Open <b>Run hydrology pipeline (one click)</b> in the Workflow group. Only the DEM and an output folder are required; with a road the pipeline also finds the crossings, and every optional input adds a block of results.</p>
+<figure class="dlg2">
+  <img src="figures/dlg_pipeline_1.png" alt="Pipeline dialog, upper part">
+  <img src="figures/dlg_pipeline_2.png" alt="Pipeline dialog, lower part">
+  <figcaption><b>Figure 3.</b> The pipeline dialog filled in for the demonstration run, at two scroll positions. In QGIS a help panel on the right lists the steps and the output layout.</figcaption>
+</figure>
+<table>
+  <thead><tr><th style="width:32%">Parameter</th><th class="num" style="width:13%">Default</th><th>Guidance</th></tr></thead>
+  <tbody>
+    <tr><td>DEM (raw, projected, metres)</td><td class="num">—</td><td>The raw DEM. QEHT conditions it itself; reported elevations and slopes always come from the raw DEM.</td></tr>
+    <tr><td>Prepare the DEM first</td><td class="num">off</td><td>Merges tiles from <i>DEM tiles to prepare</i> (or uses the DEM), reprojects bilinearly to the local UTM zone and audits (section 10).</td></tr>
+    <tr><td>Clip the DEM to the road's contributing area first</td><td class="num">off</td><td>For DEMs too large for memory (section 20). Needs a road.</td></tr>
+    <tr><td>Road alignment, Start chainage, Reverse</td><td class="num">0 m</td><td>With a road, crossings are found where streams cross it.</td></tr>
+    <tr><td>Crossings</td><td class="num">—</td><td>Reviewed candidates (section 6) or your own pour points. Pour points are snapped to the nearest stream within 5 cells.</td></tr>
+    <tr><td>Run</td><td class="num">Full run</td><td><i>Stop after crossing candidates</i> writes the candidates for review and stops.</td></tr>
+    <tr><td>Stream threshold (km²)</td><td class="num">1.0</td><td>The smallest area that is a stream. Set it to the smallest catchment you would design a crossing for; 0.5 km² was used here.</td></tr>
+    <tr><td>Flat resolution</td><td class="num">Barnes 2014</td><td>Keep Barnes unless you have a reason; section 11 explains the choice.</td></tr>
+    <tr><td>Burn crossings through embankments</td><td class="num">off</td><td>For DSMs and survey DEMs that show the road embankment as a dam (section 15).</td></tr>
+    <tr><td>Treat this DEM value as NoData</td><td class="num">blank</td><td>Set it when the DEM checks report undeclared NoData (0 for the demonstration DEM).</td></tr>
+    <tr><td>DEM source, Run name</td><td class="num">—</td><td>Recorded in the metadata and the report title.</td></tr>
+    <tr><td>Soil, land cover, scenario, rainfall inputs</td><td class="num">—</td><td>Part E. Each block is computed only when its input is given.</td></tr>
+    <tr><td>Mapped waterways, name field, comparison threshold</td><td class="num">1 km²</td><td>Section 19. About 1 km² for OpenStreetMap, 10 km² for HydroRIVERS.</td></tr>
+    <tr><td>2-yr 24-h rainfall P2</td><td class="num">none</td><td>Only TR-55 sheet flow needs it. Without it TR-55 Tc is left empty.</td></tr>
+    <tr><td>Erosion indices and RUSLE</td><td class="num">on</td><td>Without R, K or C the erosion step gives terrain indices and LS-only classes.</td></tr>
+    <tr><td>Drainage coverage check</td><td class="num">on</td><td>Proposes crossings for sags and uncovered streams (section 17).</td></tr>
+    <tr><td>DEM uncertainty at crossings</td><td class="num">off</td><td>Monte Carlo; needs a vertical error preset or value (section 21).</td></tr>
+    <tr><td>Quicklooks, KMZ and XLSX</td><td class="num">on</td><td>Viewing without a GIS (sections 7 and 9).</td></tr>
+    <tr><td>Keep the design hydrology package</td><td class="num">off</td><td>The self-describing GeoPackage of Part F. The stand-alone outputs are the same either way.</td></tr>
+  </tbody>
+</table>
+<h3>What runs, in order</h3>
+<p>Prepare DEM (optional) → clip to the contributing area (optional) → DEM checks → fill → D8 → accumulation → streams → crossing candidates (with a road) → burn and route again (optional) → erosion indices and RUSLE → crossings, catchments and flow paths with the soil, runoff, rainfall, scenario and erosion blocks → coverage check and proposed crossings → floodplain width → channel sections → mapped-drainage check → DEM uncertainty (optional) → time of concentration → side-drain siltation → quicklooks → flat-method check → tables, report and exports.</p>
+<p>The log lists every step with its warnings. Read it once: warnings about the DEM, flat-sensitive crossings and inputs outside a method's range are repeated in the run report, but the log also shows the memory estimate and the time per step.</p>
+
+<h2 id="review"><span class="sec">6</span>Reviewing crossings and running again</h2>
+<p>QEHT finds where streams cross the road. It does not know where the culverts are, which streams the road actually blocks, or which crossings a designer will combine. Review the candidates before the full run:</p>
+<ol class="steps">
+  <li>Run with <b>Run = Stop after crossing candidates</b>. The folder holds <code>layers/crossing_candidates.gpkg</code> and <code>settings.json</code>.</li>
+  <li>Open the candidates over imagery or survey. Set <code>status</code> to <code>accepted</code> or <code>rejected</code>; move a point onto the culvert; add points where there is a structure QEHT missed. Candidates you leave as <code>candidate</code> are ignored when any is accepted; when none is accepted, the recommended ones (<code>recommended = 1</code>) are used.</li>
+  <li>Run again with <b>Re-run from settings</b> = the first run's <code>settings.json</code>, <b>Crossings</b> = the edited layer and <b>Run = Full run</b>. Every other parameter comes from the settings file; a new output folder overrides the old one.</li>
+</ol>
+<p>A candidate you move by more than two cells is snapped from its new position, and its chainage is taken from the road, exactly like a point you add. A candidate you leave in place keeps the outlet cell QEHT found for it.</p>
+<div class="tip"><b>Your own pour points</b>Any point layer works as <i>Crossings</i>: surveyed culvert positions, a structure inventory, points digitised from imagery. The pipeline numbers them X001, X002 … along the chainage (downstream first without a road). To keep your own numbering as <code>outlet_uid</code>, run <b>Build design hydrology package</b> with <i>ID attribute</i> set (Part F). Points are snapped to the nearest stream cell within 5 cells; check <code>snap_dist_m</code> in the crossings layer for points that moved far.</div>
+
+<h2 id="folder"><span class="sec">7</span>The output folder</h2>
+<table>
+  <thead><tr><th style="width:18%">Folder</th><th>Contents</th></tr></thead>
+  <tbody>
+    <tr><td><code>layers/</code></td><td>crossings, catchments, flow paths, streams (reaches with Strahler order), crossing candidates, parallel reaches, coverage findings, sag points, flat stretches, the alignment profile and the road (one GeoPackage each)</td></tr>
+    <tr><td><code>rasters/</code></td><td>filled DEM, flow direction (D8 codes), flow accumulation, streams, Strahler order, <code>erosion/</code> (indices, RUSLE, classes and <code>erosion_run.json</code>); <code>dem_input.tif</code> when a NoData value was declared</td></tr>
+    <tr><td><code>tables/</code></td><td><code>catchment_characteristics.csv</code> (one row per crossing), <code>time_of_concentration.csv</code> and one CSV per layer, including the run metadata and the field dictionary</td></tr>
+    <tr><td><code>quicklooks/</code></td><td>PNG, world file and legend JSON of the relief, flow accumulation and erosion rasters, at most 4,096 px</td></tr>
+    <tr><td><code>report/</code></td><td><code>run_report.html</code></td></tr>
+    <tr><td><code>exports/</code></td><td><code>design_hydrology.kmz</code> and <code>design_hydrology.xlsx</code></td></tr>
+    <tr><td><code>package/</code></td><td><code>design_hydrology.gpkg</code>, when <i>Keep the design hydrology package</i> is ticked</td></tr>
+    <tr><td><code>settings.json</code></td><td>every parameter of the run, for an exact re-run</td></tr>
+  </tbody>
+</table>
+<p>The characteristics table is the hand-off to design. Its columns come in groups (identification and location, area, the four slopes, flow-path segments, channel slopes, Tc, channel section, flat check, soils, curve number, rainfall, shape, erosion, uncertainty), and a group appears only when at least one crossing has a value. Rows are ordered by chainage.</p>
+
+<h2 id="report"><span class="sec">8</span>The run report</h2>
+<p><code>report/run_report.html</code> opens in any browser and prints to PDF for an appendix. It reads the package only; nothing is recalculated, so the report always matches the data.</p>
+<figure class="report">
+  <img src="figures/rep_summary.png" alt="Report summary">
+  <figcaption><b>Figure 4.</b> The report header: crossings, the largest and smallest catchments, grid, CRS, flat method, stream threshold and the number of flat-sensitive outlets.</figcaption>
+</figure>
+<figure class="report">
+  <img src="figures/rep_plan.png" alt="Report plan">
+  <figcaption><b>Figure 5.</b> The plan, drawn to scale from the package geometry over the relief quicklook: catchments (proposed ones outlined in orange), flow paths, the road, crossings and coverage findings.</figcaption>
+</figure>
+<p>The sections that follow are, in order:</p>
+<ul>
+  <li><b>Crossing schedule</b>: one row per crossing with chainage, area, flow-path length, 10–85 slope, catchment slope, curve number, rain zone, rainfall and the flat check.</li>
+  <li><b>DEM checks</b>: the NoData and resampling audits, the flat-method check (section 11) and channel sections of low quality.</li>
+  <li><b>DEM uncertainty</b>, <b>Land-cover scenario</b>, <b>Check against mapped drainage</b>, <b>Time of concentration</b> and <b>Drainage coverage along the road</b>, when those blocks ran.</li>
+  <li><b>Inputs and provenance</b>: the DEM path and SHA-256, the QEHT version, every dataset and lookup, and the labels of proxies and estimates.</li>
+  <li><b>Warnings</b>, the <b>curve number lookup used</b> and the list of output files.</li>
+</ul>
+<figure class="report">
+  <img src="figures/rep_dem_checks.png" alt="DEM checks in the report">
+  <figcaption><b>Figure 6.</b> DEM checks and the flat-method check. Ten crossings change area by more than 10 % between the two flat methods: those on the lake bed and in the valley beside the road. Their catchments are decided by flats rather than terrain and need checking on site or against a map.</figcaption>
+</figure>
+
+<h2 id="exports"><span class="sec">9</span>KMZ and XLSX exports</h2>
+<p><b>Export package to KMZ / XLSX</b> (Workflow), and the pipeline by default, write two files for people without a GIS. Both writers are pure Python.</p>
+<p><b>KMZ for Google Earth.</b> Coordinates are transformed to WGS 84. Existing crossings are blue and proposed ones orange; each has a card with its location and chainage, catchment area, slopes, elevations, soil, curve number, rain zone, Tc by every method with its validity, the channel section and the erosion values. Catchments are translucent polygons, the road carries kilometre posts, and coverage findings, channel sections, side-drain siltation reaches and the relief quicklook are separate folders that can be switched on.</p>
+<p><b>XLSX workbook.</b> Five sheets: <i>Catchment characteristics</i>, <i>Time of concentration</i>, <i>Coverage findings</i>, <i>Run metadata</i> and <i>Field dictionary</i>. The characteristics sheet runs in design order (identification, area, flow path, elevations, the four slopes, segments, channel slopes, Tc, CN and C, rainfall, soil, widths, flags), with units in row 2 and panes frozen at B3. Every column is always written, so the layout is fixed; the column order is one list in <code>core/report/xlsx_layout.py</code> and can be matched to a house workbook.</p>
+
+<!-- ============================== PART C ============================== -->
+<h1 class="part"><span class="num">Part C</span>Terrain and drainage</h1>
+<p class="part-intro">The stand-alone tools behind the pipeline's first steps. Use them to run a step on its own, to compare settings, or to build your own chain in the Graphical Modeler.</p>
+
+<h2 id="prepare"><span class="sec">10</span>Prepare DEM for hydrology</h2>
+<p>Most bad runs start before QEHT: a DEM reprojected with nearest neighbour, an export finer than the native grid, or NoData zeros the file does not declare. <b>Prepare DEM for hydrology</b> does the preparation in-process.</p>
+<figure class="dlg">
+  <img src="figures/dlg_prepare.png" alt="Prepare DEM dialog">
+  <figcaption><b>Figure 7.</b> Prepare DEM for hydrology.</figcaption>
+</figure>
+<ol class="steps">
+  <li><b>Mosaic.</b> The tiles in <i>DEM raster(s)</i> become one virtual mosaic. They must be one product in one CRS.</li>
+  <li><b>Clip.</b> To <i>Clip to polygons</i> or <i>Clip to extent</i>, widened by the <i>Clip buffer</i> (2,000 m), so catchments that start outside the area of interest are not cut.</li>
+  <li><b>Reproject.</b> <i>Target CRS</i> = <i>Auto</i> picks the WGS 84 / UTM zone of the extent centre anywhere on Earth (UPS beyond 84° N and 80° S; the Norway and Svalbard zone exceptions apply). Or choose any projected CRS, such as a national grid. <i>Resampling</i> is bilinear (recommended) or cubic; nearest neighbour is not offered. The <i>Cell size</i> defaults to the native cell converted to metres.</li>
+  <li><b>Audit.</b> The input and the output are checked for undeclared NoData and repeated rows and columns. Repeats in the input mean the damage is upstream.</li>
+  <li><b>Record.</b> The output is float32 with NoData −9999. The DEM source and the preparation record are written into the GeoTIFF tags, and the package reads them into its metadata. The optional JSON log records the inputs, CRS, cell size, resampling, both audits and an estimate of the native grid.</li>
+</ol>
+
+<h2 id="routing"><span class="sec">11</span>Fill, flow direction and flats</h2>
+<h3>Fill depressions</h3>
+<p>Closed depressions are filled by priority flood (Barnes, Lehman and Mulla 2014). Most are DEM noise; some are real (a crater, a quarry, a pond behind an embankment).</p>
+<figure class="dlg">
+  <img src="figures/dlg_fill.png" alt="Fill depressions dialog">
+  <figcaption><b>Figure 8.</b> Fill depressions, with the NoData override set for the demonstration DEM.</figcaption>
+</figure>
+<ul>
+  <li><b>Minimum slope across filled surfaces</b> (0): leave at 0 for a classic fill. 0.0001 adds a small gradient across filled flats so that routing has a direction, which largely removes the flat-method question.</li>
+  <li><b>Fill depth (QA)</b>: an optional raster of how much each cell was raised. A long, deep fill along a road is an embankment the DEM treats as a dam: burn the crossings (section 15) rather than accept the pond.</li>
+</ul>
+<h3>D8 flow direction</h3>
+<p>Each cell drains to the neighbour of steepest descent, drop divided by distance (the diagonal distance for diagonal neighbours). Ties are broken by a fixed order (S, W, N, E, then the diagonals), so the result is deterministic. Directions are written in the standard D8 codes (E = 1, SE = 2, S = 4, SW = 8, W = 16, NW = 32, N = 64, NE = 128; 0 = sink or edge outlet), so a grid from another GIS can be used in QEHT's accumulation and catchment tools, and the reverse.</p>
+<h3>Flats: the one choice that changes catchments</h3>
+<p>After filling, flat areas have no downhill neighbour, and the flat method decides where they drain:</p>
+<ul>
+  <li><b>Barnes 2014 convergent</b> (default since 0.13): flow drains away from higher ground and towards the flat's outlet, so it converges as on real terrain. QEHT reproduces Barnes' own RichDEM implementation cell for cell.</li>
+  <li><b>Toward lower terrain</b>: each flat cell takes the shortest path to the outlet. Simpler, and it produces parallel flow lines across large flats.</li>
+</ul>
+<figure>
+  <img src="figures/chart_flats.png" alt="Flat methods">
+  <figcaption><b>Figure 9.</b> Streams of at least 0.5 km² on the demonstration lake bed under both methods, on the same filled DEM. Off the lake bed they agree; on it they share only 59 % of their stream cells. On a whole-metre DEM (ALOS) a flat plain is mostly flat cells and the method decides the network; on a floating-point DEM (FABDEM) flats are about 1 % of cells and it matters little.</figcaption>
+</figure>
+<p>On 80 random 15 km areas across Kenya, each on ALOS AW3D30 and FABDEM, Barnes agreed best with the independent TauDEM (stream F1 0.969 against 0.948 for toward-lower; 0.870 against 0.733 on whole-metre flats), which is why it is the default. <code>BENCHMARK.md</code> in the repository has the design and the tables.</p>
+<div class="warn"><b>Check flat-sensitive crossings</b>Catchment and flow path characteristics, the package and the pipeline route every crossing under both methods and flag <code>flat_sensitive = 1</code> where the area differs by more than 10 %. A flagged catchment is decided by flats or ties, not terrain: check it against a map, imagery or the site before using it.</div>
+
+<h2 id="streams"><span class="sec">12</span>Accumulation and streams</h2>
+<p><b>Flow accumulation</b> counts the cells upstream of each cell (a ridge cell reads 0, the standard D8 convention), or their area, or a weight raster. It is a single topological pass with no recursion, so it runs on any grid that fits in memory. Cells in a cycle, which a valid drainage tree never has, are reported rather than dropped.</p>
+<p><b>Stream network and Strahler order</b> thresholds accumulation by cell count or contributing area and orders the network by Strahler's rules on the stream cells only. <b>Stream network to polylines</b> traces the raster network into reaches between sources, junctions and outlets, each with <code>order</code>, <code>length</code>, <code>drop</code>, <code>slope</code> and <code>head_type</code>.</p>
+<div class="tip"><b>Threshold</b>Give the threshold as an area in engineering work: it means the same thing on a 30 m and a 12.5 m DEM. 0.5–1 km² suits road drainage at 30 m; much smaller areas are below what a 30 m DEM resolves.</div>
+
+<h2 id="catchments"><span class="sec">13</span>Catchments and flow paths</h2>
+<p><b>Delineate catchments from pour points</b>, <b>Longest flow path</b> and <b>Catchment and flow path characteristics</b> take a pour-point layer. Each pour point is first snapped to the <b>nearest</b> stream cell within the <i>Snap radius</i> (5 cells). The stream for snapping is the <i>Snap-to-stream threshold</i> (200 cells by default): set it low enough to include the tributary a crossing sits on. Snapping to the cell of largest accumulation instead pulls road crossings onto the trunk stream next to them: on the validation site that inflated one catchment forty times.</p>
+<figure>
+  <img src="figures/map_catchment.png" alt="Catchment X014">
+  <figcaption><b>Figure 10.</b> Crossing X014 (27 km²): its catchment, the longest flow path from the divide on the volcano to the road, the 10 % and 85 % points of the path measured from the outlet, the channel head where the path reaches the stream threshold, and the channel section 30 m downstream.</figcaption>
+</figure>
+<h3>outlet_uid</h3>
+<p>Every catchment and flow path carries <code>outlet_uid</code>, assigned once per run: from a pour-point attribute you choose (existing culvert numbers, for example), or sequential with your prefix (X001, X002 …) along the chainage or downstream first. The three layers of a run share it, so they join on it. <code>outlet_id</code>, the feature id of the pour point, changes when a layer is edited or saved again: never join on it.</p>
+<h3>Four slopes, never merged</h3>
+<table>
+  <thead><tr><th style="width:24%">Field</th><th style="width:36%">Definition</th><th>Use</th></tr></thead>
+  <tbody>
+    <tr><td><code>catch_slope_horn</code></td><td>Mean terrain gradient over the catchment, Horn 3 × 3</td><td>Runoff coefficient and curve-number tables; SCS lag</td></tr>
+    <tr><td><code>catch_relief_ratio</code></td><td>Relief ÷ longest flow-path length</td><td>A basin-steepness index; not a Tc input</td></tr>
+    <tr><td><code>lfp_slope</code></td><td>Drop ÷ length along the longest flow path</td><td>Tc methods that take the whole-path slope</td></tr>
+    <tr><td><code>lfp_slope_1085</code></td><td>(z₈₅ − z₁₀) ÷ (L₈₅ − L₁₀), with L₁₀ and L₈₅ at 10 % and 85 % of the length from the outlet</td><td>Kirpich, Bransby-Williams, TRRL and other UK methods</td></tr>
+  </tbody>
+</table>
+<p>Both catchment slopes are commonly called "catchment slope" and they are not interchangeable: on the validation catchments they differ by a factor of 1.2 to 4.5. The 10–85 slope leaves out the flat bottom 10 % and the steep top 15 % of the path; <code>lfp_L10_m</code>, <code>lfp_L85_m</code>, <code>lfp_z10_m</code> and <code>lfp_z85_m</code> let you check it by hand. <b>State in the design report which slope you used.</b></p>
+<h3>Flow-path segments and shape</h3>
+<p>The longest flow path is split at the channel head, the first cell that reaches the stream threshold: <code>lfp_overland_m</code> and <code>lfp_channel_m</code> with their slopes (they add up to <code>lfp_length_m</code>), and the overland part as sheet flow up to a cap (100 m) plus shallow concentrated flow. These are the inputs of the Kerby and TR-55 segment methods. Shape and network indices (perimeter, form factor, elongation and circularity ratios, drainage density, stream frequency, highest Strahler order) are given for information.</p>
+<div class="note"><b>Raw DEM for elevations</b>Routing uses the conditioned DEM; reported elevations and slopes come from the raw one, or heights inside filled depressions read as the fill surface. Give the <i>Raw DEM</i> to Catchment characteristics; the package and the pipeline always use it.</div>
+
+<!-- ============================== PART D ============================== -->
+<h1 class="part"><span class="num">Part D</span>Road drainage</h1>
+<p class="part-intro">From a road centreline to a reviewed set of crossings: where streams cross the road, where water ponds against it, what the channel looks like downstream, whether the DEM agrees with the map, and how far DEM error can move each catchment.</p>
+
+<h2 id="candidates"><span class="sec">14</span>Road crossing candidates</h2>
+<p><b>Road crossing candidates</b> intersects every D8 flow link of the stream network near the road with the centreline. These are the same segments QEHT's stream polylines are made of, so no crossing is lost to a digitising gap between a stream line and the road.</p>
+<figure class="dlg">
+  <img src="figures/dlg_candidates.png" alt="Road crossing candidates dialog">
+  <figcaption><b>Figure 11.</b> Road crossing candidates, with the rasters of the demonstration run. The stream threshold is 556 cells (0.5 km² on a 30 m grid).</figcaption>
+</figure>
+<p>Each candidate carries its chainage, the crossing angle (90 = square), the contributing area, the Strahler order, the reach id, the side the flow comes from (L or R of the chainage direction) and <code>status = candidate</code>. Nothing is deleted.</p>
+<h3>Parallel flow and clusters</h3>
+<p>A stream that runs beside the road inside the <i>Corridor half-width</i> (30 m) for at least the <i>Minimum parallel length</i> (100 m) crosses the centreline many times on a DEM. Those candidates share a cluster, the stream is written to the <b>parallel reaches</b> layer (where a side drain has to carry the water to the crossing), and the most downstream candidate of the cluster, the one with the largest area, gets <code>recommended = 1</code>. Candidates closer than the <i>Cluster merge distance</i> also share a cluster (0 = off).</p>
+<figure>
+  <img src="figures/map_candidates.png" alt="Candidates and clusters">
+  <figcaption><b>Figure 12.</b> Candidates where the demonstration road runs beside a main valley (km 5.5–11), labelled with their cluster. The stream weaves across the centreline: clusters 6, 8 and 9 each hold several intersections of one stream, and only the most downstream one is recommended. Over the whole road 26 candidates form 20 clusters; 12 candidates lie on parallel reaches.</figcaption>
+</figure>
+<p>A crossing used for a cluster covers the cluster's other intersections: the coverage check (section 17) does not propose crossings on them.</p>
+
+<h2 id="burn"><span class="sec">15</span>Burning crossings through embankments</h2>
+<p>A DSM, a LiDAR or survey DEM, or a fine DEM of a built road shows the embankment as a dam, and filling turns the valley behind it into a lake. <b>Burn crossings through embankments</b> cuts a straight breach across the road at each crossing:</p>
+<ul>
+  <li>The breach runs perpendicular to the road between two points a <i>half-length</i> (30 m) either side of the centreline. Each end moves to the lowest cell within the <i>search radius</i> (2 cells) on its own side.</li>
+  <li>Cells on the line are lowered to a straight grade from the upstream to the downstream end (at least 0.0001 so it drains). Nothing is raised and nothing outside the breach changes.</li>
+  <li>The breach log lists every crossing with cells cut, maximum cut and volume; a crossing with no ground above the grade (no embankment in the DEM) is logged with 0 cells. Give the log to Build design hydrology package and it is stored in the package.</li>
+</ul>
+<p>Then fill, route and accumulate the burned DEM. The pipeline does this when <i>Burn crossings through embankments</i> is ticked. On a 30 m global DEM the road is usually not in the terrain, and burning changes nothing; check the fill depth along the road first.</p>
+
+<h2 id="profile"><span class="sec">16</span>Alignment ground profile</h2>
+<p><b>Alignment ground profile</b> stations the centreline every 10 m: the DEM ground (bilinear), the filled-DEM level and the ponding depth the fill removed, the contributing area (the largest within one cell), the stream crossings with their Strahler order and the longitudinal ground slope. The levels are provisional before the geometric design exists, and a check on DEM height bias afterwards. The package writes the same profile as <code>alignment_profile</code>.</p>
+<figure>
+  <img src="figures/chart_profile.png" alt="Alignment ground profile">
+  <figcaption><b>Figure 13.</b> The demonstration road's ground profile with its crossings, sags and flat stretches. Below: the area draining to each station (log scale), with ticks at stream crossings. Between km 6 and 10 the road runs beside a 70 km² stream; from km 16.7 it crosses the flat lake bed. The tool can also write this as a PNG chart.</figcaption>
+</figure>
+
+<h2 id="coverage"><span class="sec">17</span>Drainage coverage check</h2>
+<p>With a road, Build design hydrology package and the pipeline check the road for drainage with no crossing, from the DEM alone; <b>Drainage coverage check along a road</b> gives the same findings without delineating anything.</p>
+<table>
+  <thead><tr><th style="width:20%">Finding</th><th>Rule</th><th style="width:28%">What QEHT does</th></tr></thead>
+  <tbody>
+    <tr><td>Missing crossing</td><td>A stream of at least the stream-threshold area crosses the centreline with no crossing (or crossing of the same cluster) within 50 m of chainage.</td><td>Proposes a crossing on the stream (P001 …), delineated and characterised like the existing ones.</td></tr>
+    <tr><td>Sag point</td><td>A low point of the profile (smoothed over 30 m) at least 0.3 m deep, with no stream or crossing within 50 m. The water ponding against the embankment is measured by routing with the centreline as a wall.</td><td>Proposes a crossing (equaliser or relief culvert) where the ponding area is at least 0.05 km².</td></tr>
+    <tr><td>Flat stretch</td><td>At least 300 m flatter than 0.5 % along the road and across it over 100 m.</td><td>Lists it. Relief culverts for sheet flow may be needed; QEHT does not place or size them.</td></tr>
+    <tr><td>Mapped river, no crossing</td><td>With mapped waterways (section 19): a mapped river crosses the road with no crossing within 50 m.</td><td>Lists it; the designer decides.</td></tr>
+    <tr><td>Small area</td><td>A crossing drains less than 0.01 km².</td><td>Lists it: redundant or misplaced?</td></tr>
+  </tbody>
+</table>
+<figure>
+  <img src="figures/map_coverage.png" alt="Coverage findings beside the valley">
+  <figcaption><b>Figure 14.</b> Coverage findings beside the main valley. Every stream crossing is covered (the clusters of Figure 12 cover their stream); the proposed crossings (orange) are sags where water ponds against the road. Where the mapped river crosses the road but the DEM stream runs beside it, the finding is listed for the designer.</figcaption>
+</figure>
+<figure>
+  <img src="figures/map_lakebed.png" alt="Coverage findings on the lake bed">
+  <figcaption><b>Figure 15.</b> On the lake bed the check finds six flat stretches totalling 4.2 km, where sheet flow needs relief culverts. The catchments here are long strips decided by the flat method, and the parallel streams are typical of flats in a whole-metre DEM.</figcaption>
+</figure>
+<p><b>Adopting proposed crossings.</b> Set a proposed crossing's <code>status</code> to <code>existing</code> to adopt it, delete those you do not want, then run <b>Renumber and relink</b> (section 29): adopted crossings join the X sequence, those still proposed keep the P prefix.</p>
+
+<h2 id="sections"><span class="sec">18</span>Channel sections and floodplain width</h2>
+<h3>Channel section downstream of each crossing</h3>
+<p>The package and the pipeline cut a cross-section of the natural channel 30 m downstream of every crossing, for the tailwater rating, the waterway and the sediment-continuity check. It lies on the D8 path, perpendicular to the flow (taken over two cells up and down, which smooths D8's 45° steps), sampled bilinearly every half cell over ±150 m, positive on the right looking downstream.</p>
+<ul>
+  <li><code>xs_bed_m</code>: the lowest ground within one cell of the centre.</li>
+  <li><code>xs_bankfull_w_m</code>, <code>xs_bankfull_d_m</code>: bank-full width and depth by break of slope. A bank top is where the side slope falls below 1:20, or to less than half the slope behind; the lower bank governs.</li>
+  <li><code>xs_w_0p5_m</code>, <code>xs_w_1p0_m</code>, <code>xs_w_2p0_m</code>: widths below bed + 0.5, 1 and 2 m, which hold when there is no clear bank; side slopes as H:V; the transect itself as <code>xs_station_elev_json</code> and the layer <code>xs_transects</code>.</li>
+  <li><code>xs_quality</code>: <i>low</i> for a bank-full width under 3 cells or no bank on either side, <i>medium</i> for one bank or a transect cut by NoData, <i>high</i> otherwise; <code>xs_note</code> says why.</li>
+</ul>
+<figure>
+  <img src="figures/chart_sections.png" alt="Channel sections">
+  <figcaption><b>Figure 16.</b> Two sections from the demonstration run. P012 finds a small valley. X014 finds a bank-full depth of 16 m: on a 30 m DEM the break of slope is the valley shoulder, not the channel bank. A bank-full depth of several metres says so. Use survey where it exists; the width at bed + 1 m is the more robust figure.</figcaption>
+</figure>
+<h3>Floodplain width at large crossings</h3>
+<p>At every crossing of at least 10 km², QEHT measures how wide the valley floor is along the road: the run of the ground profile around the lowest ground within 50 m of the crossing where the ground is below bed + 0.5, 1 and 2 m (<code>fp_w_0p5_m</code> …), and the same by height above nearest drainage (<code>fp_hand_w_*</code>). A width that runs off the end of the profile is a lower bound and <code>fp_note</code> says so. The indicator informs the split of the check flood between the main structure and relief culverts; it is not a flood level.</p>
+
+<h2 id="mapped"><span class="sec">19</span>Check against mapped drainage</h2>
+<p>Did the DEM put the river where the map does? Give <i>Mapped waterways</i> (OpenStreetMap waterways, HydroRIVERS or a national layer, with an optional name field). QEHT compares them with the DEM streams at a <i>comparison threshold</i> matched to the map's scale (1 km² by default; about 10 km² for HydroRIVERS) within a tolerance of 60 m.</p>
+<ul>
+  <li><b>Network agreement</b>: precision (share of DEM stream length on the map), recall (share of mapped length found by the DEM) and F1, overall and per catchment.</li>
+  <li><b>Per crossing</b>: distance to the nearest mapped waterway, its name and <code>map_agrees</code> (1 within the tolerance, 0 up to 1 km, empty beyond or for crossings below the comparison threshold).</li>
+  <li><b>Divergence reaches</b>: DEM stream runs of at least 10 cells that leave the mapped course, with their length and the area flowing down them. A large area here is how a catchment that switches between crossings shows up.</li>
+</ul>
+<figure>
+  <img src="figures/map_mapped.png" alt="Check against mapped drainage">
+  <figcaption><b>Figure 17.</b> The demonstration's mapped rivers (blue, at least 8 km²) against the DEM streams. Overall precision 0.79, recall 0.73, F1 0.76. Six large crossings sit on a mapped waterway; X020, at the end of the lake bed, is 322 m from it. The five divergence reaches (red, 9.9 km) are where the DEM sends the river another way across the flats.</figcaption>
+</figure>
+
+<h2 id="autoclip"><span class="sec">20</span>Large DEMs: clip to the contributing area</h2>
+<p>A national mosaic will not fit in a laptop's memory, and clipping by hand can cut catchments. <b>Clip DEM to the road's contributing area</b> (or the pipeline option) finds the area that drains to the road on a coarse copy and reads only that window at full resolution:</p>
+<ol class="steps">
+  <li>The coarse copy takes the <b>minimum</b> of each block, so valleys are kept; the block size keeps the copy under 4 million cells.</li>
+  <li>The copy is filled and routed; every coarse cell that drains to the road buffer (200 m) is kept.</li>
+  <li>That area is widened by the margin (1,000 m plus two coarse cells), and its bounding box (or the mask) is read from the full DEM.</li>
+</ol>
+<p>The tool reports the memory estimate before and after. The clipped DEM is tagged, and the package then gives every catchment <code>clip_edge</code>: 1 when it touches the edge of the clip, with a warning to enlarge the margin.</p>
+
+<h2 id="uncertainty"><span class="sec">21</span>DEM uncertainty at crossings</h2>
+<p>One catchment area from one DEM hides how far the DEM's error can move it. <b>DEM uncertainty at crossings</b> (or the package and pipeline option) runs a Monte Carlo:</p>
+<ol class="steps">
+  <li>A spatially correlated Gaussian error is added to the raw DEM: standard deviation σ, correlation exp(−r²/L²) with L = 90 m by default.</li>
+  <li>The DEM is filled, routed and accumulated again, and each crossing's pour point is snapped to the stream.</li>
+  <li>Area, longest flow path, 10–85 slope and Kirpich Tc are measured. This repeats N = 50 times (seed 2026, recorded, so the run repeats exactly).</li>
+</ol>
+<figure class="dlg">
+  <img src="figures/dlg_uncertainty.png" alt="DEM uncertainty dialog">
+  <figcaption><b>Figure 18.</b> DEM uncertainty at crossings, on the crossings of the demonstration run with the AW3D30 preset.</figcaption>
+</figure>
+<p><b>Vertical error, with no default.</b> AW3D30: 4.4 m, the RMSE of the JAXA validation (Tadono et al. 2016). FABDEM: 2.5 m, an <span class="tag est">ESTIMATE</span> from the mean absolute errors of Hawker et al. (2022), 1.1 m built-up to 2.9 m forest. Or your own value.</p>
+<p>Per crossing the run gives P10, P50, P90 and the coefficient of variation of each value (<code>unc_*</code>), the share of runs where the outlet lost its stream (<code>unc_lost_pct</code>) and the share where the area moved by more than 25 % (<code>unc_switch_pct</code>), the sign of a catchment that switches between crossings. For the three largest crossings the run is repeated at 0.5 × and 2 × the correlation length. A crossing is not assessed when the unperturbed DEM has no stream within the snap radius, or when the snap reaches another channel (the snapped area differs by more than 25 % from the crossing's own): proposed sag crossings below the stream threshold are the usual case.</p>
+<figure>
+  <img src="figures/chart_uncertainty.png" alt="DEM uncertainty">
+  <figcaption><b>Figure 19.</b> Area ranges at the existing crossings, 30 realisations with σ = 4.4 m. Crossings on steep, well-defined valleys (X008, X009, X014) barely move. In the valley beside the road X006 and X007 can capture the main stream, and on the lake bed every catchment switches in about half the runs: their design areas are a choice the DEM cannot make.</figcaption>
+</figure>
+<p>The time per realisation is reported before the loop (under 1 s for the 0.55-million-cell demonstration DEM). Clip a large DEM first.</p>
+
+<!-- ============================== PART E ============================== -->
+<h1 class="part"><span class="num">Part E</span>Soils, runoff and erosion</h1>
+<p class="part-intro">The catchment inputs of a design-flood and sediment assessment. Each block is computed when its input is given, and every value says where it came from.</p>
+
+<h2 id="soils"><span class="sec">22</span>Soils and USLE K</h2>
+<p><b>Soil, rainfall and runoff parameters for catchments</b> (and the soil inputs of the package and the pipeline) adds a soil block to every catchment: area-weighted topsoil sand, silt, clay, organic carbon, coarse fragments and bulk density; USDA texture; dominant FAO drainage class; USLE K; a hydrologic soil group; and the share of the catchment covered by soil data.</p>
+<figure class="dlg">
+  <img src="figures/dlg_soils.png" alt="Soil, rainfall and runoff parameters dialog">
+  <figcaption><b>Figure 20.</b> Soil, rainfall and runoff parameters for catchments, with the demonstration soils, land cover and rainfall.</figcaption>
+</figure>
+<h3>Soil sources</h3>
+<p>Every source becomes the same per-cell description on the DEM grid, so the catchment fields mean the same thing whatever the source:</p>
+<table>
+  <thead><tr><th style="width:30%">Source</th><th>Give</th></tr></thead>
+  <tbody>
+    <tr><td>SOTWIS / SOTER database</td><td>The soil polygons and the SQLite database. Each unit's components (up to ten profiles with their shares) are depth-weighted over the chosen interval (0–20 cm by default); K is computed per component, then weighted.</td></tr>
+    <tr><td>Any soil polygon map</td><td>Choose its sand, clay and organic-carbon fields (OC in % or g/kg; silt = 100 − sand − clay when not given), plus optional bulk density, coarse fragments, drainage, HSG and K fields.</td></tr>
+    <tr><td>Polygons + soil table</td><td>Polygons with a unit code and a CSV with the unit code and <code>sand</code>, <code>silt</code>, <code>clay</code>, <code>oc</code> [+ <code>bulk</code>, <code>cfrag</code>, <code>drain</code>].</td></tr>
+    <tr><td>Soil unit raster + table</td><td>For example HWSD v2 mapping units with an exported attribute table.</td></tr>
+    <tr><td>Texture rasters or SoilGrids</td><td>Sand, clay (silt) and OC rasters, or a folder of SoilGrids 2.0 files (<code>sand_0-5cm_mean.tif</code> …), converted from SoilGrids units and depth-weighted.</td></tr>
+    <tr><td>HSG and K overrides</td><td>A hydrologic soil group raster (HYSOGs250m codes; dual groups A/D, B/D, C/D count as D) or field, and a K raster or field, which replace the texture-based values where they have data.</td></tr>
+  </tbody>
+</table>
+<h3>K and the hydrologic soil group</h3>
+<p>K is the Williams (EPIC) relation in SI units (t·ha·h/(ha·MJ·mm)), with the Renard Dg-based value as an alternative and the coarse-fragment factor reported separately. Because the relation is non-linear, K is computed per component or per cell and then averaged, never from averaged texture. The hydrologic soil group, when no HSG data is given, is a <span class="tag proxy">PROXY</span> from texture and drainage (A: sand, loamy sand; B: sandy loam, loam, silt loam; C: sandy clay loam; D: clay loams and clays; poorly drained soils move to D). <code>soil_hsg_source</code> and <code>usle_k_source</code> say which was used.</p>
+<div class="note"><b>Treat K as an estimate</b>Across Kenya, SOTWIS-derived K has a median of 0.029 against 0.022–0.024 for the ESDAC global K rasters over the same cells, with a correlation of only 0.24–0.40. The two are independent estimates at very different resolutions. Report which one you used.</div>
+
+<h2 id="runoff"><span class="sec">23</span>Curve number, Rational C and scenarios</h2>
+<p>With a land-cover raster in ESA WorldCover classes, each cell's land cover and hydrologic soil group give a curve number from USDA TR-55 Table 2-2, for the chosen condition (fair, good or poor). The catchment value <code>cn_ii</code> is the cell mean, exported at the antecedent moisture condition you choose (<code>cn_export</code>, AMC I, II or III).</p>
+<ul>
+  <li>The match from WorldCover classes to TR-55 covers (tree → woods, shrub → brush, grass → pasture, crop → row crops, built-up → commercial 85 % impervious, bare → fallow) is a <span class="tag proxy">PROXY</span>, flagged in <code>runoff_json</code>. Replace it with your own <i>Curve number lookup CSV</i> (<code>class, A, B, C, D</code>).</li>
+  <li>Rational C comes only from a lookup you supply (<i>Rational C lookup CSV</i>); none ships.</li>
+  <li>Land-cover shares <code>lc_pct_*</code> are always given with a land-cover raster.</li>
+</ul>
+<h3>Land-cover scenarios</h3>
+<p>Give a second raster with the same classes (a planned development, a future land-use map) as <i>Land-cover scenario</i>, with a name. It runs through the same lookups and the same soil groups as the baseline, so the change comes from land cover only: <code>cn_ii_scn</code>, <code>d_cn</code>, <code>rational_c_scn</code>, <code>d_rational_c</code>, scenario land-cover shares, and with an erosion folder the scenario C factor and soil loss (A scaled per cell by C<sub>scn</sub>/C, which holds because A = R K LS C P).</p>
+<figure>
+  <img src="figures/chart_landcover.png" alt="Land-cover scenario">
+  <figcaption><b>Figure 21.</b> The demonstration's baseline land cover and its 2040 scenario, in which cropland within 1 km of the road becomes built-up. Small catchments beside the road gain up to 6 curve-number points; the large ones, mostly forest and shrub on the volcano, barely change.</figcaption>
+</figure>
+<figure class="report">
+  <img src="figures/rep_scenario.png" alt="Scenario table in the report">
+  <figcaption><b>Figure 22.</b> The run report's scenario table.</figcaption>
+</figure>
+
+<h2 id="rainfall"><span class="sec">24</span>Rainfall</h2>
+<ul>
+  <li><b>Rainfall zones</b>: a polygon layer and its name field. Per catchment the dominant zone (<code>rain_zone</code>; ties go to the name that sorts first, so the result does not depend on layer order), its share and the share of every zone. A warning lists catchments whose dominant zone covers less than 80 %: pick their design zone by hand.</li>
+  <li><b>Mean annual rainfall</b>: a raster in mm/yr (a CHIRPS climatology, for example), bilinear to the DEM grid: <code>map_mm</code>. Values that cannot be annual millimetres (mm/day, tenths of mm, negative) are refused.</li>
+  <li><b>R from rainfall</b> (optional): RUSLE R per cell from the rainfall by Renard and Freimund (1994) or Lo et al. (1985), labelled an <span class="tag est">ESTIMATE</span>. Neither relation comes from East Africa; an erosivity raster such as GloREDa is better.</li>
+</ul>
+
+<h2 id="tc"><span class="sec">25</span>Time of concentration</h2>
+<p>The package and the pipeline compute the time of concentration of every crossing by five published methods, side by side. <b>QEHT does not choose one.</b></p>
+<table>
+  <thead><tr><th style="width:24%">Field</th><th style="width:38%">Method</th><th>Inputs</th></tr></thead>
+  <tbody>
+    <tr><td><code>tc_kirpich_min</code></td><td>Kirpich (1940): 0.0195 L<sup>0.77</sup> S<sup>−0.385</sup></td><td>flow-path length, 10–85 slope</td></tr>
+    <tr><td><code>tc_kerby_kirpich_min</code></td><td>Kerby (1959) overland + Kirpich channel</td><td>overland and channel lengths and slopes; retardance N</td></tr>
+    <tr><td><code>tc_scs_lag_min</code></td><td>SCS / NRCS lag (NEH 630 ch. 15), Tc = lag / 0.6</td><td>flow-path length, <code>cn_ii</code>, Horn catchment slope</td></tr>
+    <tr><td><code>tc_tr55_min</code></td><td>TR-55: sheet (≤ 30 m) + shallow concentrated + channel (Manning)</td><td>P2, sheet n, overland slope, channel slope, the bank-full section, channel n</td></tr>
+    <tr><td><code>tc_bransby_williams_min</code></td><td>Bransby-Williams: 14.6 L / (A<sup>0.1</sup> S<sup>0.2</sup>)</td><td>length, area, 10–85 slope</td></tr>
+  </tbody>
+</table>
+<ul>
+  <li><b>Validity flags.</b> Each method has a <code>tc_&lt;method&gt;_flag</code>, <i>within</i> or <i>outside: …</i>, from its published range: Kirpich 0.004–0.45 km² and 3–10 % slope; SCS lag up to 8 km² and CN 50–95; Kerby overland length up to 365 m; TR-55 sheet flow up to 30 m. Values are reported either way.</li>
+  <li><b>No invented inputs.</b> P2 (the 2-year 24-hour rainfall, mm) is your value or raster, with no default; without it TR-55 is empty with the note "give P2". Sheet-flow n and Kerby N are <span class="tag proxy">PROXY</span> lookups matched to WorldCover and weighted along the flow path; give your own CSV (<code>class,value</code>). Channel n defaults to 0.035 (clean natural channel, Chow 1959).</li>
+  <li><code>tc_basis_json</code> holds the inputs each method used, and <code>tc_params_json</code> the ranges with their sources, P2 and the lookups.</li>
+</ul>
+<figure>
+  <img src="figures/chart_tc.png" alt="Time of concentration">
+  <figcaption><b>Figure 23.</b> Tc at the demonstration's existing crossings (P2 = 60 mm). Hollow markers are outside the method's published range, which is most of them: Kirpich and SCS lag were derived on small catchments. The spread between methods at one crossing is often a factor of three or more. Choose the method your design standard prescribes and state it.</figcaption>
+</figure>
+
+<h2 id="erosion"><span class="sec">26</span>Erosion indices and RUSLE</h2>
+<p><b>Erosion indices and RUSLE soil loss</b> writes one folder with the terrain indices, an optional soil-loss raster, severity classes (with colours, class names and a QGIS style) and <code>erosion_run.json</code>, which records every factor's source and every setting.</p>
+<ul>
+  <li><b>Indices</b> on the raw DEM: Horn slope; specific catchment area A<sub>s</sub> = (upslope cells + 1) × cell area / cell size; SPI = A<sub>s</sub> tan β; TWI = ln(A<sub>s</sub> / tan β); LS by Moore and Burch (m = 0.4, or m by slope class) or Desmet and Govers.</li>
+  <li><b>RUSLE</b> A = R K LS C P (t/ha/yr). Each factor is a raster, a single value or a dataset: R from a raster (GloREDa recommended) or the rainfall estimate; K from the soil inputs; C from WorldCover through an editable class lookup, flagged as a <span class="tag proxy">PROXY</span>; P = 1 unless given. <b>If R, K or C is missing, no soil loss is computed</b>: QEHT never invents a factor and falls back to LS-only classes labelled "terrain potential".</li>
+  <li><b>Classes.</b> SPI by percentiles of the extent or fixed ln(SPI) 0 / 5 / 10; RUSLE by 5 / 12 / 25 / 50 or 5 / 10 / 20 / 40 t/ha/yr, or your own breaks; the combined class is the higher of the two unless you give a 5 × 5 matrix. <code>class_extents.csv</code> gives the area per class, split into channel and hillslope cells.</li>
+  <li><b>Sediment transport index</b>: <code>sti_overland.tif</code>, Moore and Wilson (1992) on overland cells (channels NoData), a relative indicator of where slopes deliver sediment. It is not used in soil loss, the classes or the composite.</li>
+</ul>
+<figure>
+  <img src="figures/chart_erosion.png" alt="Erosion classes">
+  <figcaption><b>Figure 24.</b> SPI and RUSLE classes around the western half of the demonstration road. SPI picks out the channels; RUSLE is high on the steep cropped slopes. The demonstration factors are invented and the classes illustrate the method only.</figcaption>
+</figure>
+<p>With the erosion folder, the package adds an erosion block: per catchment the mean and P90 soil loss, LS, channel ln(SPI), area-weighted K, C and P, class shares, gross soil loss, the sediment delivery ratio (SDR = 0.565 A<sup>−0.125</sup>) and sediment volume; per crossing the ln(SPI) at and above the outlet, local slope, LS and TWI, a deposition indicator on the approach channel, and the hydrodynamic impact score 0.4·SPI + 0.3·RUSLE + 0.3·sediment (Low / Moderate / High / Severe) with an indicative mitigation, following the A14 corridor study (Akello and Omosa 2025).</p>
+
+<h2 id="corridor"><span class="sec">27</span>Erosion along the road and side drains</h2>
+<p><b>Sample erosion along alignment</b> reads the erosion folder and a road centreline. Stations every 10 m carry the maximum and mean ln(SPI), LS, soil loss and TWI on each side within a 50 m buffer; consecutive stations with the same worst class form reaches whose lengths add up to the road length.</p>
+<p><b>Side-drain siltation.</b> Give the flow direction (and the raw DEM for the flag) and each station also measures the slope that feeds each side drain: the cells sampled 10–50 m out whose D8 path reaches the road strip without entering a channel. <code>sti_p50_lhs</code>, <code>sti_p90_lhs</code> and the same for the right side come from the overland STI; classes (low, moderate, high, very high) are relative to this corridor's own stations; <code>siltation_lhs</code> / <code>_rhs</code> = 1 where the class is high or very high and the longitudinal slope is under 1 %. The package writes the reaches as the layer <code>corridor_sti</code>.</p>
+<figure>
+  <img src="figures/chart_siltation.png" alt="Side-drain siltation">
+  <figcaption><b>Figure 25.</b> STI P90 of the slopes feeding each side drain along the demonstration road, with the reaches flagged for siltation. The highest values are beside the main valley, where long slopes drain straight onto the road; on the lake bed no slope delivers sediment.</figcaption>
+</figure>
+
+<!-- ============================== PART F ============================== -->
+<h1 class="part"><span class="num">Part F</span>The design hydrology package</h1>
+<p class="part-intro">One self-describing GeoPackage per run: crossings, catchments and flow paths linked by a stable key, with the run's provenance and a dictionary of every field inside the file.</p>
+
+<h2 id="package"><span class="sec">28</span>What the package holds</h2>
+<p><b>Build design hydrology package</b> (Interoperability; algorithm id <code>buildheasexchange</code>) runs snapping, delineation, the longest flow path and the characteristics for every pour point, adds every optional block, and writes one GeoPackage (schema <code>qeht-heas-1</code>). The pipeline uses it internally and keeps it when <i>Keep the design hydrology package</i> is ticked.</p>
+<figure class="dlg">
+  <img src="figures/dlg_package.png" alt="Build design hydrology package dialog">
+  <figcaption><b>Figure 26.</b> Build design hydrology package, upper part. Further down are the coverage, section, floodplain, soil, runoff, rainfall, erosion, mapped-drainage, uncertainty and Tc parameters, the same as the pipeline's.</figcaption>
+</figure>
+<table>
+  <thead><tr><th style="width:26%">Table</th><th>Content</th></tr></thead>
+  <tbody>
+    <tr><td><code>crossings</code></td><td>Snapped outlets with <code>outlet_uid</code>, input and snapped coordinates, snap distance, contributing area, Strahler order, chainage, status, channel slopes, channel section, floodplain, Tc, mapped-drainage, uncertainty and erosion fields</td></tr>
+    <tr><td><code>catchments</code></td><td>One polygon per crossing with area, elevations, the two catchment slopes, shape, soils, curve number, rainfall, scenario and erosion fields</td></tr>
+    <tr><td><code>flowpaths</code></td><td>The longest flow path per crossing with length, drop, the two path slopes, the 10–85 points and the segments</td></tr>
+    <tr><td><code>qeht_run_metadata</code></td><td>QEHT version, run time, DEM path and SHA-256, DEM source and preparation, CRS, cell size, conditioning, flat method, thresholds, snapping, ID scheme, every parameter, and a JSON record per block</td></tr>
+    <tr><td><code>qeht_field_dictionary</code></td><td>Every field of every layer with its type, unit, meaning, method and downstream use (Appendix B)</td></tr>
+    <tr><td>Optional layers</td><td><code>road_alignment</code>, <code>alignment_profile</code>, <code>crossing_candidates</code>, <code>coverage_check</code>, <code>sag_points</code>, <code>flat_stretches</code>, <code>xs_transects</code>, <code>corridor_sti</code>, <code>mapped_rivers_used</code>, <code>drainage_divergence</code>, <code>burn_log</code>, <code>renumber_log</code>, <code>rasters</code></td></tr>
+  </tbody>
+</table>
+<h3>Rules</h3>
+<ul>
+  <li>The three main layers share <code>outlet_uid</code>, so any reader links them by key, never by row order or position.</li>
+  <li>A projected, metric CRS is required; a DEM in degrees is refused before any computation.</li>
+  <li>Empty or duplicate IDs, and two pour points snapping to the same cell, stop the run with a list.</li>
+  <li>Missing values are NULL, never 0. <code>acc_at_outlet_km2</code>, read from the accumulation raster, equals <code>area_km2</code> for full catchments: a built-in check.</li>
+  <li>The schema only grows. Fields and layers are added under <code>qeht-heas-1</code>; renaming or removing one would be <code>qeht-heas-2</code>, and the validator refuses unknown major versions.</li>
+  <li>The file is written with the Python standard library, so it is byte-for-byte the same on every platform; the tests check it with GDAL's GeoPackage validator.</li>
+</ul>
+<p><b>IDs.</b> <i>ID attribute</i> keeps your own numbering (culvert numbers from an inventory, for example). Without it IDs are sequential with the <i>ID prefix</i> (X): along the chainage when the crossings have one, otherwise downstream first (the largest area is 001). Proposed crossings use the <i>Proposed prefix</i> (P).</p>
+<p>HEAS, a separate hydrology–hydraulics design tool, imports the package directly. It is not required: the package opens in QGIS like any GeoPackage, and the pipeline also writes every layer as CSV.</p>
+
+<h2 id="relink"><span class="sec">29</span>Editing crossings: renumber and relink</h2>
+<p>After you delete, move or add crossings in a package, or adopt proposed ones, <b>Renumber and relink exchange package</b> writes a new package:</p>
+<ol class="steps">
+  <li>Unmoved crossings keep their outlet cell; moved and added ones are snapped to the stream.</li>
+  <li>Crossings are ordered by chainage (recomputed from the road for moved and added points) or downstream first.</li>
+  <li>IDs are re-issued gaplessly with the package's prefix; crossings still marked proposed keep the P prefix.</li>
+  <li>Catchments and flow paths are recomputed, and <code>renumber_log</code> records every old → new ID with its status (<i>unchanged</i>, <i>renumbered</i>, <i>new</i>, <i>deleted</i>) and how far a moved point moved.</li>
+</ol>
+<p>IDs change only when you run this tool. Run the report tool on the new package for an updated report.</p>
+
+<h2 id="automation"><span class="sec">30</span>Batch, Modeler and scripts</h2>
+<p><b>Batch.</b> Every tool has <span class="kbd">Run as Batch Process…</span>, for example to run the pipeline on several roads.</p>
+<p><b>Graphical Modeler.</b> <code>examples/qeht_corridor.model3</code> chains Fill → D8 → accumulation → streams → crossing candidates → Build design hydrology package, with the DEM, road and stream threshold as inputs. Open it with <span class="kbd">Model → Open Model…</span> as a starting point for your own chains.</p>
+<p><b>Python.</b> The tools run from the QGIS Python console or a script:</p>
+<pre>import processing
+processing.run("qeht:hydrologypipeline", {
+    "DEM": "C:/data/dem_utm37s.tif",
+    "ROAD": "C:/data/road.gpkg",
+    "STREAM_KM2": 0.5,
+    "NODATA_OVERRIDE": 0,
+    "OUTPUT": "C:/runs/road_a"})</pre>
+<p>Parameter names are in Appendix A. <b>Run report from a design hydrology package</b> and <b>Export package to KMZ / XLSX</b> work on any package, including one built by hand or relinked.</p>
+
+<!-- ============================== PART G ============================== -->
+<h1 class="part"><span class="num">Part G</span>Technical reference</h1>
+<p class="part-intro">The methods in brief, the validation record, the limits, and what to check before the numbers go into a design. <code>DOCUMENTATION.md</code> in the repository gives every method in full.</p>
+
+<h2 id="methods"><span class="sec">31</span>Methods and equations</h2>
+<table>
+  <thead><tr><th style="width:22%">Step</th><th>Method</th></tr></thead>
+  <tbody>
+    <tr><td>Fill</td><td>Priority flood (Barnes, Lehman and Mulla 2014), O(N log N), optional minimum gradient ε per step across filled flats.</td></tr>
+    <tr><td>D8</td><td>Steepest descent S<sub>k</sub> = (z<sub>i</sub> − z<sub>k</sub>) / d<sub>k</sub>, d<sub>k</sub> = cell size or cell size·√2; ties within 1e-6 by the order S, W, N, E, SE, SW, NW, NE.</td></tr>
+    <tr><td>Flats</td><td>Barnes (2014): gradients away from high edges and towards low edges combined as 2·toward + (height − away), iterated to convergence for nested flats; or toward-lower by breadth-first distance to the outlet. Flats touching the grid edge or NoData drain to it.</td></tr>
+    <tr><td>Accumulation</td><td>Topological sweep of the receiver graph (in-degree queue), own cell excluded; cycles reported.</td></tr>
+    <tr><td>Strahler</td><td>On stream cells only: a source is 1; two or more equal upstream maxima increment the order.</td></tr>
+    <tr><td>Snapping</td><td>Nearest stream cell within the radius, ties by accumulation.</td></tr>
+    <tr><td>Longest flow path</td><td>Upstream distance propagated through the receiver tree with true diagonal weights; the path walked back from the most distant divide cell.</td></tr>
+    <tr><td>10–85 slope</td><td>(z<sub>85</sub> − z<sub>10</sub>) / (L<sub>85</sub> − L<sub>10</sub>), L<sub>10</sub> = 0.10 L and L<sub>85</sub> = 0.85 L from the outlet, z interpolated linearly along the path (since 0.9; up to 0.8.3 the points were measured from the divide).</td></tr>
+    <tr><td>Catchment slope</td><td>Horn 3 × 3 mean gradient over the catchment cells; relief ratio = relief / LFP length.</td></tr>
+    <tr><td>Polygons</td><td>Each catchment traced from its own cell mask (OGC-valid, identical to <code>gdal.Polygonize</code> followed by a union).</td></tr>
+    <tr><td>Crossings</td><td>D8 link (cell centre to receiver centre) × centreline segments; clusters by union-find over parallel runs and the merge distance.</td></tr>
+    <tr><td>USLE K</td><td>Williams (EPIC): K = f<sub>csand</sub> f<sub>cl-si</sub> f<sub>orgc</sub> f<sub>hisand</sub>, f<sub>csand</sub> = 0.2 + 0.3 exp[−0.0256 SAN (1 − SIL/100)]; SI K = 0.1317 × US K.</td></tr>
+    <tr><td>Curve number</td><td>TR-55 Table 2-2 by land cover × HSG; CN<sub>I</sub> = 4.2 CN / (10 − 0.058 CN), CN<sub>III</sub> = 23 CN / (10 + 0.13 CN).</td></tr>
+    <tr><td>R from rainfall</td><td>Renard and Freimund (1994): 0.0483 P<sup>1.61</sup> (P ≤ 850 mm), 587.8 − 1.219 P + 0.004105 P² above; Lo et al. (1985): 38.46 + 3.48 P.</td></tr>
+    <tr><td>LS, SPI, TWI, STI</td><td>LS = (A<sub>s</sub>/22.13)<sup>m</sup> (sin β / 0.0896)<sup>1.3</sup>; SPI = A<sub>s</sub> tan β; TWI = ln(A<sub>s</sub> / tan β); STI = LS with m = 0.6 on overland cells. tan β floored at 0.001 in the indices only.</td></tr>
+    <tr><td>Sediment</td><td>SDR = 0.565 A<sup>−0.125</sup> (capped at 1); impact score 0.4 SPI + 0.3 RUSLE + 0.3 sediment on a 1–5 scale.</td></tr>
+    <tr><td>Tc</td><td>Kirpich 0.0195 L<sup>0.77</sup> S<sup>−0.385</sup>; Kerby 1.44 (L N)<sup>0.467</sup> S<sup>−0.235</sup>; SCS lag ℓ<sup>0.8</sup> (S + 1)<sup>0.7</sup> / (1900 Y<sup>0.5</sup>); TR-55 sheet 0.007 (n L)<sup>0.8</sup> / (P2<sup>0.5</sup> s<sup>0.4</sup>), shallow 16.1345 s<sup>0.5</sup> ft/s, channel Manning; Bransby-Williams 14.6 L / (A<sup>0.1</sup> S<sup>0.2</sup>).</td></tr>
+    <tr><td>HAND</td><td>Height above the first stream cell on each cell's D8 path, by pointer jumping.</td></tr>
+    <tr><td>DEM error field</td><td>White noise convolved by FFT with exp(−2r²/L²) and scaled to unit variance, so the correlation is exp(−r²/L²); multiplied by σ.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="validation"><span class="sec">32</span>Validation</h2>
+<h3>Analytic and software tests</h3>
+<p>25 pure-Python suites with 676 checks run without QGIS: analytic planes and valleys with exact areas, lengths and slopes; trapezoidal channels with exact widths; the v0.8.3 reference implementations bit for bit; Barnes against a per-cell port of RichDEM on random surfaces with NoData; hand-computed curve numbers, K and Tc; the A14 erosion study's tables; and the package against its golden fixture. A smoke test runs every Processing tool inside QGIS (80 checks) and an end-to-end test runs the pipeline on a synthetic road site with known structure (25 checks), on QGIS 3.34.4 and 4.2.3. Bandit reports no findings.</p>
+<h3>Against a commercial reference toolset (Site A, steep)</h3>
+<table>
+  <thead><tr><th style="width:50%">Quantity, 16 road crossings, 30.9 m DEM</th><th>Result</th></tr></thead>
+  <tbody>
+    <tr><td>Catchment area</td><td>median ratio 1.009; 15 of 16 within ±30 %</td></tr>
+    <tr><td>Spatial agreement (IoU)</td><td>median 0.84</td></tr>
+    <tr><td>Longest flow path length</td><td>median ratio 0.999; 15 of 16 within ±20 %</td></tr>
+    <tr><td>Flow direction, aligned grid</td><td>98.3 % identical; disagreement concentrated in filled depressions (24 % there, 1.2 % elsewhere)</td></tr>
+  </tbody>
+</table>
+<h3>Flat terrain (Site B, coastal, 34 % flat cells)</h3>
+<p>Flow direction agrees on 88 % of cells; the difference lies in the flats and is a difference of algorithm, not a defect. Fed the reference toolset's own flow direction, QEHT's accumulation reproduces its accumulation exactly on 99.31 % of 9 million cells, which isolates any difference to flat routing.</p>
+<h3>National benchmark</h3>
+<p>80 stratified random 15 km areas across Kenya (20 each flat, rolling, hilly and mountainous), each on ALOS AW3D30 and FABDEM, routed with QEHT and with TauDEM, RichDEM and two commercial packages. The two flat methods differ by more than TauDEM and RichDEM differ from each other in every stratum; Barnes agrees best with TauDEM. <code>BENCHMARK.md</code> has the design, tables and decision.</p>
+
+<h2 id="limits"><span class="sec">33</span>Known limitations</h2>
+<ul>
+  <li><b>No tiling.</b> The whole grid is processed in memory. Clip to the catchments plus a buffer, or use the auto-clip; results inside the clip are unchanged.</li>
+  <li><b>Flat terrain.</b> On large flats the flat method decides the network and catchments switch between crossings under DEM error. QEHT flags this (flat check, uncertainty, divergence); it cannot resolve it. Survey or a better DEM can.</li>
+  <li><b>30 m DEMs.</b> Channels narrower than about three cells, road embankments and small culverts are not in the terrain. Channel sections often find the valley shoulder.</li>
+  <li><b>Proxies.</b> The WorldCover-based curve numbers, C factors and Tc retardance values are matches, not measurements. Replace them with local lookups where they exist.</li>
+  <li><b>Single-threaded.</b> The core is vectorised NumPy but uses one processor.</li>
+  <li><b>No hydraulics.</b> QEHT stops at the catchment and its inputs: no design discharge, culvert sizing or flood levels.</li>
+</ul>
+
+<h2 id="qc"><span class="sec">34</span>Quality-control checklist</h2>
+<ol class="steps">
+  <li>The DEM is one product, projected in metres, resampled bilinearly; the NoData and resampling audits are clean (or the NoData override is set).</li>
+  <li>The stream threshold suits the smallest catchment you design for, and the snap threshold catches the tributaries the crossings sit on.</li>
+  <li>Every crossing is reviewed against imagery or survey: accepted, rejected, moved or added; <code>snap_dist_m</code> is small.</li>
+  <li>Flat-sensitive crossings (<code>flat_sensitive = 1</code>) and crossings that switch under DEM error are checked on a map or on site.</li>
+  <li>Proposed crossings, flat stretches and mapped rivers without a crossing have each been decided.</li>
+  <li><code>acc_at_outlet_km2</code> equals <code>area_km2</code> for every full catchment.</li>
+  <li>The design report states the slope used (and its field), the Tc method and its validity flag, the curve-number source and condition, and which values are proxies or estimates.</li>
+  <li>The QEHT version, flat method and DEM SHA-256 from <code>qeht_run_metadata</code> are recorded with the design.</li>
+</ol>
+
+<h2 id="trouble"><span class="sec">35</span>Troubleshooting</h2>
+<table>
+  <thead><tr><th style="width:34%">Symptom</th><th>Cause and remedy</th></tr></thead>
+  <tbody>
+    <tr><td>"A projected, metric CRS is required"</td><td>The DEM is in degrees. Run Prepare DEM for hydrology.</td></tr>
+    <tr><td>Every catchment drains to the edge or one huge sink</td><td>Undeclared NoData. Set the NoData override to the value the audit reports.</td></tr>
+    <tr><td>Parallel stripes of streams; many flat-sensitive crossings</td><td>Nearest-neighbour resampling or whole-metre flats. Prepare the native DEM bilinearly; consider a minimum fill gradient of 0.0001.</td></tr>
+    <tr><td>A catchment far too large</td><td>The pour point snapped to the trunk stream. Lower the snap-to-stream threshold or the snap radius, or move the point onto the tributary.</td></tr>
+    <tr><td>A lake behind the road in the filled DEM</td><td>The embankment is in the DEM. Burn the crossings.</td></tr>
+    <tr><td>"No candidate is accepted or recommended"</td><td>Every candidate is rejected. Accept at least one, or give pour points.</td></tr>
+    <tr><td>Duplicate or empty IDs</td><td>The ID attribute has repeats or blanks, or two points snap to one cell. The message lists them.</td></tr>
+    <tr><td>Memory warning</td><td>Clip to the road's contributing area or to the catchments plus a buffer.</td></tr>
+    <tr><td>TR-55 Tc empty</td><td>Give P2.</td></tr>
+    <tr><td>No soil loss, only "terrain potential"</td><td>R, K or C is missing; give the missing factor.</td></tr>
+    <tr><td>KMZ without legend and title block</td><td>Matplotlib is not installed with this QGIS; the rest of the KMZ is complete.</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================== APPENDICES ============================== -->
+<h1 class="part"><span class="num">Appendix A</span>Parameter reference</h1>
+<p class="part-intro" id="app-params">Every tool with its parameter names (for scripts and models), labels and defaults, generated from the plugin itself.</p>
+{{APPENDIX_PARAMS}}
+
+<h1 class="part"><span class="num">Appendix B</span>Field dictionary</h1>
+<p class="part-intro" id="app-fields">The fields of the design hydrology package, generated from its <code>qeht_field_dictionary</code> table, which every package carries.</p>
+{{APPENDIX_FIELDS}}
+
+<h1 class="part" id="app-refs"><span class="num">Appendix C</span>References</h1>
+<ul class="small">
+  <li>Akello, E. and Omosa, I. (2025). Erosion and sediment risk modelling in road drainage structures. <i>African Journal of Engineering Research and Innovation</i> 3(4).</li>
+  <li>Barnes, R., Lehman, C. and Mulla, D. (2014a). An efficient assignment of drainage direction over flat surfaces in raster digital elevation models. <i>Computers &amp; Geosciences</i> 62, 128–135.</li>
+  <li>Barnes, R., Lehman, C. and Mulla, D. (2014b). Priority-flood: an optimal depression-filling and watershed-labeling algorithm for digital elevation models. <i>Computers &amp; Geosciences</i> 62, 117–127.</li>
+  <li>Chow, V. T. (1959). <i>Open-Channel Hydraulics</i>. McGraw-Hill.</li>
+  <li>Chow, V. T., Maidment, D. R. and Mays, L. W. (1988). <i>Applied Hydrology</i>. McGraw-Hill.</li>
+  <li>Desmet, P. J. J. and Govers, G. (1996). A GIS procedure for automatically calculating the USLE LS factor on topographically complex landscape units. <i>Journal of Soil and Water Conservation</i> 51(5), 427–433.</li>
+  <li>Hawker, L. et al. (2022). A 30 m global map of elevation with forests and buildings removed. <i>Environmental Research Letters</i> 17, 024016.</li>
+  <li>Kerby, W. S. (1959). Time of concentration for overland flow. <i>Civil Engineering</i> 29(3), 60.</li>
+  <li>Kirpich, Z. P. (1940). Time of concentration of small agricultural watersheds. <i>Civil Engineering</i> 10(6), 362.</li>
+  <li>Lo, A., El-Swaify, S. A., Dangler, E. W. and Shinshiro, L. (1985). Effectiveness of EI30 as an erosivity index in Hawaii. In <i>Soil Erosion and Conservation</i>, 384–392.</li>
+  <li>Moore, I. D. and Burch, G. J. (1986). Physical basis of the length-slope factor in the Universal Soil Loss Equation. <i>Soil Science Society of America Journal</i> 50, 1294–1298.</li>
+  <li>Moore, I. D. and Wilson, J. P. (1992). Length-slope factors for the Revised Universal Soil Loss Equation. <i>Journal of Soil and Water Conservation</i> 47(5), 423–428.</li>
+  <li>Renard, K. G. and Freimund, J. R. (1994). Using monthly precipitation data to estimate the R-factor in the revised USLE. <i>Journal of Hydrology</i> 157, 287–306.</li>
+  <li>Renard, K. G. et al. (1997). <i>Predicting Soil Erosion by Water: A Guide to Conservation Planning with RUSLE</i>. USDA Agriculture Handbook 703.</li>
+  <li>Rennó, C. D. et al. (2008). HAND, a new terrain descriptor using SRTM-DEM. <i>Remote Sensing of Environment</i> 112, 3469–3481.</li>
+  <li>Tadono, T. et al. (2016). Generation of the 30 m-mesh global digital surface model by ALOS PRISM. <i>ISPRS Archives</i> XLI-B4, 157–162.</li>
+  <li>USDA NRCS (1986). <i>Urban Hydrology for Small Watersheds</i>. Technical Release 55.</li>
+  <li>USDA NRCS (2010). <i>National Engineering Handbook</i> Part 630, Chapter 15: Time of Concentration.</li>
+  <li>Williams, J. R. (1995). The EPIC model. In Singh, V. P. (ed.), <i>Computer Models of Watershed Hydrology</i>, 909–1000.</li>
+</ul>
+
+</body>
+</html>

@@ -1,9 +1,11 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v1.0.0
+# QEHT — QGIS Engineering Hydrology Toolkit v1.0.1
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
 
 Author: Edmond Akello · License: GPL-2.0-or-later
+
+**User guide and technical manual:** [`docs/user-guide/QEHT_1.0.1_User_Guide.pdf`](docs/user-guide/QEHT_1.0.1_User_Guide.pdf), built from a synthetic demonstration site by `tools/guide/build_all.sh`.
 
 ## Why it exists
 
@@ -49,26 +51,16 @@ which are C++ libraries already loaded inside the QGIS process. There is no
       tests/qgis_smoke.py    ← every Processing tool, run inside QGIS
 
 The core is importable without QGIS. That is what makes the hydrology testable:
+25 pure-Python suites (676 checks at 1.0.1) run on bare Python with NumPy, for
+example
 
-    python -m qeht.tests.test_core        # 47 analytic checks
-    python -m qeht.tests.test_interop     # 77 checks incl. the golden fixture
-    python -m qeht.tests.test_crossings   # 45 checks: road crossings, burn, relink
-    python -m qeht.tests.test_soils       # 33 checks: soils, USLE K, CSV soil table
-    python -m qeht.tests.test_flats       # 36 checks: oracles, Barnes == RichDEM, edge drains, DEM QA
-    python -m qeht.tests.test_erosion     # 50 checks: erosion indices, RUSLE, classes, A14 anchors
-    python -m qeht.tests.test_alignment   # 15 checks: alignment ground profile
-    python -m qeht.tests.test_morphometry # 22 checks: overland/channel split, basin shape
-    python -m qeht.tests.test_soils_any   # 18 checks: soils from any source, HSG / K overrides
-    python -m qeht.tests.test_runoff      # 17 checks: curve number, AMC, Rational C
-    python -m qeht.tests.test_channel     # 16 checks: STI, deposition indicator, channel slopes
-    python -m qeht.tests.test_coverage    # 21 checks: missing crossings, sags, flat stretches, proposed crossings
-    python -m qeht.tests.test_rainfall    # 35 checks: rainfall zones, mean annual rainfall, R estimate
-    python -m qeht.tests.test_report      # 15 checks: characteristics table, run report
-    python -m qeht.tests.test_floodplain  # 19 checks: floodplain widths (profile, HAND)
-    python -m qeht.tests.test_quicklooks  # 14 checks: PNG, world file, legends, downsampling
+    python -m qeht.tests.test_core        # analytic surfaces: fill, D8, accumulation, catchments
+    python -m qeht.tests.test_interop     # outlet_uid, slopes, the package and its golden fixture
 
-Run these after any change to the core, and before trusting any output on a
-real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
+and `tools/dev/run_tests.sh` (in the repository, not the plugin zip) runs every
+suite, the QGIS smoke test (`tests/qgis_smoke.py`, 80 checks) and the end-to-end
+pipeline test (`tests/qgis_e2e.py`, 25 checks). Run them after any change to the
+core, and before trusting any output on a real project.
 
 ## Tools
 
@@ -93,6 +85,10 @@ real project. `tests/qgis_smoke.py` needs a QGIS installation (see its header).
 | Drainage coverage check along a road | — (missing crossings, sag points, flat stretches) |
 | Run hydrology pipeline (one click) | — (the whole chain into one output folder, with a run report) |
 | Run report from a design hydrology package | — (HTML report and characteristics table for any package) |
+| Prepare DEM for hydrology | merge tiles, reproject bilinear to the local UTM zone, audit (v0.21) |
+| Export package to KMZ / XLSX | Google Earth file and a spreadsheet workbook (v0.23) |
+| Clip DEM to the road's contributing area | read only the window that drains to the road (v0.25) |
+| DEM uncertainty at crossings | Monte Carlo ranges of area, flow path, slope and Tc (v0.27) |
 
 For Pairwise Intersect, use the built-in `native:intersection` — it is C++ and
 never spawns anything. There is no reason to wrap it.
@@ -560,7 +556,7 @@ A single catchment area from one DEM hides how much the DEM's error can move it.
 3. Area, longest flow path, 10–85 slope and Kirpich Tc are measured.
 4. This repeats for N = 50 realisations (seed 2026, recorded).
 
-Per crossing the run gives P10, P50, P90 and the coefficient of variation of each value (`unc_*`), plus two shares: `unc_lost_pct`, where the outlet lost its stream, and `unc_switch_pct`, where the area moved by more than 25 %, the sign of a catchment that switches between crossings. For the three largest crossings the run is repeated at 0.5× and 2× the correlation length.
+Per crossing the run gives P10, P50, P90 and the coefficient of variation of each value (`unc_*`), plus two shares: `unc_lost_pct`, where the outlet lost its stream, and `unc_switch_pct`, where the area moved by more than 25 %, the sign of a catchment that switches between crossings. A crossing with no stream within the snap radius on the deterministic DEM (a proposed sag crossing below the stream threshold, for example) is not assessed: its percentiles stay empty, because a realisation that finds a stream has snapped to another channel. For the three largest crossings the run is repeated at 0.5× and 2× the correlation length.
 
 **Vertical error, with no default:**
 - **AW3D30:** 4.4 m, the 4.40 m RMSE of the JAXA validation (Tadono et al. 2016, 5,121 check points).
@@ -645,7 +641,7 @@ Stated explicitly because a drainage report needs them stated:
 
 ## Validation
 
-**Level 1 — synthetic analytic DEMs.** 47 checks, `tests/test_core.py`, plus 77 interop checks in `tests/test_interop.py`, 43 road-crossing checks in `tests/test_crossings.py` 33 soil checks in `tests/test_soils.py` and 36 checks in `tests/test_flats.py` (vectorised core vs the v0.8.3 reference; Barnes vs a port of RichDEM; edge drainage; resampling audit and flat-method sensitivity) and 44 erosion checks in `tests/test_erosion.py` (analytic plane and valley, the A14 2025 paper's tables). PASS. `tests/qgis_smoke.py` (37 checks) runs every tool inside QGIS.
+**Level 1 — synthetic analytic DEMs.** 25 pure-Python suites, 676 checks at 1.0.1: analytic planes and valleys, the v0.8.3 reference implementations, Barnes against a port of RichDEM, the A14 erosion study's tables and the package against its golden fixture. `tests/qgis_smoke.py` (80 checks) runs every tool inside QGIS 3.34 and 4.2, and `tests/qgis_e2e.py` (25 checks) runs the pipeline on a synthetic road site.
 
 **Level 3 — reference hydrology toolset production output, Site A.** 718 x 775
 cells @ 30.92 m, EPSG:21037, 16 road-crossing pour points with reference
@@ -701,6 +697,13 @@ toolset diverge most. On the flat-heavy Site B DEM:
   * Garbrecht & Martz flats: **85.5%** overall, 81.6% on flats, 87.6% off flats
   * Toward-lower-only flats: 81.7% overall, 76.2% on flats
 
+### History of the flat-resolution investigation (v0.5 to v0.8)
+
+The paragraphs below record how the flat method was chosen before the WP-G
+benchmark. They are kept for the record. They are superseded: since 0.13 Barnes
+is the default (see *Flats and performance* above and `BENCHMARK.md`), and the
+v0.8 Barnes figures were affected by a resolver defect fixed in 0.12.
+
 **Barnes convergent flat resolver, built and benchmarked (v0.8).** The iterated
 Barnes 2014 two-gradient resolver was completed and verified:
 
@@ -720,9 +723,8 @@ The conclusion, now firmly evidenced: the reference toolset's flat behaviour -
 despite its documentation citing Garbrecht & Martz - empirically resembles the
 simpler toward-lower method on this terrain, not the canonical convergent
 Barnes result. Both Barnes and toward-lower are legitimate, cycle-free
-drainage solutions; they simply differ, and toward-lower is closer to the
-reference toolset here. Toward-lower remains the default. Barnes is
-selectable for terrain where a strictly convergent solution is wanted. On
+drainage solutions; they simply differ, and toward-lower was closer to the
+reference toolset here (at v0.8). On
 steep Site A the two agree to within 0.1% (98.5 vs 98.4).
 
 This closes the flat-resolution investigation: the remaining gap between QEHT
@@ -770,8 +772,7 @@ IoU 0.04). Matching the reference toolset exactly would require reproducing
 RichDEM's entire integrated fill-and-route pipeline including its
 epsilon-elevation output stage, a large rewrite with little benefit given how
 well the simpler method already tracks the reference toolset on accumulation.
-The Barnes code remains in the tree (`core/flow/flats.py`) for reference but
-is not wired into the tools.
+(At v0.8 the Barnes code was kept out of the tools; since 0.13 it is the default.)
 
 **Tie-breaking (v0.5).** The residual off-flat disagreement was traced to
 tie-breaking: on low-relief terrain, 21% of cells have two or more neighbours at

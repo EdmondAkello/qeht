@@ -3,6 +3,17 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [1.0.1] — 2026-10-09
+### Fixed
+- **Coverage check beside a river.** Where a road runs alongside a stream, the D8 stream crosses the centreline several times and *Road crossing candidates* puts those intersections in one cluster. The coverage check counted the cluster's other intersections as missing crossings and proposed crossings on them (in the demonstration run, three proposed crossings of about 70 km² next to the recommended one). They are now covered by the crossing used for the cluster (`cluster_cover()`), in *Build design hydrology package*, the pipeline and *Drainage coverage check along a road*. Hand-placed pour points are unaffected.
+- **Moved candidates.** A crossing candidate moved by the user after review kept its stored outlet cell, so the move had no effect. A candidate more than two cells from its stored outlet is now snapped from its new position and its chainage taken from the road, like a point added to the layer (`candidate_moved()`).
+- **DEM uncertainty at small crossings.** A crossing is not assessed (percentiles, CV and switching empty, `unc_note` says why) when the unperturbed DEM has no stream within the snap radius, or when the snapped stream drains more than 25 % more or less than the crossing's own area. Both cases arise at proposed sag crossings below the stream threshold, where the realisations that found a stream had snapped to another channel and reported its values.
+### Added
+- **User guide and technical manual** (`docs/user-guide/`), built from a synthetic demonstration site (`tools/guide/`).
+### Changed
+- README and DOCUMENTATION brought up to date for 1.0: tool list (23 algorithms), test counts, architecture, the history of the flat-method investigation marked as superseded.
+- Tested on QGIS 3.34.4 and 4.2.3: 25 pure suites (676 checks), smoke 80/80 on both, end-to-end 25/25; Bandit clean.
+
 ## [1.0.0] — 2026-10-08 (first stable release)
 ### Changed
 - **Stable release.** The `experimental` flag is off. Every tool from 0.9 to 0.27 is included unchanged.

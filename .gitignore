@@ -12,3 +12,5 @@ __pycache__/
 paper/
 docs/dev/
 private/
+docs/user-guide/figures/
+docs/user-guide/user-guide.html

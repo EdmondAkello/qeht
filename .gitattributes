@@ -4,3 +4,4 @@ paper export-ignore
 tools export-ignore
 .gitattributes export-ignore
 .gitignore export-ignore
+docs export-ignore
