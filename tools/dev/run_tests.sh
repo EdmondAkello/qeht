@@ -24,3 +24,8 @@ if [ -d /opt/trixie/usr/share/qgis/python ]; then
 else
   echo "smoke QGIS 4.x: skipped (no /opt/trixie; see tools/dev/build_trixie.sh)"
 fi
+# Bandit on the plugin code and its tests (the store scans what ships; keep tests clean too)
+if command -v bandit >/dev/null; then
+  b=$(bandit -q -r qeht -x qeht/tools,qeht/docs -f csv 2>/dev/null | tail -n +2 | grep -c .)
+  echo "bandit (shipped files, tests included): issues=$b"
+fi

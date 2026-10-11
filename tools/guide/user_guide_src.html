@@ -224,7 +224,7 @@ h3.alg { margin-top: 7mm; border-top: 1px solid var(--line); padding-top: 2mm; }
   <li>Open <span class="kbd">Processing → Toolbox</span> and expand <b>Engineering Hydrology</b>.</li>
 </ol>
 <h3>From a ZIP file</h3>
-<p>Use <span class="kbd">Plugins → Manage and Install Plugins → Install from ZIP</span> with <code>qeht-{{VERSION}}.zip</code>. The zip holds one folder, <code>qeht</code>; keep that name, because the tests and the plugin import <code>qeht.core</code>.</p>
+<p>Use <span class="kbd">Plugins → Manage and Install Plugins → Install from ZIP</span> with <code>qeht-{{VERSION}}.zip</code>. The zip holds one folder, <code>qeht</code>; keep that name, because the plugin imports <code>qeht.core</code>.</p>
 <div class="note"><b>Requirements</b>QGIS 3.34 or later, including QGIS 4 (Qt6), on Windows, macOS or Linux. Nothing else: no SAGA, GRASS, WhiteboxTools, TauDEM or pip packages. Matplotlib, which QGIS ships on most installs, is used only for the KMZ legend and the optional profile charts.</div>
 <h3>Memory</h3>
 <p>QEHT holds the whole grid in memory. Every tool estimates its peak before it runs and warns when the estimate approaches the free RAM. As a guide, the routing steps need about 50–170 bytes per cell: a 4,000 × 4,000 DEM (16 million cells) needs 1–3 GB. For a national mosaic, clip to the road's contributing area first (section 20).</p>

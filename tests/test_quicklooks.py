@@ -31,14 +31,16 @@ def decode_png(path):
     """Minimal decoder for the files write_png makes (RGBA, filter 0)."""
     with open(path, "rb") as f:
         b = f.read()
-    assert b[:8] == b"\x89PNG\r\n\x1a\n"
+    if b[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("not a PNG file")
     o, idat = 8, b""
     w = h = None
     while o < len(b):
         n = struct.unpack(">I", b[o:o + 4])[0]
         tag, data = b[o + 4:o + 8], b[o + 8:o + 8 + n]
         crc = struct.unpack(">I", b[o + 8 + n:o + 12 + n])[0]
-        assert crc == zlib.crc32(tag + data) & 0xFFFFFFFF
+        if crc != zlib.crc32(tag + data) & 0xFFFFFFFF:
+            raise ValueError(f"bad CRC in chunk {tag!r}")
         if tag == b"IHDR":
             w, h = struct.unpack(">II", data[:8])
         elif tag == b"IDAT":

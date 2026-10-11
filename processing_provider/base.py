@@ -265,7 +265,7 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
             flag = Qgis.ProcessingParameterFlag.Advanced
         except AttributeError:
             from qgis.core import QgsProcessingParameterDefinition
-            flag = QgsProcessingParameterDefinition.FlagAdvanced
+            flag = QgsProcessingParameterDefinition.Flag.FlagAdvanced
         param.setFlags(param.flags() | flag)
         return param
 
@@ -888,8 +888,8 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
             return QgsField(name, t)
         except (TypeError, AttributeError):
             from qgis.PyQt.QtCore import QVariant
-            t = {"real": QVariant.Type.Double, "int": QVariant.Type.Int,
-                 "text": QVariant.Type.String}[kind]
+            t = {"real": QVariant.Double, "int": QVariant.Int,
+                 "text": QVariant.String}[kind]
             return QgsField(name, t)
 
     @staticmethod

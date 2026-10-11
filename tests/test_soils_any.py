@@ -6,7 +6,6 @@
 
 import math
 import os
-import random
 import sys
 import tempfile
 
@@ -41,7 +40,7 @@ def _strips():
 
 def test_vectorised_equal_scalar():
     print("\n1. Vectorised K, texture and HSG proxy = the scalar functions")
-    rnd = random.Random(7)
+    rnd = np.random.default_rng(7)
     bad = 0
     for _ in range(5000):
         sa = rnd.uniform(0, 100); cl = rnd.uniform(0, 100 - sa); si = 100 - sa - cl

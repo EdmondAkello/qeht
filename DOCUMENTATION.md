@@ -507,7 +507,7 @@ The two datasets bound the expected accuracy: near-exact on moderate-to-steep te
 
 ## 8. Release
 
-QEHT 1.0 is the first stable release (`experimental=False`). The plugin zip holds the plugin folder `qeht/` without the development tools (`tools/`), which stay in the repository. The example DEM (`examples/example_dem.tif`) is synthetic, made by `tools/dev/make_example_dem.py`, and the user guide's demonstration data by `tools/guide/make_demo_site.py`; neither describes a real place.
+QEHT 1.0 is the first stable release (`experimental=False`). The plugin zip holds the plugin folder `qeht/` without the tests, the development tools and the user guide (`tests/`, `tools/`, `docs/`), which stay in the repository. The example DEM (`examples/example_dem.tif`) is synthetic, made by `tools/dev/make_example_dem.py`, and the user guide's demonstration data by `tools/guide/make_demo_site.py`; neither describes a real place.
 
 ## 9. Citation
 
