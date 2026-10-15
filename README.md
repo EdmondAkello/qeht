@@ -1,5 +1,7 @@
 # QEHT — QGIS Engineering Hydrology Toolkit v1.0.1
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23393476.svg)](https://doi.org/10.5281/zenodo.23393476)
+
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.
 
@@ -839,8 +841,6 @@ reference tool uses bit-identical neighbour ordering, standard D8 codes and
 tie-breaking, so flow direction should match cell-for-cell on sloping terrain.
 Note the reference tool initialises accumulation to the cell's own weight, so
 `reference == QEHT + 1`. Harness supplied separately.
-
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23393476.svg)](https://doi.org/10.5281/zenodo.23393476)
 
 ## Licence
 
