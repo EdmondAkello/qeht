@@ -2,20 +2,32 @@ cff-version: 1.2.0
 message: "If you use QEHT in your work, please cite it as below."
 title: "QEHT: QGIS Engineering Hydrology Toolkit"
 abstract: >-
-  An open-source QGIS Processing plugin for transparent, scriptable and
-  testable DEM-based terrain, drainage-network and catchment analysis,
-  with a QGIS-independent numerical core validated against a reference
-  GIS platform's hydrology toolset.
+  An open-source QGIS Processing plugin for DEM-based engineering hydrology
+  along road corridors. It conditions the DEM, resolves flats, builds the
+  drainage network, delineates catchments, finds crossings, and computes
+  catchment characteristics, soils and erosion screening, and DEM
+  uncertainty. Results go into a documented design-hydrology exchange
+  package. The numerical core is NumPy/GDAL, runs independently of QGIS,
+  and is validated against a reference GIS platform's hydrology toolset.
 authors:
   - family-names: "Akello"
     given-names: "Edmond"
+    email: "francenicklaus@gmail.com"
+    # orcid: "https://orcid.org/0000-0000-0000-0000"
 version: 1.0.1
+date-released: "2026-10-15"
 license: GPL-2.0-or-later
 type: software
+repository-code: "https://github.com/EdmondAkello/qeht"
+url: "https://plugins.qgis.org/plugins/qeht/"
+# doi: "10.5281/zenodo.XXXXXXX"   # concept DOI, add after Zenodo mints it
 keywords:
   - hydrology
   - QGIS
   - digital elevation model
+  - flat resolution
   - flow direction
   - catchment delineation
   - drainage network
+  - road drainage
+  - erosion
