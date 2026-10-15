@@ -840,6 +840,8 @@ tie-breaking, so flow direction should match cell-for-cell on sloping terrain.
 Note the reference tool initialises accumulation to the cell's own weight, so
 `reference == QEHT + 1`. Harness supplied separately.
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23393476.svg)](https://doi.org/10.5281/zenodo.23393476)
+
 ## Licence
 
 GNU General Public License v2 or later.
