@@ -3,6 +3,10 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [Unreleased]
+### Added
+- Continuous integration: GitHub Actions runs the 25 pure test suites (NumPy and GDAL, no QGIS) and a Bandit scan on every push to `main` and every pull request (`.github/workflows/tests.yml`, `tools/dev/ci_pure.sh`). `.github/` is left out of the plugin zip.
+
 ## [1.0.1] — 2026-10-09
 ### Fixed
 - **Coverage check beside a river.** Where a road runs alongside a stream, the D8 stream crosses the centreline several times and *Road crossing candidates* puts those intersections in one cluster. The coverage check counted the cluster's other intersections as missing crossings and proposed crossings on them (in the demonstration run, three proposed crossings of about 70 km² next to the recommended one). They are now covered by the crossing used for the cluster (`cluster_cover()`), in *Build design hydrology package*, the pipeline and *Drainage coverage check along a road*. Hand-placed pour points are unaffected.

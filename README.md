@@ -1,6 +1,7 @@
 # QEHT — QGIS Engineering Hydrology Toolkit v1.0.1
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23393476.svg)](https://doi.org/10.5281/zenodo.23393476)
+[![tests](https://github.com/EdmondAkello/qeht/actions/workflows/tests.yml/badge.svg)](https://github.com/EdmondAkello/qeht/actions/workflows/tests.yml)
 
 Terrain and drainage analysis for QGIS, computed entirely in-process, offering
 the same class of tools as commercial GIS hydrology extensions.

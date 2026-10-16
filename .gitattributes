@@ -6,3 +6,4 @@ tools export-ignore
 .gitignore export-ignore
 docs export-ignore
 tests export-ignore
+.github export-ignore
