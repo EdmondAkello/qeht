@@ -376,6 +376,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         burn_src = self.parameterAsSource(parameters, "BURN_LOG", context) \
             if "BURN_LOG" in parameters else None
         if burn_src is not None:
+            self.require_crs(burn_src, "The burn log layer")
             from .alg_burn_crossings import LOG_FIELDS as BURN_FIELDS
             from qgis.core import QgsCoordinateReferenceSystem as _CRS, QgsCoordinateTransform as _CT, QgsProject as _P
             dcrs = _CRS(); dcrs.createFromWkt(info.projection_wkt)
@@ -912,6 +913,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         from ..core.geometry.rasterize import polygon_window
         from ..core.interop.field_dictionary import OPTIONAL_LAYERS
         src = self.parameterAsSource(parameters, "MAPPED", context)
+        self.require_crs(src, "The mapped drainage layer")
         name_field = self.field_parameter(parameters, "MAPPED_NAME_FIELD", context) \
             if parameters.get("MAPPED_NAME_FIELD") else ""
         dcrs = QgsCoordinateReferenceSystem()

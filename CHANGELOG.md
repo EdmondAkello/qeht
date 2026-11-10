@@ -9,6 +9,12 @@ development history of the numerical core and Processing tools.
 - **Nearest-neighbour reprojection onto a rotated grid.** The resampling audit missed nearest-neighbour reprojection from geographic to UTM, which copies cells without repeating whole rows or columns. It now also warns when more than 2 % of neighbour pairs on sloping ground are exactly tied (`sloped_tied_share`), for continuous DEMs and storage steps of 1 cm or finer. Ties inside flat patches are not counted.
 - New suite `tests/test_dem_precision.py` (20 checks).
 - Continuous integration: GitHub Actions runs the 25 pure test suites (NumPy and GDAL, no QGIS) and a Bandit scan on every push to `main` and every pull request (`.github/workflows/tests.yml`, `tools/dev/ci_pure.sh`). `.github/` is left out of the plugin zip.
+### Fixed
+- **Layers without a CRS are refused.** A shapefile without its `.prj` loads with no CRS; reprojecting from it put every feature in the wrong place, so soil factors, joins and pour points came out empty or wrong without an error (on one road run, K was empty and erosion fell back to LS-only silently). Road, pour-point, soil-polygon, rainfall-zone, catchment, burn-log, mapped-drainage, crossing and clip layers are now checked, and a factor raster without a CRS is refused by `warp_to_grid`, each with a message saying how to assign the CRS.
+- **Empty factors are reported.** *Erosion indices and RUSLE* warns when a soil source gives no K anywhere on the DEM, and when R, K, C or P has no data on part of the DEM (soil loss is empty there); the run record gains `factor_coverage_pct`. *Soil and runoff parameters* lists the catchments that got no K. The exchange package adds an issue for each catchment without K when a soil source was given.
+### Added
+- **Truncated-catchment flag.** A catchment that reaches the DEM edge or NoData away from its outlet may continue beyond the DEM. Catchments now carry `truncated` (0/1) and `truncated_cells`, the exchange package and run report list each one as an issue ("area is a lower bound"), and Catchment characteristics writes the flag (`catchment_truncation()` in `core/watershed/statistics.py`; the outlet's 3 × 3 cells are ignored).
+- New suite `tests/test_dem_inputs.py` (9 checks); two QGIS smoke checks (truncated field; pour points without a `.prj` refused). Golden exchange fixture regenerated: only the two new catchment fields differ.
 
 ## [1.0.1] — 2026-10-09
 ### Fixed

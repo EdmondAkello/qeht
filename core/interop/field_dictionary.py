@@ -228,6 +228,11 @@ CATCHMENTS = [
     ("area_km2", "real", "km2", "contributing area", "cell count x cell area",
      "area_km2"),
     ("cells", "int", "-", "number of DEM cells in the catchment", "", "QA"),
+    ("truncated", "int", "-", "1 = the catchment reaches the DEM edge or NoData away from its "
+     "outlet: it may continue beyond the DEM and area_km2 is a lower bound (1.0.2)",
+     "valid-boundary cells in the catchment, outlet 3x3 excluded", "QA"),
+    ("truncated_cells", "int", "-", "catchment cells on the DEM edge or next to NoData, outlet "
+     "3x3 excluded (1.0.2)", "", "QA"),
     ("elev_max_m", "real", "m", "highest elevation", "raw DEM", "provenance"),
     ("elev_min_m", "real", "m", "lowest elevation", "raw DEM", "provenance"),
     ("elev_mean_m", "real", "m", "mean elevation", "raw DEM", "provenance"),

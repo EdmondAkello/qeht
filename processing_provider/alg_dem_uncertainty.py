@@ -74,6 +74,7 @@ class DemUncertaintyAlgorithm(QehtAlgorithm):
         z, valid, info = read_dem(self.raster_path(parameters, "DEM", context))
         self.check_size(feedback, info.rows, info.cols)
         pts = self.parameterAsSource(parameters, "CROSSINGS", context)
+        self.require_crs(pts, "The crossing layer")
         idf = self.field_parameter(parameters, "ID_FIELD", context) if parameters.get("ID_FIELD") else ""
         dcrs = QgsCoordinateReferenceSystem()
         dcrs.createFromWkt(info.projection_wkt)

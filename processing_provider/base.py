@@ -59,6 +59,21 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
                 feedback.setProgressText(message)
         return _progress
 
+    @staticmethod
+    def require_crs(source, what):
+        """Refuse a vector layer without a valid CRS (1.0.2).
+
+        A shapefile without its .prj loads with no CRS. Reprojecting from
+        it to the DEM silently puts every feature in the wrong place (or
+        nowhere), so factors and joins come out empty without an error.
+        """
+        if source is not None and not source.sourceCrs().isValid():
+            raise QgsProcessingException(
+                f"{what} has no coordinate reference system (for a shapefile, the .prj file is "
+                "missing), so QEHT cannot place it on the DEM and will not guess. Set the layer "
+                "CRS in QGIS (Layer Properties > Source > Assigned coordinate reference system), "
+                "save or export the layer with it, and run again.")
+
     def check_size(self, feedback, rows, cols, steps=None):
         """Report the estimated peak memory before a run; warn when it is
         close to the free RAM (or large and free RAM is unknown).
@@ -95,6 +110,7 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
         source = self.parameterAsSource(parameters, name, context)
         if source is None:
             return None
+        self.require_crs(source, "The road layer")
         dem_crs = QgsCoordinateReferenceSystem()
         dem_crs.createFromWkt(info.projection_wkt)
         transform = None
@@ -132,6 +148,7 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
         source = self.parameterAsSource(parameters, name, context)
         if source is None:
             raise QgsProcessingException("Could not read the pour-point layer.")
+        self.require_crs(source, "The pour-point layer")
         dem_crs = QgsCoordinateReferenceSystem()
         dem_crs.createFromWkt(info.projection_wkt)
         transform = None
@@ -495,6 +512,7 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
                                       "HSG_FIELD", "K_FIELD")}
         user_map = all(mapped[k] for k in ("SAND", "CLAY", "OC"))
 
+        self.require_crs(src, "The soil polygon layer")
         dem_crs = QgsCoordinateReferenceSystem()
         dem_crs.createFromWkt(info.projection_wkt)
         tr = None
@@ -814,6 +832,7 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
             dem_crs = QgsCoordinateReferenceSystem()
             dem_crs.createFromWkt(info.projection_wkt)
             tr = None
+            self.require_crs(src, "The rainfall zone layer")
             if dem_crs.isValid() and src.sourceCrs() != dem_crs:
                 tr = QgsCoordinateTransform(src.sourceCrs(), dem_crs, QgsProject.instance())
             gt = info.geotransform
