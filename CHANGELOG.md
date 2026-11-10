@@ -4,6 +4,11 @@ All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
 ## [Unreleased]
+### Changed
+- **Faster depression filling.** The frontier relaxation in `fill_depressions` now expands the pending cells in water-level order (the lowest part of the pending set first, at least 4,096 cells or 5 % of it per pass), so most cells are lowered once instead of about ten times. The fixed point is unique and the output is unchanged, bit for bit. On the synthetic benchmark: 4 Mcells 8.7 s → 3.9 s, 16 Mcells 68 s → 15.5 s. Every tool that fills benefits, the DEM-uncertainty Monte Carlo most.
+### Added
+- `tools/dev/bench_core.py`: times the audits, fill, both flat methods and accumulation on a seeded synthetic DEM (repository only, not in the plugin zip).
+- Test: the ordered fill against the heap reference on surfaces larger than one batch, with and without epsilon (`tests/test_flats.py`, 1b).
 
 ## [1.1.0] — 2026-11-10
 ### Added
