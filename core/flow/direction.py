@@ -191,7 +191,7 @@ def _resolve_flats_toward(work, valid, direction, progress=None, drain=None):
                smallest distance (a routed non-flat neighbour counts as 0),
                first in E, SE, S ... order on ties.
     """
-    from .flats import _neighbours, _csr, _bfs
+    from .flats import _neighbours, _bfs_grid
     rows, cols = work.shape
     drain = np.zeros(work.shape, dtype=bool) if drain is None else drain
     routed = (direction >= 0) | drain
@@ -200,31 +200,29 @@ def _resolve_flats_toward(work, valid, direction, progress=None, drain=None):
         return direction, 0
     fr, fc = np.nonzero(flat)
     n = fr.size
-    idx = np.full((rows, cols), -1, dtype=np.int64)
-    idx[fr, fc] = np.arange(n)
+    # 1.2: int32 index, BFS on the grid (no link graph), distances looked up
+    # through the index instead of a full int64 grid.
+    idx = np.full((rows, cols), -1, dtype=np.int32)
+    idx[fr, fc] = np.arange(n, dtype=np.int32)
     wv = work[fr, fc]
     seed = np.zeros(n, dtype=bool)
-    ea, eb = [], []
     for k in range(8):
         nr, nc, inside = _neighbours(fr, fc, k, rows, cols)
         ok = inside & valid[nr, nc]
         seed |= ok & routed[nr, nc] & (work[nr, nc] <= wv)
-        j = idx[nr, nc]
-        link = ok & (j >= 0) & (work[nr, nc] == wv)
-        ea.append(np.flatnonzero(link)); eb.append(j[link])
-    indptr, indices = _csr(n, np.concatenate(ea), np.concatenate(eb))
-    dist = _bfs(n, indptr, indices, np.flatnonzero(seed))
+    dist = _bfs_grid(np.flatnonzero(seed), fr, fc, idx, wv, 0.0)
     INF = np.iinfo(np.int32).max
-    bfs = np.where(dist > 0, dist, INF)
-    bfs_grid = np.full((rows, cols), INF, dtype=np.int64)
-    bfs_grid[fr, fc] = bfs
+    bfs = np.where(dist > 0, dist, INF).astype(np.int64)
+    del dist
 
     best_d = np.full(n, INF, dtype=np.int64)
     best_k = np.full(n, -1, dtype=np.int64)
     for k in range(8):
         nr, nc, inside = _neighbours(fr, fc, k, rows, cols)
         ok = inside & valid[nr, nc] & (work[nr, nc] <= wv)
-        nd = np.where(routed[nr, nc] & ~flat[nr, nc], 0, bfs_grid[nr, nc])
+        j = np.where(inside, idx[nr, nc], -1)
+        nb_d = np.where(j >= 0, bfs[np.maximum(j, 0)], INF)
+        nd = np.where(routed[nr, nc] & ~flat[nr, nc], 0, nb_d)
         better = ok & (nd < best_d)
         best_d = np.where(better, nd, best_d)
         best_k = np.where(better, k, best_k)
