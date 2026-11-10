@@ -139,8 +139,15 @@ def resampling_stats(array, valid, min_overlap=50):
 
     Returns a dict: duplicated_rows / duplicated_cols (counts of rows or
     columns that exactly repeat the previous one over >= 99 % of their
-    overlapping valid cells and are not constant), their shares, and
-    tied_share (share of E and S neighbour pairs with identical values).
+    overlapping valid cells and are not constant), their shares,
+    tied_share (share of E and S neighbour pairs with identical values) and
+    sloped_tied_share (1.0.2): the share of pairs that are tied although
+    both cells differ from some other neighbour by more than
+    SLOPED_TIE_RELIEF_M. Reprojection with nearest neighbour onto a rotated
+    or shifted grid repeats source cells without repeating whole rows, so
+    the row test misses it; the copies still show up as ties on sloping
+    ground, where a continuous surface has almost none. Ties inside flat
+    patches (water bodies, flattened areas, quantised plains) are excluded.
     """
     a = np.asarray(array)
     v = np.asarray(valid, dtype=bool)
@@ -165,30 +172,168 @@ def resampling_stats(array, valid, min_overlap=50):
     ps = v[1:] & v[:-1]
     ties = int(((a[:, 1:] == a[:, :-1]) & pe).sum() + ((a[1:] == a[:-1]) & ps).sum())
     pairs = int(pe.sum() + ps.sum())
+    aw, vw = _central_window(a, v, AUDIT_WINDOW_CELLS)
     return {"duplicated_rows": dr, "duplicated_cols": dc,
             "duplicated_row_share": dr / max(nr, 1), "duplicated_col_share": dc / max(nc, 1),
-            "tied_share": ties / max(pairs, 1)}
+            "tied_share": ties / max(pairs, 1),
+            "sloped_tied_share": _sloped_tie_share(aw, vw, SLOPED_TIE_RELIEF_M)}
 
 
-def audit_resampling(array, valid, threshold=0.002):
+SLOPED_TIE_RELIEF_M = 0.1        # a tie counts as "on sloping ground" above this local relief
+SLOPED_TIE_THRESHOLD = 0.02      # share of tied pairs on sloping ground that triggers a warning
+AUDIT_WINDOW_CELLS = 4_000_000   # neighbourhood indicators use a central window of large DEMs
+QUANTUM_CANDIDATES = (1.0, 0.5, 0.25, 0.2, 0.1, 0.05, 0.02, 0.01)
+
+
+def _central_window(array, valid, max_cells):
+    """Central window of at most max_cells cells (the whole grid when smaller)."""
+    rows, cols = array.shape
+    if rows * cols <= max_cells:
+        return array, valid
+    side = int(max_cells ** 0.5)
+    r0, c0 = max((rows - side) // 2, 0), max((cols - side) // 2, 0)
+    return array[r0:r0 + side, c0:c0 + side], valid[r0:r0 + side, c0:c0 + side]
+
+
+def _neighbour_stack(z):
+    """Yield the 8 neighbour grids of z (NaN outside the grid), D8 order not needed."""
+    rows, cols = z.shape
+    for dr in (-1, 0, 1):
+        for dc in (-1, 0, 1):
+            if dr == 0 and dc == 0:
+                continue
+            nb = np.full(z.shape, np.nan)
+            nb[max(-dr, 0):rows - max(dr, 0), max(-dc, 0):cols - max(dc, 0)] = \
+                z[max(dr, 0):rows - max(-dr, 0), max(dc, 0):cols - max(-dc, 0)]
+            yield nb
+
+
+def _sloped_tie_share(array, valid, relief_m):
+    """Share of E/S neighbour pairs that are exactly tied while both cells have local relief > relief_m."""
+    z = np.where(valid, np.asarray(array, dtype=np.float64), np.nan)
+    relief = np.zeros(z.shape)
+    for nb in _neighbour_stack(z):
+        with np.errstate(invalid="ignore"):
+            relief = np.fmax(relief, np.abs(z - nb))
+    relief = np.nan_to_num(relief)
+    pe = valid[:, 1:] & valid[:, :-1]
+    ps = valid[1:] & valid[:-1]
+    te = (z[:, 1:] == z[:, :-1]) & pe & (np.minimum(relief[:, 1:], relief[:, :-1]) > relief_m)
+    ts = (z[1:] == z[:-1]) & ps & (np.minimum(relief[1:], relief[:-1]) > relief_m)
+    return float((te.sum() + ts.sum()) / max(int(pe.sum() + ps.sum()), 1))
+
+
+def vertical_quantum(array, valid, candidates=QUANTUM_CANDIDATES, need=0.999, sample=200_000):
+    """Storage step of the elevations, or None when they look continuous (1.0.2).
+
+    Returns the largest candidate step q (metres) such that at least `need`
+    of the valid values lie on a multiple of q, allowing for float32
+    rounding. Whole-metre products (ALOS AW3D30, SRTM) give 1.0 even when
+    stored as float; FABDEM gives 0.01; a bilinear-resampled DEM gives None.
+    """
+    x = np.asarray(array, dtype=np.float64)[np.asarray(valid, dtype=bool)]
+    if x.size == 0:
+        return None
+    if x.size > sample:
+        x = x[np.random.default_rng(0).choice(x.size, sample, replace=False)]
+    eps = 4.0 * float(np.spacing(np.float32(np.max(np.abs(x)))))
+    for q in candidates:
+        off = np.abs(x - np.round(x / q) * q)
+        if (off <= max(0.02 * q, eps)).mean() >= need:
+            return float(q)
+    return None
+
+
+def mean_steepest_drop(array, valid):
+    """Mean over valid cells of the steepest drop (elevation units) to any of the 8 neighbours.
+
+    Cells with no lower neighbour count as zero. This is the "average drop
+    per pixel" of Gyasi-Agyei et al. (1995), computed on the DEM as given.
+    """
+    v = np.asarray(valid, dtype=bool)
+    z = np.where(v, np.asarray(array, dtype=np.float64), np.nan)
+    best = np.zeros(z.shape)
+    for nb in _neighbour_stack(z):
+        with np.errstate(invalid="ignore"):
+            best = np.fmax(best, z - nb)
+    vals = best[v]
+    return float(np.nanmean(vals)) if vals.size else 0.0
+
+
+def precision_stats(array, valid):
+    """Vertical quantum, mean steepest drop per pixel and their ratio (None when continuous)."""
+    a, v = _central_window(np.asarray(array), np.asarray(valid, dtype=bool), AUDIT_WINDOW_CELLS)
+    q = vertical_quantum(a, v)
+    drop = mean_steepest_drop(a, v)
+    return {"quantum": q, "mean_drop": drop, "ratio": (drop / q) if q else None}
+
+
+def audit_precision(array, valid, caution_ratio=10.0):
+    """Warn when the elevation storage step is coarse for the relief (1.0.2).
+
+    Gyasi-Agyei et al. (1995, Hydrol. Process. 9, 363-382) proposed that a
+    DEM's vertical resolution is adequate for extracting the drainage
+    network when the average drop per pixel / vertical resolution exceeds
+    one. Walker and Willgoose (1999, WRR 35, 2259-2268) found that
+    condition necessary but not sufficient, and note that the threshold was
+    fixed only to within a factor of ten. So: below 1 is a warning; below
+    caution_ratio (10) is a caution that crossings on low-relief ground may
+    depend on how flats are routed. Continuous DEMs return no warning.
+    """
+    st = precision_stats(array, valid)
+    q, r = st["quantum"], st["ratio"]
+    if q is None or r is None or r >= caution_ratio:
+        return []
+    step = f"{q:g} m" if q >= 0.1 else f"{100 * q:g} cm"
+    head = (f"Elevations are stored in steps of {step}, and the mean steepest drop per cell is "
+            f"{st['mean_drop']:.2f} m (ratio {r:.1f}). ")
+    if r < 1.0:
+        return [head + "That is below the adequacy ratio of 1 proposed by Gyasi-Agyei et al. (1995): "
+                "much of the terrain is flat at this precision, so stream positions and catchment "
+                "boundaries there are set by flat routing rather than by the terrain. Use a "
+                "floating-point DEM if one is available, never round a DEM to whole metres, and "
+                "check crossings on low-relief ground with the flat-method sensitivity output, "
+                "mapped drainage or a site visit."]
+    return [head + f"That meets the ratio of 1 proposed by Gyasi-Agyei et al. (1995) but is under "
+            f"{caution_ratio:g}; Walker and Willgoose (1999) found that ratio necessary rather than "
+            "sufficient. Crossings on low-relief parts of the DEM may still depend on flat routing: "
+            "review the flat-method sensitivity output there, and prefer a floating-point DEM."]
+
+def audit_resampling(array, valid, threshold=0.002, tie_threshold=SLOPED_TIE_THRESHOLD):
     """Warn when the DEM looks nearest-neighbour resampled (see resampling_stats).
 
     threshold : share of duplicated rows or columns that triggers the
         warning (0.2 %). Calibrated on real clips: nearest-neighbour
         reprojections showed 0.45-1.5 %, native and bilinear grids 0 %.
+    tie_threshold : share of tied neighbour pairs on sloping ground that
+        triggers the warning when no row repeats (1.0.2). Checked only when
+        the elevations are continuous or stored in steps of 1 cm or finer;
+        coarser storage steps produce ties of their own (see
+        audit_precision). Calibrated on FABDEM clips reprojected to UTM:
+        nearest neighbour gives a few per cent, bilinear and cubic almost
+        none.
     """
     st = resampling_stats(array, valid)
     worst = max(st["duplicated_row_share"], st["duplicated_col_share"])
-    if worst < threshold:
-        return []
-    return [
-        f"{st['duplicated_rows']:,} rows ({100 * st['duplicated_row_share']:.2f}%) and "
-        f"{st['duplicated_cols']:,} columns ({100 * st['duplicated_col_share']:.2f}%) exactly "
-        f"repeat their neighbour, and {100 * st['tied_share']:.1f}% of neighbouring cells are "
-        "exactly equal. The DEM was probably resampled or reprojected with nearest neighbour. "
-        "The repeats create artificial flats and ties, so flow routing on them is arbitrary "
-        "and a catchment can switch between crossings. Resample the source DEM with bilinear "
-        "(or cubic) into the local UTM zone and run again."]
+    advice = ("The repeats create artificial flats and ties, so flow routing on them is arbitrary "
+              "and a catchment can switch between crossings. Resample the source DEM with bilinear "
+              "(or cubic) into the local UTM zone and run again.")
+    if worst >= threshold:
+        return [
+            f"{st['duplicated_rows']:,} rows ({100 * st['duplicated_row_share']:.2f}%) and "
+            f"{st['duplicated_cols']:,} columns ({100 * st['duplicated_col_share']:.2f}%) exactly "
+            f"repeat their neighbour, and {100 * st['tied_share']:.1f}% of neighbouring cells are "
+            "exactly equal. The DEM was probably resampled or reprojected with nearest neighbour. "
+            + advice]
+    a, v = _central_window(np.asarray(array), np.asarray(valid, dtype=bool), AUDIT_WINDOW_CELLS)
+    q = vertical_quantum(a, v)
+    if (q is None or q <= 0.01) and st["sloped_tied_share"] >= tie_threshold:
+        return [
+            f"{100 * st['sloped_tied_share']:.1f}% of neighbouring cells on sloping ground have "
+            "exactly the same elevation, although no whole row or column repeats. The DEM was "
+            "probably reprojected or resampled with nearest neighbour onto a rotated or shifted "
+            "grid (or the source already contains copied cells). " + advice]
+    return []
 
 
 def read_dem(path, band=1, nodata_override=None):

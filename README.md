@@ -458,7 +458,7 @@ Most bad runs start before QEHT: a DEM reprojected with nearest neighbour, an ex
 1. Merges the tiles of one product into a virtual mosaic.
 2. Optionally clips to a polygon layer or an extent, widened by a buffer (default 2,000 m).
 3. Reprojects with **bilinear** (default) or cubic resampling. Nearest neighbour is not offered. The output is float32 with NoData −9999 and pixels aligned to the cell size.
-4. Audits the input and the output for undeclared NoData and nearest-neighbour repeats. If the *input* already repeats rows or columns, the damage is upstream: get the native product.
+4. Audits the input and the output for undeclared NoData, nearest-neighbour repeats and ties, and a vertical storage step that is coarse for the relief (1.0.2). If the *input* already repeats rows or columns, the damage is upstream: get the native product.
 5. Writes the DEM source and the preparation record into the GeoTIFF tags. The design hydrology package reads them when its own *DEM source* is blank (metadata `dem_source`, `dem_prep`).
 
 **Target CRS.** By default this is the WGS 84 / UTM zone of the extent centre, anywhere on Earth. Beyond 84° N or 80° S it is UPS North or South, and the Norway (32V) and Svalbard (31X–37X) zone exceptions apply. The log notes an extent that spans several zones. You can also choose any projected CRS, such as a national grid. **Cell size** defaults to the native cell converted to metres (the larger of x and y, to 0.1 m). A JSON log records the inputs, CRS, cell size, resampling, both audits and an estimate of the native grid.

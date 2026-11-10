@@ -5,6 +5,9 @@ development history of the numerical core and Processing tools.
 
 ## [Unreleased]
 ### Added
+- **Vertical precision audit.** Prepare DEM, Fill, Flow direction and the pipeline now read the elevation storage step (whole metres for ALOS AW3D30 and SRTM, 1 cm for FABDEM, none for a continuous DEM) and the mean steepest drop per cell, and warn when their ratio is below 1, the adequacy criterion of Gyasi-Agyei et al. (1995), or add a caution below 10 (Walker and Willgoose, 1999, found the criterion necessary rather than sufficient). Prepare DEM logs the step, mean drop and ratio (`core/raster.py`: `vertical_quantum`, `mean_steepest_drop`, `precision_stats`, `audit_precision`).
+- **Nearest-neighbour reprojection onto a rotated grid.** The resampling audit missed nearest-neighbour reprojection from geographic to UTM, which copies cells without repeating whole rows or columns. It now also warns when more than 2 % of neighbour pairs on sloping ground are exactly tied (`sloped_tied_share`), for continuous DEMs and storage steps of 1 cm or finer. Ties inside flat patches are not counted.
+- New suite `tests/test_dem_precision.py` (20 checks).
 - Continuous integration: GitHub Actions runs the 25 pure test suites (NumPy and GDAL, no QGIS) and a Bandit scan on every push to `main` and every pull request (`.github/workflows/tests.yml`, `tools/dev/ci_pure.sh`). `.github/` is left out of the plugin zip.
 
 ## [1.0.1] — 2026-10-09

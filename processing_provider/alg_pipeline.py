@@ -29,7 +29,7 @@ from qgis.core import (
 )
 
 from .base import QehtAlgorithm
-from ..core.raster import read_dem, audit_nodata, audit_resampling
+from ..core.raster import read_dem, audit_nodata, audit_resampling, audit_precision
 
 FLAT_LABELS = ["toward lower terrain", "Barnes 2014"]
 STAGES = ["Full run", "Stop after crossing candidates (review them, then run again with "
@@ -279,7 +279,8 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
         if not info.projection_wkt:
             raise QgsProcessingException("The DEM has no CRS; QEHT needs a projected, metric CRS.")
         self.check_size(feedback, info.rows, info.cols)
-        audit = audit_nodata(dem, valid, info.nodata) + audit_resampling(dem, valid)
+        audit = (audit_nodata(dem, valid, info.nodata) + audit_resampling(dem, valid)
+                 + audit_precision(dem, valid))
         for a in audit:
             warn("DEM check: " + a)
         cell_area = info.cell_width * info.cell_height
