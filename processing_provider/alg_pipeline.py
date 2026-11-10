@@ -415,13 +415,19 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
               for c in crs_rows]
         flat = {}
         if rc:
-            res_f = flat_method_sensitivity(filled, fvalid, finfo.cell_width, finfo.cell_height, rc)
+            res_f = flat_method_sensitivity(filled, fvalid, finfo.cell_width, finfo.cell_height, rc,
+                                            stream_threshold_cells=thr)
             flat = {c["outlet_uid"]: r for c, r in zip(crs_rows, res_f)}
             n_f = sum(1 for r in flat.values() if r.get("flat_sensitive"))
             if n_f:
                 warn(f"{n_f} crossing(s) change area by more than 10 % between the two flat "
                      "methods: " + ", ".join(u for u, r in flat.items() if r.get("flat_sensitive"))
                      + " - verify against mapped drainage or on site.")
+            moved = [u for u, r in flat.items() if r.get("flat_moved")]
+            if moved:
+                warn(f"{len(moved)} crossing(s) lose their channel under the other flat method "
+                     "(no stream within one cell), so the crossing position depends on flat "
+                     "routing: " + ", ".join(moved) + ".")
         del filled, fvalid
 
         # 8. stand-alone layers and tables ------------------------------------------

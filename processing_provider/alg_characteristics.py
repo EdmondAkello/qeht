@@ -24,7 +24,10 @@ SNAP="SNAP"; SNAP_THRESHOLD="SNAP_THRESHOLD"; NESTED="NESTED"
 CATCH_OUT="CATCH_OUT"; PATH_OUT="PATH_OUT"; ID_FIELD="ID_FIELD"; ID_PREFIX="ID_PREFIX"
 FLAT_CHECK="FLAT_CHECK"; FLAT_TOL="FLAT_TOL"
 SENSITIVITY_FIELDS=[("area_barnes_km2","float"),("area_toward_km2","float"),
-                    ("flat_sensitivity_pct","float"),("flat_sensitive","int")]
+                    ("flat_sensitivity_pct","float"),("flat_sensitive","int"),
+                    # 1.1
+                    ("flat_area_ratio","float"),("flat_moved","int"),
+                    ("flat_catch_share_pct","float"),("flat_lfp_share_pct","float")]
 
 
 class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
@@ -219,7 +222,8 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
             cond,cv,_=read_dem(self.raster_path(parameters,DEM,context))
             outlets=[info.xy_to_rowcol(cr["outlet_x"],cr["outlet_y"]) for _,cr in crossings]
             by_uid={cr["outlet_uid"]:res for (_,cr),res in zip(crossings,flat_method_sensitivity(
-                cond,cv,info.cell_width,info.cell_height,outlets,tolerance=tol/100.0))}
+                cond,cv,info.cell_width,info.cell_height,outlets,tolerance=tol/100.0,
+                stream_threshold_cells=snap_threshold if snap_threshold>0 else None))}
             for _,ch in catchments:
                 ch.update(by_uid.get(ch["outlet_uid"],{}))
             catch_fields+=SENSITIVITY_FIELDS
@@ -232,6 +236,13 @@ class CatchmentCharacteristicsAlgorithm(QehtAlgorithm):
                                 f"{by_uid[u]['area_toward_km2']:.3f} km2)" for u in flagged)
                     + ". Flats or tied cells decide these catchments - verify against "
                     "mapped drainage or on site (see also the DEM QA check in Fill).")
+                moved=[u for u,r in by_uid.items() if r.get("flat_moved")]
+                if moved:
+                    feedback.pushWarning(
+                        f"Flat-method check: at {len(moved)} outlet(s) the channel itself runs "
+                        "elsewhere under the other flat method (no stream within one cell), so the "
+                        "crossing position, not only its area, depends on flat routing: "
+                        + ", ".join(moved) + ".")
             else:
                 feedback.pushInfo(f"Flat-method check: every outlet within {tol:g}% under both methods.")
         write(catch_out,"catchments",ogr.wkbMultiPolygon,catch_fields,catchments,wkb_multipolygon)

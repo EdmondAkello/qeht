@@ -285,6 +285,30 @@ def test_dem_qa_and_sensitivity():
           f"W {res[0]['area_barnes_km2']:.4f}/{res[0]['area_toward_km2']:.4f} km2")
     check("unaffected outlet not flagged", res[2]["flat_sensitive"] == 0
           and res[2]["flat_sensitivity_pct"] == 0.0)
+    # 1.1: area ratio, crossing moved, share of the catchment / flow path on flats
+    check("area ratio toward / Barnes reported (< 1 west, > 1 east, 1 unaffected)",
+          res[0]["flat_area_ratio"] < 1 < res[1]["flat_area_ratio"] and res[2]["flat_area_ratio"] == 1.0,
+          f"{res[0]['flat_area_ratio']:.3f} / {res[1]['flat_area_ratio']:.3f}")
+    check("no outlet moved when both methods keep a channel there",
+          all(x["flat_moved"] == 0 for x in res))
+    n_b = round(res[0]["area_barnes_km2"] / 0.0009)          # cells (30 m)
+    n_t = round(res[0]["area_toward_km2"] / 0.0009)
+    thr = (n_b + n_t) // 2                                    # stream exists under Barnes only
+    res2 = flat_method_sensitivity(z, np.ones_like(z, dtype=bool), 30, 30,
+                                   [(r0, 0), (r0, C - 1), (0, 0)], stream_threshold_cells=thr)
+    check("stream threshold between the two areas: west and east outlets 'moved', the third not",
+          res2[0]["flat_moved"] == 1 and res2[1]["flat_moved"] == 1 and res2[2]["flat_moved"] == 0,
+          f"threshold {thr} cells (Barnes {n_b}, toward {n_t})")
+    check("flat shares: the Barnes catchment that takes the tied cell has a share > 0, the others 0",
+          res[0]["flat_catch_share_pct"] > 0 and res[0]["flat_lfp_share_pct"] > 0
+          and res[1]["flat_catch_share_pct"] == 0 and res[2]["flat_catch_share_pct"] == 0,
+          f"catchment {res[0]['flat_catch_share_pct']:.2f} %, path {res[0]['flat_lfp_share_pct']:.1f} %")
+    plane = 100.0 - np.add.outer(np.arange(15) * 0.5, np.arange(15) * 0.3)
+    rp = flat_method_sensitivity(plane, np.ones_like(plane, dtype=bool), 30, 30, [(14, 14)],
+                                 stream_threshold_cells=5)
+    check("tilted plane (no flats): not sensitive, not moved, flat shares 0",
+          rp[0]["flat_sensitive"] == 0 and rp[0]["flat_moved"] == 0
+          and rp[0]["flat_catch_share_pct"] == 0 and rp[0]["flat_lfp_share_pct"] == 0, str(rp[0]))
 
 
 def test_memory_estimate():
