@@ -1075,9 +1075,15 @@ def main(in_qgis=False):
     print("\n" + ("ALL QGIS SMOKE CHECKS PASSED" if not FAILURES
                   else f"{len(FAILURES)} FAILURE(S): " + "; ".join(FAILURES)))
     print("outputs in", tmp)
+    rc = 1 if FAILURES else 0
     if app is not None:
-        app.exitQgis()
-    return 1 if FAILURES else 0
+        # Stand-alone run: QgsApplication.exitQgis() and the interpreter's teardown of the
+        # Processing framework segfault on QGIS 3.x after every check has passed (the exit
+        # code was 139). Flush and leave without the teardown; the OS frees everything.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(rc)
+    return rc
 
 
 if __name__ == "__main__":

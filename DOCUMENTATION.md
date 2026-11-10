@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -59,13 +59,13 @@ qeht/
                          xlsx_layout.py
 
   processing_provider/   the only QGIS-aware code
-    provider.py          registers the 23 algorithms
+    provider.py          registers the 26 algorithms
     base.py              shared base class and helpers (pour points, IDs)
     alg_*.py             one file per algorithm
 
-  tests/                 test_*.py: 27 pure suites (710 checks at 1.1.0), runnable without QGIS
+  tests/                 test_*.py: 28 pure suites (764 checks at 1.2.0), runnable without QGIS
     fixtures/            golden_exchange.gpkg + .json (shared with HEAS)
-    qgis_smoke.py        every Processing tool run inside QGIS (80 checks)
+    qgis_smoke.py        every Processing tool run inside QGIS (86 checks)
     qgis_e2e.py          the pipeline on a synthetic road site (25 checks)
 ```
 
@@ -75,7 +75,7 @@ The dependency direction is strict and one-way: `processing_provider` imports `c
 
 ## 3. Processing algorithms
 
-QEHT registers 23 algorithms under the "Engineering Hydrology" provider.
+QEHT registers 26 algorithms under the "Engineering Hydrology" provider.
 
 | Algorithm | Commercial reference analogue |
 |---|---|
@@ -553,9 +553,9 @@ Pipeline warnings already covered per crossing are not repeated. Rows are sorted
 
 QEHT is validated at three levels.
 
-**Level 1 — synthetic analytic DEMs.** 27 pure-Python suites with 710 checks at 1.1.0, runnable on bare Python with NumPy (`tests/test_*.py`). They cover D8 encoding, distance weighting, fill spill levels, accumulation and catchments on analytic surfaces, the 10–85 conventions on an analytic profile, the slope domains, the polygon tracer, the v0.8.3 reference implementations (bit for bit), Barnes against a per-cell port of RichDEM, road crossings and burning, soils and USLE K, curve numbers, rainfall, erosion against the A14 study's tables, channel sections, Tc, the exports, mapped drainage, auto-clip, scenarios and the DEM-error field, and the package against its golden fixture.
+**Level 1 — synthetic analytic DEMs.** 28 pure-Python suites with 764 checks at 1.2.0, runnable on bare Python with NumPy (`tests/test_*.py`). They cover D8 encoding, distance weighting, fill spill levels, accumulation and catchments on analytic surfaces, the 10–85 conventions on an analytic profile, the slope domains, the polygon tracer, the v0.8.3 reference implementations (bit for bit), Barnes against a per-cell port of RichDEM, road crossings and burning, soils and USLE K, curve numbers, rainfall, erosion against the A14 study's tables, channel sections, Tc, the exports, mapped drainage, auto-clip, scenarios and the DEM-error field, and the package against its golden fixture.
 
-**QGIS level.** `tests/qgis_smoke.py` runs every Processing tool through `processing.run()` on the example DEM and checks outputs, `outlet_uid` consistency and the package (80 checks). `tests/qgis_e2e.py` runs the pipeline on a synthetic road site with known structure (25 checks). Both pass on QGIS 3.34.4 and 4.2.3.
+**QGIS level.** `tests/qgis_smoke.py` runs every Processing tool through `processing.run()` on the example DEM and checks outputs, `outlet_uid` consistency and the package (86 checks). `tests/qgis_e2e.py` runs the pipeline on a synthetic road site with known structure (25 checks). Both pass on QGIS 3.34, 3.44.15 and 4.2.3.
 
 **Level 3 — reference hydrology toolset production output (Site A, steep).** 718×775 cells, EPSG:21037, 16 road-crossing pour points with reference catchments and longest flow paths. Catchment area median ratio 1.009 (15/16 within ±30%), longest-flow-path length median ratio 0.999 (15/16 within ±20%), best individual match 0.05%, zero flow-direction cycles. Cell-by-cell on an aligned grid, flow direction agrees with the reference toolset on 98.5%.
 
@@ -580,7 +580,7 @@ QEHT 1.0 is the first stable release (`experimental=False`). The plugin zip hold
 
 ## 9. Citation
 
-See `CITATION.cff`. In brief: Akello, E. QEHT: QGIS Engineering Hydrology Toolkit, version 1.1.0, GPL-2.0-or-later, https://github.com/EdmondAkello/qeht.
+See `CITATION.cff`. In brief: Akello, E. QEHT: QGIS Engineering Hydrology Toolkit, version 1.2.0, GPL-2.0-or-later, https://github.com/EdmondAkello/qeht.
 
 ## 10. Licence
 

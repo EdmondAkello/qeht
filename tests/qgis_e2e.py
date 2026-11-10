@@ -254,4 +254,9 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Leave without the interpreter's teardown of QGIS and Processing, which segfaults on
+    # QGIS 3.x after the checks have run (exit code 139); the OS frees everything.
+    _rc = main()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(_rc)

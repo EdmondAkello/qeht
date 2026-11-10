@@ -92,37 +92,6 @@ def _components(n, a, b):
             return parent
 
 
-def _csr(n, src, dst):
-    order = np.lexsort((np.arange(src.size), src))
-    src, dst = src[order], dst[order]
-    indptr = np.zeros(n + 1, dtype=np.int64)
-    np.add.at(indptr, src + 1, 1)
-    np.cumsum(indptr, out=indptr)
-    return indptr, dst
-
-
-def _bfs(n, indptr, indices, seeds):
-    """Layered multi-source BFS: 1 at the seeds, +1 per 8-neighbour step; 0 = unreached."""
-    dist = np.zeros(n, dtype=np.int64)
-    front = np.unique(seeds)
-    if front.size == 0:
-        return dist
-    dist[front] = 1
-    loops = 1
-    while front.size:
-        cnt = indptr[front + 1] - indptr[front]
-        tot = int(cnt.sum())
-        if tot == 0:
-            break
-        offs = np.repeat(indptr[front] - (np.cumsum(cnt) - cnt), cnt) + np.arange(tot)
-        nb = indices[offs]
-        nb = np.unique(nb[dist[nb] == 0])
-        loops += 1
-        dist[nb] = loops
-        front = nb
-    return dist
-
-
 def _bfs_grid(seeds, fr, fc, idx, e, tol):
     """Layered multi-source BFS over equal-elevation 8-neighbours of the cells (fr, fc).
 
