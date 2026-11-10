@@ -113,6 +113,7 @@ def _package(path, with_road=True, truncate=False):
                       "Road alignment used for chainage"))
     md = dict(id_info, dem_path="synthetic", raw_dem_path="synthetic", dem_sha256="",
               dem_source="synthetic", flat_method="barnes", stream_threshold_km2="0.01",
+              stream_threshold_cells="100", snap_radius_cells="3",
               cell_size_m="10 x 10", qeht_version="test")
     write_exchange(path, cr, ca, fp, md, UTM37S_WKT, crs_name="WGS 84 / UTM zone 37S",
                    extra_layers=extra)
@@ -195,10 +196,85 @@ def test_sheets(pkg, reg, flat, dep_rows):
           alignment_from_package(pkg2) is None and "<section class='sheet'>" in build_sheets(pkg2))
 
 
+def test_sensitivity():
+    print("\n4. Per-crossing sensitivity")
+    from ..core.review.sensitivity import (crossing_sensitivity, package_inputs, by_uid,
+                                           write_csv, SENSITIVITY_FIELDS)
+    (cr, _, _, _, _), g = synthetic_run()
+    cs = g["cs"]
+    filled, _, _ = fill_depressions(g["dem"], g["valid"], cell_width=cs, cell_height=cs)
+    gt = g["gt"]
+    rc = [(int((a["input_y"] - gt[3]) // gt[5]), int((a["input_x"] - gt[0]) // gt[1])) for _, a in cr]
+    uids = [a["outlet_uid"] for _, a in cr]
+    rows, summ = crossing_sensitivity(filled, g["valid"], cs, cs, rc, uids, threshold_cells=100,
+                                      snap_cells=3, flat_method="toward")
+    check("base + 5 variants per crossing", len(rows) == 6 * len(uids)
+          and [r["factor"] for r in rows[:6]] == ["base", "flat method", "snap radius", "snap radius",
+                                                    "stream threshold", "stream threshold"])
+    base = {r["outlet_uid"]: r for r in rows if r["factor"] == "base"}
+    pkg_area = {a["outlet_uid"]: a["acc_at_outlet_km2"] for _, a in cr}
+    check("base reproduces the package's outlet area (same snap and threshold)",
+          all(abs(base[u]["area_km2"] - pkg_area[u]) < 1e-9 for u in uids),
+          str([(round(base[u]["area_km2"], 4), round(pkg_area[u], 4)) for u in uids]))
+    check("base lengths positive, changes 0", all(base[u]["lfp_length_m"] > 0
+                                                  and base[u]["d_area_pct"] == 0 for u in uids))
+    rows2, _ = crossing_sensitivity(filled, g["valid"], cs, cs, rc, uids, 100, 3, "toward",
+                                    base_direction=g["direction"])
+    check("passing the run's directions gives the same table",
+          [(r["area_km2"], r["lfp_length_m"]) for r in rows2]
+          == [(r["area_km2"], r["lfp_length_m"]) for r in rows])
+    check("every change is relative to its base", all(
+        r["d_area_pct"] is None or abs(r["d_area_pct"] - 100 * (r["area_km2"] - base[r["outlet_uid"]]["area_km2"])
+                                       / base[r["outlet_uid"]]["area_km2"]) < 1e-9 for r in rows))
+    check("summary: one row per crossing, worst factor named", len(summ) == 3 and all(
+        s["sens_max_area_pct"] is not None and s["sens_area_factor"] for s in summ))
+    err = {uids[0]: {"p10": (base[uids[0]]["area_km2"] * 0.8, 500.0), "p90": (base[uids[0]]["area_km2"] * 1.3, 700.0)}}
+    rows3, summ3 = crossing_sensitivity(filled, g["valid"], cs, cs, rc, uids, 100, 3, "toward",
+                                        dem_error=err)
+    de = [r for r in rows3 if r["factor"] == "DEM error"]
+    check("DEM error P10/P90 copied as rows (-20 %, +30 %)", len(de) == 2 and
+          abs(de[0]["d_area_pct"] + 20) < 1e-6 and abs(de[1]["d_area_pct"] - 30) < 1e-6)
+    check("DEM error can be the worst factor", summ3[0]["sens_max_area_pct"] >= 30 - 1e-6
+          or summ3[0]["sens_max_area_pct"] > 30)
+    far = [(5, 5)]
+    rows4, s4 = crossing_sensitivity(filled, g["valid"], cs, cs, far, ["Z"], 100, 1, "toward")
+    check("an input point far from any stream is lost, not measured",
+          rows4[0]["outlet_lost"] == 1 and rows4[0]["area_km2"] is None)
+    tmp = tempfile.mkdtemp()
+    pkg, _ = _package(os.path.join(tmp, "s.gpkg"))
+    u2, rc2, st, er, orc2 = package_inputs(pkg, gt, g["dem"].shape)
+    check("package inputs: input cells, run settings", len(u2) == 3 and st["snap_cells"] == 3
+          and st["threshold_cells"] == 100 and st["flat_method"] == "barnes" and len(orc2) == 3, str(st))
+    fake = {uids[1]: [{"factor": "snap radius", "setting": "6 cells", "d_area_pct": 140.0,
+                       "outlet_moved": 1, "outlet_lost": 0},
+                      {"factor": "flat method", "setting": "barnes", "d_area_pct": 90.0,
+                       "outlet_moved": 0, "outlet_lost": 0}]}
+    reg = build_register(pkg, {"sensitivity": fake})
+    sr = [r for r in reg if r["category"] == "sensitivity"]
+    check("register: snap / threshold change over 25 % is a medium finding; flat row left "
+          "to the flat check", len(sr) == 1 and sr[0]["severity"] == "medium"
+          and "+140 %" in sr[0]["evidence"] and "flat" not in sr[0]["evidence"], str(sr))
+    out = write_csv(rows, os.path.join(tmp, "sens.csv"))
+    with open(out, encoding="utf-8-sig") as f:
+        back = list(csv.DictReader(f))
+    ob = [(int((a["outlet_y"] - gt[3]) // gt[5]), int((a["outlet_x"] - gt[0]) // gt[1])) for _, a in cr]
+    rows5, _ = crossing_sensitivity(filled, g["valid"], cs, cs, rc, uids, 100, 3, "toward",
+                                    outlets_rc=ob)
+    b5 = {r["outlet_uid"]: r for r in rows5 if r["factor"] == "base"}
+    check("with the run's outlets the base is measured there (= package area)",
+          all(abs(b5[u]["area_km2"] - pkg_area[u]) < 1e-9 for u in uids)
+          and all(r["setting"].startswith("run outlet") for r in b5.values()))
+    check("CSV long table round trip", len(back) == len(rows)
+          and list(back[0]) == [k for k, _ in SENSITIVITY_FIELDS])
+    html = build_sheets(pkg, reg, {"sensitivity": by_uid(rows)})
+    check("sheets show the sensitivity rows", html.count("<h3>Sensitivity</h3>") == 3)
+
+
 def main():
     rows = test_depressions()
     pkg, reg, flat = test_register(rows)
     test_sheets(pkg, reg, flat, rows)
+    test_sensitivity()
     print(f"\n{'ALL PASSED' if not FAILURES else 'FAILED: ' + ', '.join(FAILURES)}")
     return 1 if FAILURES else 0
 

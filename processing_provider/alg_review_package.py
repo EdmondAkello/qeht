@@ -5,6 +5,7 @@
 import os
 
 from qgis.core import (QgsProcessingParameterFile, QgsProcessingParameterFileDestination,
+                       QgsProcessingParameterBoolean,
                        QgsProcessingParameterRasterLayer, QgsProcessingParameterString,
                        QgsProcessingParameterVectorDestination, QgsProcessing,
                        QgsProcessingException)
@@ -14,7 +15,7 @@ from .alg_review_depressions import add_review_parameters, review_settings, writ
 
 
 def package_review(package, raw=None, filled=None, valid=None, info=None, settings=None,
-                   flat=None, warnings=(), dem_audit=None, feedback=None):
+                   flat=None, warnings=(), dem_audit=None, feedback=None, sensitivity=None):
     """Depressions (when raw + filled are given), register rows. Shared by
     the package review tool and the pipeline. -> (register, depressions, summary)."""
     from ..core.interop import gpkg
@@ -31,7 +32,7 @@ def package_review(package, raw=None, filled=None, valid=None, info=None, settin
         deps, _, summ = depression_table(raw, filled, valid, info.geotransform, alignment=al,
                                          crossings=xs or None, **settings)
     reg = build_register(package, {"warnings": list(warnings), "dem_audit": dem_audit,
-                                   "flat_check": flat or {}},
+                                   "flat_check": flat or {}, "sensitivity": sensitivity or {}},
                          depressions=deps, near_m=settings.get("near_m", 100.0))
     return reg, deps, summ
 
@@ -57,7 +58,8 @@ class ReviewPackageAlgorithm(QehtAlgorithm):
             "with a plan, the characteristics, the checks and its register findings, and a "
             "sign-off box. Print to PDF from a browser.\n\n"
             "Give the <b>DEM the fill ran on</b> and the <b>filled DEM</b> to add the "
-            "flat-method check and the fill-depression review (deep fills at or near the road "
+            "flat-method check, the crossing sensitivity table (see Crossing sensitivity "
+            "table) and the fill-depression review (deep fills at or near the road "
             "become findings; see Review fill depressions). Without them the register uses "
             "what the package holds.\n\n"
             "The one-click pipeline writes both files automatically.")
@@ -69,6 +71,9 @@ class ReviewPackageAlgorithm(QehtAlgorithm):
             "DEM", "DEM the fill ran on (optional)", optional=True))
         self.addParameter(QgsProcessingParameterRasterLayer(
             "FILLED", "Filled DEM (optional)", optional=True))
+        self.addParameter(QgsProcessingParameterBoolean(
+            "SENSITIVITY", "With the filled DEM: also the crossing sensitivity table (routes "
+            "the DEM under both flat methods)", defaultValue=True))
         add_review_parameters(self)
         self.addParameter(QgsProcessingParameterString("TITLE", "Title", optional=True))
         self.addParameter(QgsProcessingParameterFileDestination(
@@ -103,8 +108,14 @@ class ReviewPackageAlgorithm(QehtAlgorithm):
             valid = valid & fvalid
             self.check_size(feedback, info.rows, info.cols)
             flat = self._flat_check(pkg, filled, valid, finfo, feedback)
+        sens_by = {}
+        if filled is not None and self.parameterAsBool(parameters, "SENSITIVITY", context):
+            from .alg_crossing_sensitivity import run_sensitivity
+            from ..core.review.sensitivity import by_uid
+            sens_by = by_uid(run_sensitivity(pkg, filled, valid, finfo)[0])
         s = review_settings(self, parameters, context)
-        reg, deps, summ = package_review(pkg, raw, filled, valid, info, s, flat, warnings)
+        reg, deps, summ = package_review(pkg, raw, filled, valid, info, s, flat, warnings,
+                                         sensitivity=sens_by)
         out = self.parameterAsFileOutput(parameters, "REGISTER", context)
         write_register_csv(reg, out)
         n = register_counts(reg)
@@ -113,7 +124,8 @@ class ReviewPackageAlgorithm(QehtAlgorithm):
         title = self.parameterAsString(parameters, "TITLE", context) or \
             os.path.splitext(os.path.basename(pkg))[0]
         sheets = self.parameterAsFileOutput(parameters, "SHEETS", context)
-        write_sheets(pkg, sheets, reg, {"flat_check": flat}, deps, title=title)
+        write_sheets(pkg, sheets, reg, {"flat_check": flat, "sensitivity": sens_by}, deps,
+                     title=title)
         feedback.pushInfo(f"Crossing sheets: {sheets}")
         result = {"REGISTER": out, "SHEETS": sheets}
         dpath = self.parameterAsOutputLayer(parameters, "DEPRESSIONS", context)

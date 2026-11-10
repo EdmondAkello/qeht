@@ -126,7 +126,7 @@ def joined(package_path, layout, extra=None):
     return [[v if _ok(v) else None for v in r] for r in rows]
 
 
-def workbook_sheets(package_path, extra=None, register=None):
+def workbook_sheets(package_path, extra=None, register=None, sensitivity=None):
     """The sheets of the QEHT workbook as core.report.xlsx.Sheet objects
     (five, plus the review register when one is given)."""
     from .xlsx import Sheet
@@ -150,6 +150,14 @@ def workbook_sheets(package_path, extra=None, register=None):
                             [[r.get(c) for c in cols] for r in register],
                             formats=["0.0" if c == "chainage_m" else None for c in cols],
                             widths=[10, 9, 16, 10, 10, 44, 60, 50, 10, 40], freeze=(1, 1)))
+    if sensitivity:
+        from ..review.sensitivity import SENSITIVITY_FIELDS
+        cols = [k for k, _ in SENSITIVITY_FIELDS]
+        sheets.append(Sheet("Sensitivity", [c.replace("_", " ").capitalize() for c in cols],
+                            [[r.get(c) for c in cols] for r in sensitivity],
+                            units=["", "", "", "km²", "%", "m", "%", "0/1", "0/1"],
+                            formats=[None, None, None, "0.000", "0.0", "0", "0.0", None, None],
+                            widths=[11, 16, 34, 11, 10, 11, 10, 10, 10], freeze=(2, 1)))
     from ..interop.field_dictionary import METADATA_KEYS
     meaning = dict(METADATA_KEYS)
     md = gpkg.read_table(package_path, "qeht_run_metadata")
@@ -170,9 +178,10 @@ def workbook_sheets(package_path, extra=None, register=None):
     return sheets
 
 
-def write_workbook(package_path, out_path, extra=None, title="", register=None):
+def write_workbook(package_path, out_path, extra=None, title="", register=None, sensitivity=None):
     from .xlsx import write_xlsx
-    return write_xlsx(out_path, workbook_sheets(package_path, extra, register), title=title)
+    return write_xlsx(out_path, workbook_sheets(package_path, extra, register, sensitivity),
+                      title=title)
 
 
 def layout_json():

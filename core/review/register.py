@@ -16,7 +16,8 @@ nothing is recalculated. Severity:
             crossing position depends on flat routing, deep fill against
             the road far from any crossing)
     medium  the result depends on a modelling choice or on DEM error
-            (flat-method area change, uncertainty switching, mapped
+            (flat-method area change, uncertainty switching, area moves
+            >25 % with the snap radius or stream threshold, mapped
             drainage disagrees, DEM warnings, deep fill near the road)
     low     worth noting (outlet snapped far, Tc outside the calibration
             range of most methods, missing USLE K, non-monotonic flow path)
@@ -42,6 +43,8 @@ REGISTER_FIELDS = [
 COVERED = ("between the two flat methods", "under the other flat method",
            "proposed crossing(s) from the coverage check")
 
+SENS_AREA_PCT = 25.0        # same cut as unc_switch_pct
+
 TC_METHODS = ("kirpich", "kerby_kirpich", "scs_lag", "tr55", "bransby_williams")
 
 
@@ -63,7 +66,10 @@ def build_register(package_path, extra=None, depressions=None, near_m=100.0):
     severity then chainage, IDs R-001...
 
     extra: as for the run report - warnings [str], dem_audit [str],
-    flat_check {uid: {...}}. depressions: rows from
+    flat_check {uid: {...}}, sensitivity {uid: [rows]} (core.review.
+    sensitivity.by_uid; snap-radius and stream-threshold rows that move
+    the area by more than 25 % or lose the stream are listed; the flat
+    method and DEM error have their own findings). depressions: rows from
     core.review.depressions.depression_table (flagged rows are listed).
     """
     extra = dict(extra or {})
@@ -76,6 +82,7 @@ def build_register(package_path, extra=None, depressions=None, near_m=100.0):
                                                          with_geometry=False)} \
         if "flowpaths" in tables else {}
     flat = extra.get("flat_check") or {}
+    sens = extra.get("sensitivity") or {}
     cell = _num(md.get("cell_size_m")) or 0.0
     out = []
 
@@ -148,6 +155,17 @@ def build_register(package_path, extra=None, depressions=None, near_m=100.0):
             add("low", "soil", uid, ch, "The soil source gave no USLE K for this catchment",
                 f"soil coverage {_f(k.get('soil_coverage_pct'))} %",
                 "Supply K from another source before using the erosion results.")
+        srows = [r for r in (sens.get(uid) or [])
+                 if r.get("factor") in ("snap radius", "stream threshold")]
+        big = [r for r in srows if r.get("outlet_lost") or (
+            r.get("d_area_pct") is not None and abs(r["d_area_pct"]) > SENS_AREA_PCT)]
+        if big:
+            add("medium", "sensitivity", uid, ch, "Area depends on the snap radius or stream threshold",
+                "; ".join(f"{r['factor']} {r['setting']}: " + (
+                    "no stream in reach" if r.get("outlet_lost") else
+                    f"area {r['d_area_pct']:+.0f} %" + (" (outlet moves)" if r.get("outlet_moved") else ""))
+                    for r in big),
+                "Check that the outlet sits on the intended channel; move the input point onto it.")
         if c.get("status") == "proposed":
             add("info", "coverage", uid, ch, "Proposed crossing from the coverage check",
                 c.get("proposed_reason") or "", "Adopt or delete it, then Renumber and relink.")
