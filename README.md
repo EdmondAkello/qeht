@@ -92,6 +92,8 @@ core, and before trusting any output on a real project.
 | Export package to KMZ / XLSX | Google Earth file and a spreadsheet workbook (v0.23) |
 | Clip DEM to the road's contributing area | read only the window that drains to the road (v0.25) |
 | DEM uncertainty at crossings | Monte Carlo ranges of area, flow path, slope and Tc (v0.27) |
+| Review fill depressions | — (one polygon per filled depression: depth, area, volume, deep fills at or near the road; 1.2) |
+| Review register and crossing sheets | — (every finding of a package in one table, one review page per crossing; 1.2) |
 
 For Pairwise Intersect, use the built-in `native:intersection` — it is C++ and
 never spawns anything. There is no reason to wrap it.
@@ -567,6 +569,23 @@ Per crossing the run gives P10, P50, P90 and the coefficient of variation of eac
 - **Custom:** your own value.
 
 The time per realisation is reported before the loop. Clip a large DEM to the road's contributing area first. Settings and sources are in `uncertainty_json`; the run report and the KMZ cards show the ranges.
+
+## 1.2: review register, crossing sheets and fill depressions
+
+A run reports its findings in several places: DEM warnings in the log, flags in the characteristics table, truncated catchments in the package issues. The review tools collect them so a reviewer can work through one list.
+
+**Review register.** Every finding gets an ID (R-001 ...), a severity, a category, the crossing and chainage, the evidence and a suggested check. Empty `status` and `response` columns are left for the review itself. Severities:
+
+- **high:** the result at that crossing may be wrong. Examples are a truncated catchment, a catchment on the clip edge, a channel that moves under the other flat method, and a deep fill against the road far from any crossing.
+- **medium:** the result depends on a modelling choice or on DEM error. Examples are a flat-method area change, DEM-uncertainty switching, an outlet off mapped drainage, the DEM warnings, and a deep fill near the road.
+- **low:** worth noting. Examples are a far snap, Tc outside the calibration range of most methods, a flow path that rises, and missing USLE K.
+- **info:** run notes, such as proposed crossings.
+
+**Crossing review sheets.** One printable page per crossing, in chainage order. Each page has a plan (catchment, flow path, road, flagged fills), the characteristics, the checks, the crossing's register findings and a sign-off box.
+
+**Fill depressions.** Filling raises closed depressions to their spill level. A deep fill against an embankment usually means the DEM treats the road as a dam, so a culvert may be missing from the DEM, or missing on the ground. *Review fill depressions* lists every depression as a polygon with its depth, area, volume and deepest point. Given a road, it adds the distance from the centreline, the chainage, whether the depression touches the road and the nearest crossing. Fills at least 1 m deep within the road half-width (15 m) or within 100 m of it are flagged. These defaults are review settings, not design criteria; on whole-metre DEMs raise them.
+
+The pipeline writes all three: `tables/review_register.csv` (also a sheet in the XLSX), `report/crossing_sheets.html` and `layers/fill_depressions.gpkg`. The run report lists the high and medium findings. With burning on, the depressions are measured on the burned DEM, so the fills left against the road are the ones no crossing explains. For any package, *Review register and crossing sheets* builds the register and sheets. Add the DEM the fill ran on and the filled DEM to include the flat-method check and the depressions.
 
 ## Data sources by region
 

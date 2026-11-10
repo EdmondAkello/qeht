@@ -53,7 +53,9 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
             "characteristics table - one row per crossing, ready for a spreadsheet - and one "
             "CSV per layer), <b>exports/</b> (KMZ for Google Earth and an XLSX workbook), "
             "<b>quicklooks/</b> (PNG + world file + legend of the rasters, for "
-            "viewing without a GIS), <b>report/run_report.html</b> and <b>settings.json</b>.\n\n"
+            "viewing without a GIS), <b>report/run_report.html</b>, <b>report/crossing_sheets.html</b> (one review page per "
+            "crossing), <b>tables/review_register.csv</b> (every finding with an ID and "
+            "severity) and <b>settings.json</b>.\n\n"
             "<b>Steps:</b> optionally Prepare DEM (merge tiles, bilinear to the local UTM "
             "zone; off by default) → optionally clip to the road's contributing area (large "
             "DEMs; off by default) → DEM checks (NoData, nearest-neighbour resampling) → fill → D8 "
@@ -154,6 +156,12 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
             "QUICKLOOKS", "Raster quicklooks (PNG + world file + legend, for viewing without a GIS)",
             defaultValue=True))
         self.add_uncertainty_parameters()
+        for key, label, val in (
+                ("REVIEW_MIN_DEPTH", "Review: list fill depressions at least this deep (m)", 0.5),
+                ("REVIEW_DEEP", "Review: flag fills at least this deep at or near the road (m)", 1.0)):
+            self.addParameter(self._advanced(QgsProcessingParameterNumber(
+                key, label, QgsProcessingParameterNumber.Type.Double, defaultValue=val,
+                minValue=0.0)))
         self.addParameter(QgsProcessingParameterBoolean(
             "EXPORTS", "KMZ (Google Earth) and XLSX workbook in exports/", defaultValue=True))
         self.addParameter(QgsProcessingParameterBoolean(
@@ -428,7 +436,32 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
                 warn(f"{len(moved)} crossing(s) lose their channel under the other flat method "
                      "(no stream within one cell), so the crossing position depends on flat "
                      "routing: " + ", ".join(moved) + ".")
-        del filled, fvalid
+
+        # 7b. review: fill depressions and the review register (1.2) ------------------
+        fb.setProgressText("Review register")
+        from .alg_review_package import package_review
+        from .alg_review_depressions import write_depressions
+        from ..core.review.register import write_register_csv, register_counts
+        rdem, rvalid, _ = read_dem(route_dem)
+        rset = {"min_depth": 0.5, "deep_m": 1.0, "road_half_width_m": 15.0, "near_m": 100.0}
+        for k, key in (("min_depth", "REVIEW_MIN_DEPTH"), ("deep_m", "REVIEW_DEEP")):
+            if p.get(key) not in (None, ""):
+                rset[k] = self.parameterAsDouble(p, key, context)
+        register, deps, dsum = package_review(package, rdem, filled, rvalid & fvalid, finfo, rset,
+                                              flat, warnings, audit)
+        del rdem, rvalid, filled, fvalid
+        if deps:
+            outputs["Fill depressions"] = write_depressions(
+                self, L("fill_depressions.gpkg"), deps, finfo.projection_wkt)
+        n_reg = register_counts(register)
+        outputs["Review register"] = write_register_csv(
+            register, os.path.join(d["tables"], "review_register.csv"))
+        if dsum and (dsum["flag_at_road"] or dsum["flag_near_road"]):
+            feedback.pushInfo(f"Fill depressions: {dsum['flag_at_road']} deep fill(s) against the "
+                              f"road, {dsum['flag_near_road']} near it (layers/fill_depressions.gpkg).")
+        feedback.pushInfo("Review register: " + (", ".join(
+            f"{v} {k}" for k, v in n_reg.items() if v) or "no findings")
+            + " (tables/review_register.csv).")
 
         # 8. stand-alone layers and tables ------------------------------------------
         fb.setCurrentStep(8)
@@ -464,7 +497,7 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
                                            wgs84_transformer(package), title=ttl,
                                            relief=relief_quicklook(package))
                 outputs["XLSX"] = write_workbook(package, os.path.join(ex, "design_hydrology.xlsx"),
-                                                 extra=flat, title=ttl)
+                                                 extra=flat, title=ttl, register=register)
             except (OSError, ValueError, RuntimeError) as e:
                 warn(f"Exports failed: {e}")
 
@@ -487,8 +520,13 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
         outputs["Settings"] = settings_path
         if keep:
             outputs["Design hydrology package"] = package
+        from ..core.review.sheets import write_sheets
+        outputs["Crossing sheets"] = write_sheets(
+            package, os.path.join(d["report"], "crossing_sheets.html"), register,
+            {"flat_check": flat}, deps, title=p.get("RUN_NAME") or "QEHT hydrology run")
         write_report(package, report, title=p.get("RUN_NAME") or "QEHT hydrology run",
-                     extra={"warnings": warnings, "dem_audit": audit, "flat_check": flat,
+                     extra={"register": register,
+                            "warnings": warnings, "dem_audit": audit, "flat_check": flat,
                             "settings_path": settings_path, "background": background,
                             "outputs": {k: os.path.relpath(v, folder) for k, v in outputs.items()}})
         shutil.rmtree(os.path.join(folder, "_work_bg"), ignore_errors=True)

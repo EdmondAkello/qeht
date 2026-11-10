@@ -63,9 +63,10 @@ def main(in_qgis=False):
         reg.addProvider(QehtProvider())
     algs = sorted(a.id() for a in reg.providerById("qeht").algorithms())
     print("QEHT algorithms:", ", ".join(algs))
-    check("provider loads with 23 algorithms incl. exchange, crossings, burn, relink, soils, "
-          "erosion, alignment profile, pipeline, run report, prepare DEM",
-          len(algs) == 23 and all(a in algs for a in ("qeht:alignmentprofile", "qeht:drainagecoverage",
+    check("provider loads with 25 algorithms incl. exchange, crossings, burn, relink, soils, "
+          "erosion, alignment profile, pipeline, run report, prepare DEM, review tools",
+          len(algs) == 25 and all(a in algs for a in ("qeht:alignmentprofile", "qeht:drainagecoverage",
+              "qeht:reviewdepressions", "qeht:reviewpackage",
               "qeht:preparedem", "qeht:exportpackage", "qeht:autoclip", "qeht:demuncertainty",
               "qeht:hydrologypipeline", "qeht:runreport",
               "qeht:buildheasexchange", "qeht:crossingcandidates", "qeht:burncrossings",
@@ -920,6 +921,43 @@ def main(in_qgis=False):
           and "files/legend.png" in _zf.ZipFile(kz).namelist()
           and sum(1 for k in xc if k.startswith("A") and k[1:].isdigit() and int(k[1:]) >= 3) == len(cr3),
           f"{kml.count('<Placemark>')} placemarks, {len(xc)} cells")
+    # ---- 1.2: review register, crossing sheets, fill depressions ----------------------
+    import csv as _csv3
+    with open(os.path.join(pf3, "tables", "review_register.csv"), encoding="utf-8-sig") as fh:
+        reg3 = list(_csv3.DictReader(fh))
+    with open(os.path.join(pf3, "report", "crossing_sheets.html"), encoding="utf-8") as fh:
+        sh3 = fh.read()
+    wbx = _zf.ZipFile(xz).read("xl/workbook.xml").decode("utf-8") if os.path.exists(xz) else ""
+    check("pipeline review: register CSV with IDs and severities, one sheet per crossing, "
+          "register in the run report and the XLSX",
+          all(r["finding_id"].startswith("R-") and r["severity"] in ("high", "medium", "low", "info")
+              for r in reg3)
+          and sh3.count("<section class='sheet'>") == len(cr3) and "Review register" in rep
+          and "Review register" in wbx,
+          f"{len(reg3)} finding(s), {sh3.count('<section')} sheet(s)")
+    rr = processing.run("qeht:reviewpackage", {
+        "PACKAGE": pkg3, "DEM": os.path.join(pf3, "rasters", "dem_burned.tif"),
+        "FILLED": os.path.join(pf3, "rasters", "filled.tif"), "MIN_DEPTH": 0.0, "DEEP": 0.0,
+        "REGISTER": out("review_register.csv"), "SHEETS": out("sheets.html"),
+        "DEPRESSIONS": out("review_deps.gpkg")})
+    with open(rr["REGISTER"], encoding="utf-8-sig") as fh:
+        reg_s = list(_csv3.DictReader(fh))
+    check("review package tool: register, sheets and depressions written; same crossing "
+          "findings as the pipeline",
+          os.path.exists(rr["SHEETS"]) and "DEPRESSIONS" in rr
+          and {(r["category"], r["outlet_uid"]) for r in reg3 if r["category"] not in ("fill", "run", "DEM")}
+          <= {(r["category"], r["outlet_uid"]) for r in reg_s}, f"{len(reg_s)} finding(s)")
+    rd = processing.run("qeht:reviewdepressions", {
+        "DEM": dem, "ROAD": out("road.gpkg"), "START": 1000.0,
+        "CROSSINGS": os.path.join(pf3, "layers", "crossings.gpkg"), "MIN_DEPTH": 0.0,
+        "OUTPUT": out("deps.gpkg"), "DEPTH": out("deps_depth.tif")})
+    from qgis.core import QgsVectorLayer as _QVL
+    dl = _QVL(rd["OUTPUT"], "d", "ogr")
+    feats = list(dl.getFeatures())
+    check("review fill depressions: polygons with depth, volume, chainage and nearest crossing",
+          dl.isValid() and feats and all(f["max_depth_m"] > 0 and f["volume_m3"] > 0 for f in feats)
+          and all(f["chainage_m"] is not None and f["nearest_uid"] for f in feats)
+          and os.path.exists(rd["DEPTH"]), f"{len(feats)} depression(s)")
     # ---- v0.25 (F13): corridor auto-clip ------------------------------------------
     r = processing.run("qeht:autoclip", {"DEM": dem, "ROAD": out("road.gpkg"), "MARGIN": 500.0,
                                          "OUTPUT": out("dem_clip.tif")})

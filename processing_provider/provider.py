@@ -38,6 +38,8 @@ from .alg_prepare_dem import PrepareDemAlgorithm
 from .alg_export_package import ExportPackageAlgorithm
 from .alg_autoclip import AutoClipAlgorithm
 from .alg_dem_uncertainty import DemUncertaintyAlgorithm
+from .alg_review_depressions import ReviewDepressionsAlgorithm
+from .alg_review_package import ReviewPackageAlgorithm
 
 
 class QehtProvider(QgsProcessingProvider):
@@ -67,6 +69,8 @@ class QehtProvider(QgsProcessingProvider):
             ExportPackageAlgorithm(),
             AutoClipAlgorithm(),
             DemUncertaintyAlgorithm(),
+            ReviewDepressionsAlgorithm(),
+            ReviewPackageAlgorithm(),
         ):
             self.addAlgorithm(alg)
 

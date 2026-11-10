@@ -193,7 +193,8 @@ def _table(cols, rows, num=()):
 def build_report(package_path, title=None, extra=None):
     """-> HTML text. extra (all optional): warnings [str], dem_audit [str],
     flat_check {uid: {flat_sensitivity_pct, flat_sensitive, area_barnes_km2,
-    area_toward_km2}}, settings_path, outputs {label: path}, run_seconds."""
+    area_toward_km2}}, settings_path, outputs {label: path}, run_seconds,
+    register [rows from core.review.register.build_register]."""
     extra = dict(extra or {})
     tables = dict(gpkg.list_tables(package_path))
     md = {r["key"]: r["value"] for r in gpkg.read_table(package_path, "qeht_run_metadata")}
@@ -251,6 +252,27 @@ def build_report(package_path, title=None, extra=None):
     P.append("<p class='sub'>The full table (every characteristic) is "
              "<code>tables/catchment_characteristics.csv</code> for a pipeline run; field "
              "meanings and units are in the package's <code>qeht_field_dictionary</code>.</p>")
+
+    # review register (1.2)
+    reg = extra.get("register")
+    if reg is not None:
+        from ..review.register import register_counts
+        n = register_counts(reg)
+        top = [r for r in reg if r["severity"] in ("high", "medium")]
+        P.append("<h2>Review register</h2><p class='sub'>" + ", ".join(
+            f"{v} {k}" for k, v in n.items() if v) if reg else "<h2>Review register</h2><p class='sub'>No findings")
+        P.append(". The full register (with status and response columns for the review) is "
+                 "<code>tables/review_register.csv</code> and the XLSX sheet; one page per "
+                 "crossing is <code>report/crossing_sheets.html</code>.</p>")
+        if top:
+            P.append(_table(["finding_id", "severity", "outlet_uid", "chainage_m", "finding",
+                             "evidence"],
+                            [{"finding_id": _e(r["finding_id"]),
+                              "severity": f"<span class='flag'>{_e(r['severity'])}</span>"
+                              if r["severity"] == "high" else _e(r["severity"]),
+                              "outlet_uid": _e(r["outlet_uid"]), "chainage_m": _fmt(r["chainage_m"]),
+                              "finding": _e(r["finding"]), "evidence": _e(r["evidence"])}
+                             for r in top], {"chainage_m"}))
 
     # DEM checks and flat-method check
     P.append("<h2>DEM checks</h2>")

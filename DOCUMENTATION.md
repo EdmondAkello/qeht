@@ -102,6 +102,8 @@ QEHT registers 23 algorithms under the "Engineering Hydrology" provider.
 | Export package to KMZ / XLSX | none — Google Earth file and workbook (Section 4.28) |
 | Clip DEM to the road's contributing area | none — corridor window of a large DEM (Section 4.30) |
 | DEM uncertainty at crossings | none — Monte Carlo DEM-error ranges (Section 4.32) |
+| Review fill depressions | none — depression table and road flags (Section 4.33) |
+| Review register and crossing sheets | none — consolidated findings and per-crossing pages (Section 4.33) |
 
 Each is a `QgsProcessingAlgorithm` registered through a `QgsProcessingProvider`. Exposing the tools this way — rather than as bespoke dialogs — means they gain input validation, batch mode, the Graphical Modeler, the history log, and `processing.run()` scriptability at no additional cost. Chaining tools in the Modeler is much of a commercial hydrology extension's practical value, and this design reproduces it.
 
@@ -466,6 +468,47 @@ With σ = 0 every percentile equals the deterministic value, and a fixed seed re
 Neither preset is applied silently.
 
 ---
+
+### 4.33 Review register, crossing sheets and fill depressions (1.2)
+
+**Depressions.** The depth is d = z_filled − z, floored at 0, on the DEM the fill ran on (the burned DEM when burning is on). Cells with d > 0.01 m are joined into 8-connected components with union-find. The 1 cm floor stops the gradient a minimum-slope fill leaves on flats from merging separate depressions. For each component the tool reports:
+
+- the cell count and area;
+- max d and mean d;
+- the volume, Σd × cell area;
+- the deepest cell.
+
+Components shallower than the listing depth (0.5 m by default) are dropped, and at most 5,000 are kept, deepest first.
+
+With a road, the distance to the centreline is taken from the component's edge cells (at most 4,000 sampled), less half a cell diagonal. The chainage and the nearest crossing (by chainage) come from the deepest cell. The flags are:
+
+- **deep_at_road:** max d ≥ the flag depth (1 m) and the distance ≤ the road half-width (15 m);
+- **deep_near_road:** max d ≥ the flag depth and the distance ≤ 100 m.
+
+Polygons come from the catchment tracer (§4.10, `core/geometry/polygonize.py`), so each area equals cells × cell area.
+
+**Register.** The register is built from the package and the pipeline's warnings, DEM audit, flat-method check and depressions; nothing is recalculated. Its rules:
+
+| Severity | Finding | Condition |
+|---|---|---|
+| high | truncated catchment | `truncated` = 1 |
+| high | catchment on the clip edge | `clip_edge` = 1 |
+| high | channel moves with the flat method | `flat_moved` |
+| high | deep fill against the road, no crossing near | deep_at_road and the nearest crossing is more than 100 m away by chainage, or there is none |
+| medium | flat-method area change | `flat_sensitive` (more than 10 %) |
+| medium | unstable under DEM error | `unc_switch_pct` > 0 or `unc_lost_pct` > 0 |
+| medium | outlet off mapped drainage | `map_agrees` = 0 |
+| medium | other deep fills at or near the road | flagged, not listed as high |
+| medium | DEM checks | each DEM audit warning |
+| low | far snap | `snap_dist_m` > 2.5 cells |
+| low | Tc outside calibration | more than half of the Tc methods with a value are flagged outside |
+| low | rising flow path | `lfp_nonmonotonic` |
+| low | no USLE K | a soil dataset was given and `usle_k` is NULL |
+| info | proposed crossing; other run warnings | |
+
+Pipeline warnings already covered per crossing are not repeated. Rows are sorted by severity, chainage and crossing, then numbered R-001 onwards.
+
+**Sheets.** There is one HTML section per crossing, with a page break after each. The plan is framed on the crossing's catchment, flow path and outlet (at least 200 m wide, plus a margin) and clipped to the frame. A sensitivity table is shown when one is passed in.
 
 ## 5. Data handling and interoperability
 
