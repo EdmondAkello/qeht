@@ -2,7 +2,7 @@
 
 ## Technical Documentation
 
-**Version:** 1.0.1
+**Version:** 1.1.0
 **Type:** QGIS Processing plugin for DEM-based terrain and drainage analysis
 **Licence:** GNU General Public License v2 or later
 **Implementation:** Python, NumPy, GDAL Python bindings, QGIS Processing API
@@ -63,7 +63,7 @@ qeht/
     base.py              shared base class and helpers (pour points, IDs)
     alg_*.py             one file per algorithm
 
-  tests/                 test_*.py: 25 pure suites (676 checks at 1.0.1), runnable without QGIS
+  tests/                 test_*.py: 27 pure suites (710 checks at 1.1.0), runnable without QGIS
     fixtures/            golden_exchange.gpkg + .json (shared with HEAS)
     qgis_smoke.py        every Processing tool run inside QGIS (80 checks)
     qgis_e2e.py          the pipeline on a synthetic road site (25 checks)
@@ -497,7 +497,7 @@ Neither preset is applied silently.
 
 QEHT is validated at three levels.
 
-**Level 1 — synthetic analytic DEMs.** 25 pure-Python suites with 676 checks at 1.0.1, runnable on bare Python with NumPy (`tests/test_*.py`). They cover D8 encoding, distance weighting, fill spill levels, accumulation and catchments on analytic surfaces, the 10–85 conventions on an analytic profile, the slope domains, the polygon tracer, the v0.8.3 reference implementations (bit for bit), Barnes against a per-cell port of RichDEM, road crossings and burning, soils and USLE K, curve numbers, rainfall, erosion against the A14 study's tables, channel sections, Tc, the exports, mapped drainage, auto-clip, scenarios and the DEM-error field, and the package against its golden fixture.
+**Level 1 — synthetic analytic DEMs.** 27 pure-Python suites with 710 checks at 1.1.0, runnable on bare Python with NumPy (`tests/test_*.py`). They cover D8 encoding, distance weighting, fill spill levels, accumulation and catchments on analytic surfaces, the 10–85 conventions on an analytic profile, the slope domains, the polygon tracer, the v0.8.3 reference implementations (bit for bit), Barnes against a per-cell port of RichDEM, road crossings and burning, soils and USLE K, curve numbers, rainfall, erosion against the A14 study's tables, channel sections, Tc, the exports, mapped drainage, auto-clip, scenarios and the DEM-error field, and the package against its golden fixture.
 
 **QGIS level.** `tests/qgis_smoke.py` runs every Processing tool through `processing.run()` on the example DEM and checks outputs, `outlet_uid` consistency and the package (80 checks). `tests/qgis_e2e.py` runs the pipeline on a synthetic road site with known structure (25 checks). Both pass on QGIS 3.34.4 and 4.2.3.
 
@@ -524,7 +524,7 @@ QEHT 1.0 is the first stable release (`experimental=False`). The plugin zip hold
 
 ## 9. Citation
 
-See `CITATION.cff`. In brief: Akello, E. QEHT: QGIS Engineering Hydrology Toolkit, version 1.0.1, GPL-2.0-or-later, https://github.com/EdmondAkello/qeht.
+See `CITATION.cff`. In brief: Akello, E. QEHT: QGIS Engineering Hydrology Toolkit, version 1.1.0, GPL-2.0-or-later, https://github.com/EdmondAkello/qeht.
 
 ## 10. Licence
 

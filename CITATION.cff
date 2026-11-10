@@ -14,8 +14,8 @@ authors:
     given-names: "Edmond"
     email: "francenicklaus@gmail.com"
     orcid: "https://orcid.org/0009-0009-5901-4574"
-version: 1.0.1
-date-released: "2026-10-15"
+version: 1.1.0
+date-released: "2026-11-10"
 license: GPL-2.0-or-later
 type: software
 repository-code: "https://github.com/EdmondAkello/qeht"
