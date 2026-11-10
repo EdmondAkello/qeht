@@ -1009,9 +1009,10 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
         if sens:
             feedback.pushInfo("The correlation-length sensitivity adds 2 x N realisations "
                               "(about three times the run time); switch it off to save time.")
+        workers = self.uncertainty_workers(parameters, context, dem.size)
         res, inf = un.run(dem, raw_valid, gt, outlets, sigma, corr, n, seed, thr, snap,
                           progress=lambda f: feedback.setProgress(100.0 * f),
-                          log=feedback.pushInfo, ref_areas=refs)
+                          log=feedback.pushInfo, ref_areas=refs, workers=workers)
         for i, b in zip(idx, res):
             crossings[i][1].update(b)
         sensitivity, uids = None, None
@@ -1020,7 +1021,7 @@ class BuildHeasExchangeAlgorithm(QehtAlgorithm):
             uids = [crossings[idx[k]][1]["outlet_uid"] for k in big]
             feedback.pushInfo(f"Correlation-length sensitivity (0.5x, 2x) for {', '.join(uids)}")
             sensitivity = un.corr_sensitivity(dem, raw_valid, gt, [outlets[k] for k in big], sigma,
-                                              corr, n, seed, thr, snap)
+                                              corr, n, seed, thr, snap, workers=workers)
         n_sw = sum(1 for _, a in crossings if (a.get("unc_switch_pct") or 0) > 0)
         feedback.pushInfo(f"DEM uncertainty: sigma {sigma:g} m ({preset}), L {corr:g} m, N {n}, "
                           f"seed {seed}; {n_sw} crossing(s) with catchment switching.")

@@ -107,7 +107,8 @@ class DemUncertaintyAlgorithm(QehtAlgorithm):
         if sens:
             feedback.pushInfo("The correlation-length sensitivity adds 2 x N realisations "
                               "(about three times the run time); switch it off to save time.")
-        res, inf = un.run(dem, valid, gt, outlets, sigma, corr, n, seed, thr, snap,
+        workers = self.uncertainty_workers(parameters, context, dem.size)
+        res, inf = un.run(dem, valid, gt, outlets, sigma, corr, n, seed, thr, snap, workers=workers,
                           progress=lambda f_: feedback.setProgress(100.0 * f_), log=feedback.pushInfo,
                           ref_areas=refs if ref_field else None)
         for (_, a), b in zip(rows_, res):
@@ -118,7 +119,7 @@ class DemUncertaintyAlgorithm(QehtAlgorithm):
             big = sorted(range(len(res)), key=lambda k: -areas[k])[:3]
             uids = [rows_[k][1]["outlet_uid"] for k in big]
             sensitivity = un.corr_sensitivity(dem, valid, gt, [outlets[k] for k in big], sigma, corr,
-                                              n, seed, thr, snap)
+                                              n, seed, thr, snap, workers=workers)
         fields = [("outlet_uid", "text")] + [(k, "text" if k == "unc_note" else
                                               ("int" if k == "unc_n" else "real"))
                   for k in un.UNC_FIELDS]

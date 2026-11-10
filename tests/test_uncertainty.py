@@ -73,6 +73,16 @@ def test_runs():
     a2, _ = run(z, valid, GT, out_rc, 1.0, 30.0, n=6, seed=7, threshold_cells=20)
     check("fixed seed: identical results", a1 == a2)
     check("keys = UNC_FIELDS", set(a1[0]) == set(UNC_FIELDS))
+    a3, i3 = run(z, valid, GT, out_rc, 1.0, 30.0, n=6, seed=7, threshold_cells=20, workers=3)
+    a4, _ = run(zf := flat_tie(), np.ones(zf.shape, bool), GT, [(48, 10)], 0.5, 30.0, n=7,
+                seed=3, threshold_cells=20, workers=4)
+    a5, _ = run(zf, np.ones(zf.shape, bool), GT, [(48, 10)], 0.5, 30.0, n=7, seed=3,
+                threshold_cells=20)
+    check("threads (1.2): 3 or 4 realisations at a time give the serial results exactly",
+          a3 == a1 and a4 == a5 and i3["workers"] == 3)
+    from ..core.watershed.uncertainty import default_workers
+    check("automatic threads: at least 1, at most 8, fewer when memory is short",
+          1 <= default_workers(10**6) <= 8 and default_workers(10**8, free_gb=4.0) == 1)
     sv, _ = run(z, valid, GT, out_rc, 0.5, 30.0, n=15, seed=3, threshold_cells=20)
     zf = flat_tie()
     sf, info = run(zf, np.ones(zf.shape, bool), GT, [(48, 10)], 0.5, 30.0, n=15, seed=3,

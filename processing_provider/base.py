@@ -734,7 +734,9 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
                 ("UNC_SIGMA", "DEM uncertainty: custom sigma (m)", None, "d"),
                 ("UNC_CORR", "DEM uncertainty: correlation length (m)", 90.0, "d"),
                 ("UNC_N", "DEM uncertainty: realisations", 50, "i"),
-                ("UNC_SEED", "DEM uncertainty: random seed", 2026, "i")):
+                ("UNC_SEED", "DEM uncertainty: random seed", 2026, "i"),
+                ("UNC_THREADS", "DEM uncertainty: realisations at the same time (0 = automatic; "
+                 "results do not change)", 0, "i")):
             self.addParameter(self._advanced(QgsProcessingParameterNumber(
                 key, label, QgsProcessingParameterNumber.Type.Integer if typ == "i"
                 else QgsProcessingParameterNumber.Type.Double, defaultValue=default,
@@ -742,6 +744,16 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(self._advanced(QgsProcessingParameterBoolean(
             "UNC_SENS", "DEM uncertainty: correlation-length sensitivity (0.5x and 2x) for the "
             "three largest crossings", defaultValue=True)))
+
+    def uncertainty_workers(self, parameters, context, cells, feedback=None):
+        """Threads for the Monte Carlo: UNC_THREADS, or automatic (CPU cores and free memory)."""
+        from ..core.memory import available_memory_gb
+        from ..core.watershed.uncertainty import default_workers
+        w = self.parameterAsInt(parameters, "UNC_THREADS", context) \
+            if parameters.get("UNC_THREADS") not in (None, "") else 0
+        if w <= 0:
+            w = default_workers(cells, available_memory_gb())
+        return max(1, w)
 
     def uncertainty_settings(self, parameters, context):
         """-> (sigma, preset, source, corr, n, seed, sensitivity); refuses a missing sigma."""
