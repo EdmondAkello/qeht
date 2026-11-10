@@ -10,7 +10,7 @@ from qgis.core import (
 )
 
 from .base import QehtAlgorithm
-from ..core.raster import read_dem, write_raster, audit_nodata, audit_resampling
+from ..core.raster import read_dem, write_raster, audit_nodata, audit_resampling, audit_precision
 from ..core.flow.direction import d8_direction
 from ..core.grid import encode_d8
 
@@ -88,7 +88,8 @@ class FlowDirectionAlgorithm(QehtAlgorithm):
         dem, valid, info = read_dem(dem_path)
         self.check_size(feedback, info.rows, info.cols,
                         ["flow_direction" if flat_method == "toward" else "flow_direction_barnes"])
-        for warning in audit_nodata(dem, valid, info.nodata) + audit_resampling(dem, valid):
+        for warning in (audit_nodata(dem, valid, info.nodata) + audit_resampling(dem, valid)
+                        + audit_precision(dem, valid)):
             feedback.pushWarning("DEM QA: " + warning)
         direction, stats = d8_direction(
             dem, valid, cell_width=info.cell_width,

@@ -35,7 +35,7 @@ import os
 
 import numpy as np
 
-from ..raster import audit_nodata, audit_resampling, resampling_stats
+from ..raster import audit_nodata, audit_resampling, audit_precision, precision_stats, resampling_stats
 
 RESAMPLING = ("bilinear", "cubic")
 OUT_NODATA = -9999.0
@@ -145,10 +145,13 @@ def _read_for_audit(ds):
 def audit(ds):
     a, v, nd, window = _read_for_audit(ds)
     st = resampling_stats(a, v)
+    ps = precision_stats(a, v)
     return {"nodata_declared": nd, "window": window, "valid_cells": int(v.sum()),
-            "warnings": audit_nodata(a, v, nd) + audit_resampling(a, v),
+            "warnings": audit_nodata(a, v, nd) + audit_resampling(a, v) + audit_precision(a, v),
             "duplicated_row_share": st["duplicated_row_share"],
-            "duplicated_col_share": st["duplicated_col_share"], "tied_share": st["tied_share"]}
+            "duplicated_col_share": st["duplicated_col_share"], "tied_share": st["tied_share"],
+            "sloped_tied_share": st["sloped_tied_share"], "vertical_quantum": ps["quantum"],
+            "mean_steepest_drop": ps["mean_drop"], "precision_ratio": ps["ratio"]}
 
 
 def prepare_dem(paths, out_path, target="auto", cell_m=None, resampling="bilinear",
