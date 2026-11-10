@@ -428,6 +428,11 @@ def warp_to_grid(path, info, resampling="bilinear", band=1):
     gt = info.geotransform
     bounds = (gt[0], gt[3] + info.rows * gt[5], gt[0] + info.cols * gt[1], gt[3])
     src = gdal.Open(path)
+    if info.projection_wkt and not (src.GetProjection() or "").strip():
+        raise ValueError(
+            f"{os.path.basename(path)} has no coordinate reference system, so QEHT cannot place "
+            "it on the DEM and will not guess. Assign the CRS (QGIS: Layer Properties > Source, "
+            "then export with it, or Raster > Projections > Assign Projection) and run again.")
     nd = src.GetRasterBand(band).GetNoDataValue()
     opts = gdal.WarpOptions(format="MEM", outputBounds=bounds, width=info.cols,
                             height=info.rows, dstSRS=info.projection_wkt or None,

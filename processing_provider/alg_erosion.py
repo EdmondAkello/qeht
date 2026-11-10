@@ -228,6 +228,11 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
                 K = Factor("K", grid=soil.k_grid(),
                            source=f"{soil.info.get('soil_dataset')}: {soil.info.get('k_source')}, "
                                   f"{soil.info.get('soil_depth_cm')} cm")
+            elif soil is not None:
+                feedback.pushWarning(
+                    "A soil source was given but it produced no K anywhere on the DEM, so K is "
+                    "missing and the run falls back to LS-only. Check that the soil layer has a "
+                    "CRS and overlaps the DEM.")
         C = self._factor(parameters, context, info, "C", "C", feedback)
         wc = None
         if self.parameterAsRasterLayer(parameters, "WORLDCOVER", context) is not None:
@@ -260,7 +265,17 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
                         feedback.pushWarning(w)
                 except FactorError as e:
                     raise QgsProcessingException(str(e))
+        coverage = {}
+        for f in (R, K, C, P):
+            if f.present and f.grid is not None:
+                gap = valid & ~np.isfinite(np.asarray(f.grid, dtype=np.float64))
+                coverage[f.name] = round(100.0 * (1.0 - gap.sum() / max(int(valid.sum()), 1)), 2)
+                if gap.any():
+                    feedback.pushWarning(
+                        f"{f.name} has no data on {100.0 * gap.sum() / max(int(valid.sum()), 1):.1f}% "
+                        "of the DEM cells; soil loss is empty there (QEHT does not fill a factor).")
         a, finfo = rusle(ind["ls"], valid, R, K, C, P)
+        finfo["factor_coverage_pct"] = coverage
         for key, f in (("r", R), ("k", K), ("c", C), ("p", P)):
             if f.present:
                 write_raster(eio.path_of(folder, key), f.as_grid(raw.shape), info, valid=valid)
@@ -316,6 +331,7 @@ class ErosionIndicesAlgorithm(QehtAlgorithm):
             [MCDMA_WEIGHTS["spi"], MCDMA_WEIGHTS["rusle"], MCDMA_WEIGHTS["sediment"]]
         record = {
             "qeht_erosion_version": 1, "mode": finfo["mode"], "factors": finfo["factors"],
+            "factor_coverage_pct": finfo.get("factor_coverage_pct", {}),
             "indices": ind["meta"], "channel_threshold_cells":
                 self.parameterAsDouble(parameters, "CHANNEL_CELLS", context),
             "schemes": {"spi": spi_s.describe(), "rusle": ru_s.describe() if a is not None else None,

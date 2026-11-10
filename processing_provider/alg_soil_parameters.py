@@ -99,6 +99,7 @@ class SoilParametersAlgorithm(QehtAlgorithm):
                                          "raster), a land-cover raster, rainfall zones or a "
                                          "rainfall raster.")
         src = self.parameterAsSource(parameters, CATCHMENTS, context)
+        self.require_crs(src, "The catchment layer")
         fields = QgsFields(src.fields())
         existing = set(fields.names())
         from ..core.runoff.curve_number import RUNOFF_FIELDS
@@ -121,6 +122,7 @@ class SoilParametersAlgorithm(QehtAlgorithm):
         if dem_crs.isValid() and src.sourceCrs() != dem_crs:
             tr = QgsCoordinateTransform(src.sourceCrs(), dem_crs, QgsProject.instance())
         n = max(1, src.featureCount())
+        k_missing = []
         for k, feat in enumerate(src.getFeatures()):
             if feedback.isCanceled():
                 break
@@ -151,12 +153,20 @@ class SoilParametersAlgorithm(QehtAlgorithm):
                     attrs[name] = None if (v is None or (isinstance(v, float) and not np.isfinite(v))) else v
             out.setAttributes([attrs.get(name) for name in fields.names()])
             sink.addFeature(out, QgsFeatureSink.Flag.FastInsert)
+            if soil is not None and block.get("usle_k") is None:
+                k_missing.append(feat.id())
             if soil is not None:
                 feedback.pushInfo(f"  feature {feat.id()}: K={block['usle_k'] if block['usle_k'] is None else round(block['usle_k'], 5)}  "
                                   f"texture={block['soil_texture']}  coverage={block['soil_coverage_pct']}"
                                   f"  HSG={block.get('soil_hsg')}"
                                   + (f"  CN={block['cn_export']:.1f}" if block.get('cn_export') else ""))
             feedback.setProgress(int(100.0 * (k + 1) / n))
+        if k_missing:
+            feedback.pushWarning(
+                f"The soil source gave no K for {len(k_missing)} of {src.featureCount()} catchment(s) "
+                f"(feature ids {', '.join(str(i) for i in k_missing[:20])}"
+                f"{' ...' if len(k_missing) > 20 else ''}): usle_k is empty there and RUSLE cannot "
+                "use them. Check that the soil layer covers the catchments and has the right CRS.")
         result = {OUTPUT: dest}
         k_out = self.parameterAsOutputLayer(parameters, K_RASTER, context)
         if k_out and soil is not None:

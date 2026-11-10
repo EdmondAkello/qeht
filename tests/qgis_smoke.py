@@ -179,6 +179,24 @@ def main(in_qgis=False):
           sorted(f["outlet_uid"] for f in c2.getFeatures()) == ["CV10", "CV11", "CV12"]
           and "flat_sensitive" not in [f.name() for f in c2.fields()],
           str(sorted(f["outlet_uid"] for f in c2.getFeatures())))
+    check("characteristics: truncated flag on every catchment (1.0.2)",
+          "truncated" in names and all(f["truncated"] in (0, 1) for f in cl.getFeatures()))
+    # 1.0.2: a pour-point shapefile without its .prj is refused, not silently misplaced
+    from osgeo import gdal as _g0
+    _g0.UseExceptions()
+    _g0.VectorTranslate(out("pts_noprj.shp"), ptsfile, format="ESRI Shapefile")
+    if os.path.exists(out("pts_noprj.prj")):
+        os.remove(out("pts_noprj.prj"))
+    try:
+        processing.run("qeht:catchmentcharacteristics", {
+            "FDR": out("fdr.tif"), "DEM": out("fill.tif"), "FAC": out("fac.tif"),
+            "POINTS": out("pts_noprj.shp"), "CATCH_OUT": out("ch_noprj.gpkg"),
+            "PATH_OUT": out("pt_noprj.gpkg")})
+        msg = "ran without error"
+    except Exception as e:  # noqa: BLE001 - QgsProcessingException surfaces as a generic error
+        msg = str(e)
+    check("pour points without a CRS (.prj missing) are refused with a clear message",
+          "no coordinate reference system" in msg, msg[:120])
     check("characteristics: catchment and path uids match",
           sorted(f["outlet_uid"] for f in cl.getFeatures())
           == sorted(f["outlet_uid"] for f in pl.getFeatures()))

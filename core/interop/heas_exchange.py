@@ -239,6 +239,8 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
 
     # 3. catchments
     slope_raster = horn_slope(elevation, valid, cw, ch)
+    from ..conditioning.fill import valid_boundary_mask
+    boundary = valid_boundary_mask(valid)
     from ..watershed.morphometry import lfp_split, shape_indices
     channel_mask = strahler = None
     if channel_threshold_cells:
@@ -279,11 +281,17 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
                                 elevation=elevation, cell_width=cw, cell_height=ch,
                                 catchment_mask=mask)
         chs = catchment_characteristics(mask, elevation, valid, cw, ch,
-                                        flow_path=lfp, slope_raster=slope_raster)
+                                        flow_path=lfp, slope_raster=slope_raster,
+                                        outlet=(s["row"], s["col"]), boundary=boundary)
         if not chs:
             issues.append(f"{s['uid']}: empty catchment (no valid cells); no catchment "
                           "or flow path written.")
             continue
+        if chs.get("truncated"):
+            issues.append(f"{s['uid']}: the catchment reaches the DEM edge or NoData away from "
+                          f"its outlet ({chs['truncated_cells']} cell{'s' if chs['truncated_cells'] != 1 else ''}), so it may continue beyond "
+                          f"the DEM: area {chs['area_km2']:.3f} km2 is a lower bound. Extend the "
+                          "DEM upstream (or clip with a larger buffer) and run again.")
         if channel_threshold_cells:
             chs.update(lfp_split(lfp["cells"], elevation, accumulation, channel_threshold_cells,
                                  cw, ch, sheet_cap_m=sheet_cap_m))
@@ -296,6 +304,10 @@ def build_exchange_records(direction, valid, accumulation, elevation, geotransfo
             else:                               # (unit_grid, index_to_unit, units, info)
                 from ..soils.catchment import soil_block
                 chs.update(soil_block(mask, soil[0], soil[2], soil[1], soil[3]))
+        if soil is not None and chs.get("usle_k") is None:
+            issues.append(f"{s['uid']}: the soil source gave no K for this catchment "
+                          f"(soil coverage {chs.get('soil_coverage_pct') or 0:.0f} %). Check that the "
+                          "soil layer has a CRS and covers the catchment.")
         if runoff is not None:
             chs.update(runoff.block(mask))
         if rainfall is not None:

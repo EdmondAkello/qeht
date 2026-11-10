@@ -182,8 +182,27 @@ def path_slope_10_85_v083(cells, elevation, cell_width, cell_height):
 NONMONOTONIC_TOL_M = 0.5
 
 
+def catchment_truncation(mask, valid, outlet=None, boundary=None):
+    """Cells of a catchment on the DEM's valid boundary, away from its outlet (1.0.2).
+
+    A catchment that reaches the raster edge or a NoData area anywhere but
+    at its outlet may continue beyond the DEM, so its area is a lower
+    bound (a road near a border, or a DEM clipped too tightly). The outlet
+    and its 3 x 3 neighbourhood are ignored: an outlet at the edge is not
+    a truncated divide. boundary: valid_boundary_mask(valid), precomputed
+    when many catchments share one grid.
+    """
+    from ..conditioning.fill import valid_boundary_mask
+    b = valid_boundary_mask(valid) if boundary is None else boundary
+    hit = np.asarray(mask, dtype=bool) & b
+    if outlet is not None:
+        r, c = outlet
+        hit[max(r - 1, 0):r + 2, max(c - 1, 0):c + 2] = False
+    return int(hit.sum())
+
+
 def catchment_characteristics(mask, elevation, valid, cell_width, cell_height,
-                              flow_path=None, slope_raster=None):
+                              flow_path=None, slope_raster=None, outlet=None, boundary=None):
     """Morphometry for one catchment.
 
     Parameters
@@ -195,6 +214,8 @@ def catchment_characteristics(mask, elevation, valid, cell_width, cell_height,
         relief ratio and the path statistics.
     slope_raster : optional precomputed Horn slope, to avoid recomputing
         it once per catchment on a multi-outlet run.
+    outlet, boundary : optional outlet (row, col) and precomputed
+        valid_boundary_mask, for the truncation flag (catchment_truncation).
 
     Returns a dict of named characteristics in metres, km and m/m.
     """
@@ -230,6 +251,9 @@ def catchment_characteristics(mask, elevation, valid, cell_width, cell_height,
         "slope_mean": float(cell_slopes.mean()) if cell_slopes.size else float("nan"),  # legacy alias
         "slope_median": float(np.median(cell_slopes)) if cell_slopes.size else float("nan"),
     }
+    n_edge = catchment_truncation(mask & valid, valid, outlet=outlet, boundary=boundary)
+    out["truncated"] = int(n_edge > 0)
+    out["truncated_cells"] = n_edge
 
     if flow_path and flow_path.get("cells"):
         cells = flow_path["cells"]
@@ -281,6 +305,7 @@ CATCHMENT_FIELDS = [
     ("outlet_uid", "text"),
     ("outlet_id", "int"),
     ("area_km2", "float"),
+    ("truncated", "int"),               # 1.0.2: reaches the DEM edge / NoData away from the outlet
     ("elev_max_m", "float"),
     ("elev_min_m", "float"),
     ("elev_mean_m", "float"),

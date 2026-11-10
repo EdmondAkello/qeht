@@ -108,6 +108,7 @@ class PrepareDemAlgorithm(QehtAlgorithm):
         clip_bounds, clip_crs = None, None
         clip = self.parameterAsSource(parameters, "CLIP", context)
         if clip is not None and clip.featureCount() > 0:
+            self.require_crs(clip, "The clip layer")
             ext = clip.sourceExtent()
             clip_bounds = (ext.xMinimum(), ext.yMinimum(), ext.xMaximum(), ext.yMaximum())
             clip_crs = clip.sourceCrs().toWkt()
