@@ -156,7 +156,7 @@ def _stats(v):
 
 def run(dem, valid, gt, outlets, sigma, corr_len_m=DEFAULT_CORR_M, n=DEFAULT_N, seed=DEFAULT_SEED,
         threshold_cells=200.0, snap_cells=5, switch_frac=0.25, progress=None, log=None,
-        ref_areas=None):
+        ref_areas=None, workers=1):
     """Monte Carlo over n realisations -> (list of UNC field dicts per outlet, info dict).
 
     ref_areas : optional contributing area (km2) of each crossing as built. When the snapped
@@ -174,16 +174,40 @@ def run(dem, valid, gt, outlets, sigma, corr_len_m=DEFAULT_CORR_M, n=DEFAULT_N, 
                 other[j] = True
                 base[j] = None
     if log is not None:
-        log(f"DEM uncertainty: {n} realisations at about {per_run:.1f} s each "
-            f"(about {per_run * n / 60.0:.1f} min).")
+        w_ = max(1, min(int(workers or 1), n))
+        log(f"DEM uncertainty: {n} realisations at about {per_run:.1f} s each, "
+            f"{w_} at a time (serial: about {per_run * n / 60.0:.1f} min).")
     rng = np.random.default_rng(seed)
     runs = []
-    for i in range(n):
-        if progress is not None:
-            progress(i / max(n, 1))
-        e = correlated_field(dem.shape, sigma, corr_len_m, min(cw, ch), rng)
-        runs.append(measure(np.where(valid, dem + e, dem), valid, cw, ch, outlets, threshold_cells,
-                            snap_cells))
+    workers = max(1, min(int(workers or 1), n))
+
+    def one(e):
+        return measure(np.where(valid, dem + e, dem), valid, cw, ch, outlets, threshold_cells,
+                       snap_cells)
+    if workers == 1:
+        for i in range(n):
+            if progress is not None:
+                progress(i / max(n, 1))
+            runs.append(one(correlated_field(dem.shape, sigma, corr_len_m, min(cw, ch), rng)))
+    else:
+        # Realisations are independent. The fields are drawn here, in order, from the one
+        # generator, so the results are identical to a serial run; NumPy releases the GIL in
+        # the array work, so threads overlap. At most `workers` realisations are in memory.
+        from collections import deque
+        from concurrent.futures import ThreadPoolExecutor
+        pending = deque()
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            for i in range(n):
+                pending.append(ex.submit(one, correlated_field(dem.shape, sigma, corr_len_m,
+                                                               min(cw, ch), rng)))
+                if len(pending) >= workers:
+                    runs.append(pending.popleft().result())
+                    if progress is not None:
+                        progress(len(runs) / max(n, 1))
+            while pending:
+                runs.append(pending.popleft().result())
+                if progress is not None:
+                    progress(len(runs) / max(n, 1))
     out = []
     for j in range(len(outlets)):
         b = {k: None for k in UNC_FIELDS}
@@ -217,6 +241,7 @@ def run(dem, valid, gt, outlets, sigma, corr_len_m=DEFAULT_CORR_M, n=DEFAULT_N, 
     info = {"n": n, "sigma_m": sigma, "corr_len_m": corr_len_m, "seed": seed,
             "threshold_cells": threshold_cells, "snap_cells": snap_cells,
             "switch_frac": switch_frac, "seconds_per_realisation": per_run,
+            "workers": max(1, min(int(workers or 1), n)),
             "deterministic": [None if x is None else {k: x[k] for k in ("area", "lfp_length_m",
                                                                          "lfp_slope_1085",
                                                                          "tc_kirpich_min")}
@@ -224,13 +249,23 @@ def run(dem, valid, gt, outlets, sigma, corr_len_m=DEFAULT_CORR_M, n=DEFAULT_N, 
     return out, info
 
 
+def default_workers(cells, free_gb=None):
+    """Threads for the Monte Carlo: one per CPU core but one (at most 8), and no more than
+    fit in half the free memory at about 250 bytes per cell per realisation."""
+    import os
+    w = max(1, min(8, (os.cpu_count() or 2) - 1))
+    if free_gb:
+        w = max(1, min(w, int(0.5 * free_gb * 1e9 / (250.0 * max(cells, 1)))))
+    return w
+
+
 def corr_sensitivity(dem, valid, gt, outlets, sigma, corr_len_m, n, seed, threshold_cells,
-                     snap_cells=5, factors=(0.5, 2.0)):
+                     snap_cells=5, factors=(0.5, 2.0), workers=1):
     """Area p50 and CV at corr_len x factor for the given outlets (the three largest)."""
     res = {}
     for f in factors:
         o, _ = run(dem, valid, gt, outlets, sigma, corr_len_m * f, n, seed, threshold_cells,
-                   snap_cells)
+                   snap_cells, workers=workers)
         res[f"{f:g}x"] = [{"area_p50": b["unc_area_p50"], "area_cv": b["unc_area_cv"]} for b in o]
     return res
 

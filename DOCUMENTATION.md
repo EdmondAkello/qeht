@@ -458,6 +458,8 @@ The smoke test loads it from the file and runs it.
 
 A crossing whose pour point has no stream within the snap radius on the deterministic DEM (for example a proposed sag crossing below the stream threshold) is not assessed: its percentiles, CVs and unc_switch_pct are NULL and unc_note says so. A realisation that does find a stream there has snapped to another channel, and its values would describe that channel. unc_lost_pct is still reported.
 
+**Threads (1.2).** Realisations are independent. The fields are drawn in order from one `numpy.random.Generator`, and the routing runs in a thread pool with at most *w* realisations in memory at once, so the results do not depend on *w*. The default is *w* = min(8, cores − 1), reduced so that *w* × 250 bytes × cells stays within half the free memory.
+
 With σ = 0 every percentile equals the deterministic value, and a fixed seed repeats exactly. A steep V valley gives an area CV of about 3 %, almost all of it the snapped outlet moving one cell along the channel. A plateau that can drain to either of two valleys gives about 26 %.
 
 **Presets.**

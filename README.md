@@ -568,7 +568,7 @@ Per crossing the run gives P10, P50, P90 and the coefficient of variation of eac
 - **FABDEM:** 2.5 m, an ESTIMATE from Hawker et al. (2022), whose mean absolute error runs from 1.1 m (built-up) to 2.9 m (forest).
 - **Custom:** your own value.
 
-The time per realisation is reported before the loop. Clip a large DEM to the road's contributing area first. Settings and sources are in `uncertainty_json`; the run report and the KMZ cards show the ranges.
+Realisations run several at a time, one per CPU core less one (at most 8, fewer when memory is short), with identical results; set *DEM uncertainty: realisations at the same time* to override. The number of realisations (*DEM uncertainty: realisations*, default 50) and the seed are advanced settings. Run time scales with N, and the correlation-length sensitivity triples it. The time per realisation is reported before the loop. Clip a large DEM to the road's contributing area first. Settings and sources are in `uncertainty_json`; the run report and the KMZ cards show the ranges.
 
 ## 1.2: review register, crossing sheets and fill depressions
 
