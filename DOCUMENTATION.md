@@ -104,6 +104,7 @@ QEHT registers 23 algorithms under the "Engineering Hydrology" provider.
 | DEM uncertainty at crossings | none — Monte Carlo DEM-error ranges (Section 4.32) |
 | Review fill depressions | none — depression table and road flags (Section 4.33) |
 | Review register and crossing sheets | none — consolidated findings and per-crossing pages (Section 4.33) |
+| Crossing sensitivity table | none — one-at-a-time sensitivity of area and flow path (Section 4.33) |
 
 Each is a `QgsProcessingAlgorithm` registered through a `QgsProcessingProvider`. Exposing the tools this way — rather than as bespoke dialogs — means they gain input validation, batch mode, the Graphical Modeler, the history log, and `processing.run()` scriptability at no additional cost. Chaining tools in the Modeler is much of a commercial hydrology extension's practical value, and this design reproduces it.
 
@@ -469,7 +470,7 @@ Neither preset is applied silently.
 
 ---
 
-### 4.33 Review register, crossing sheets and fill depressions (1.2)
+### 4.33 Review register, crossing sheets, sensitivity and fill depressions (1.2)
 
 **Depressions.** The depth is d = z_filled − z, floored at 0, on the DEM the fill ran on (the burned DEM when burning is on). Cells with d > 0.01 m are joined into 8-connected components with union-find. The 1 cm floor stops the gradient a minimum-slope fill leaves on flats from merging separate depressions. For each component the tool reports:
 
@@ -499,6 +500,7 @@ Polygons come from the catchment tracer (§4.10, `core/geometry/polygonize.py`),
 | medium | unstable under DEM error | `unc_switch_pct` > 0 or `unc_lost_pct` > 0 |
 | medium | outlet off mapped drainage | `map_agrees` = 0 |
 | medium | other deep fills at or near the road | flagged, not listed as high |
+| medium | area depends on snap radius or threshold | a snap or threshold variant changes the area by more than 25 % or loses the stream |
 | medium | DEM checks | each DEM audit warning |
 | low | far snap | `snap_dist_m` > 2.5 cells |
 | low | Tc outside calibration | more than half of the Tc methods with a value are flagged outside |
@@ -507,6 +509,15 @@ Polygons come from the catchment tracer (§4.10, `core/geometry/polygonize.py`),
 | info | proposed crossing; other run warnings | |
 
 Pipeline warnings already covered per crossing are not repeated. Rows are sorted by severity, chainage and crossing, then numbered R-001 onwards.
+
+**Sensitivity.** The run's flat method is routed (or its flow direction is read), and so is the other method. Accumulation and the longest upstream flow length come from one topological pass each (§4.32, `upstream_lengths`).
+
+- **Crossings:** proposed crossings are left out, because the coverage check delineates them against the embankment.
+- **Base:** the run's outlet cell, with area = (accumulation + 1) × cell area and the longest flow length arriving there. This equals the package.
+- **Variants:** the snap-radius variants (⌊r/2⌋ with a minimum of 1, and 2r with a minimum of 2) and the threshold variants (T/2 and 2T) snap the input point to the nearest stream cell within the radius, as in §4.8. The flat-method variant snaps the run's outlet onto the other method's streams, within the run's radius (at least 1 cell).
+- **Per variant:** d = 100 (v − v_base) / v_base for area and flow path. The outlet has moved when the snapped cell is more than one cell (Chebyshev) from the base outlet. The outlet is lost when no stream is in reach.
+- **DEM error:** P10 and P90 are copied from `unc_area_*` and `unc_lfp_*`.
+- **Summary:** max |d| over the variants, with the factor behind it.
 
 **Sheets.** There is one HTML section per crossing, with a page break after each. The plan is framed on the crossing's catchment, flow path and outlet (at least 200 m wide, plus a margin) and clipped to the frame. A sensitivity table is shown when one is passed in.
 

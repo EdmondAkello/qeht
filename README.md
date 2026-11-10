@@ -94,6 +94,7 @@ core, and before trusting any output on a real project.
 | DEM uncertainty at crossings | Monte Carlo ranges of area, flow path, slope and Tc (v0.27) |
 | Review fill depressions | — (one polygon per filled depression: depth, area, volume, deep fills at or near the road; 1.2) |
 | Review register and crossing sheets | — (every finding of a package in one table, one review page per crossing; 1.2) |
+| Crossing sensitivity table | — (area and flow path per crossing under the other flat method, snap radius and stream threshold; 1.2) |
 
 For Pairwise Intersect, use the built-in `native:intersection` — it is C++ and
 never spawns anything. There is no reason to wrap it.
@@ -570,7 +571,7 @@ Per crossing the run gives P10, P50, P90 and the coefficient of variation of eac
 
 The time per realisation is reported before the loop. Clip a large DEM to the road's contributing area first. Settings and sources are in `uncertainty_json`; the run report and the KMZ cards show the ranges.
 
-## 1.2: review register, crossing sheets and fill depressions
+## 1.2: review register, crossing sheets, sensitivity and fill depressions
 
 A run reports its findings in several places: DEM warnings in the log, flags in the characteristics table, truncated catchments in the package issues. The review tools collect them so a reviewer can work through one list.
 
@@ -585,7 +586,16 @@ A run reports its findings in several places: DEM warnings in the log, flags in 
 
 **Fill depressions.** Filling raises closed depressions to their spill level. A deep fill against an embankment usually means the DEM treats the road as a dam, so a culvert may be missing from the DEM, or missing on the ground. *Review fill depressions* lists every depression as a polygon with its depth, area, volume and deepest point. Given a road, it adds the distance from the centreline, the chainage, whether the depression touches the road and the nearest crossing. Fills at least 1 m deep within the road half-width (15 m) or within 100 m of it are flagged. These defaults are review settings, not design criteria; on whole-metre DEMs raise them.
 
-The pipeline writes all three: `tables/review_register.csv` (also a sheet in the XLSX), `report/crossing_sheets.html` and `layers/fill_depressions.gpkg`. The run report lists the high and medium findings. With burning on, the depressions are measured on the burned DEM, so the fills left against the road are the ones no crossing explains. For any package, *Review register and crossing sheets* builds the register and sheets. Add the DEM the fill ran on and the filled DEM to include the flat-method check and the depressions.
+**Crossing sensitivity.** How much does each crossing's area and longest flow path move when one setting changes? The table re-measures every crossing with:
+
+- the other flat method;
+- half and twice the snap radius;
+- half and twice the stream threshold;
+- the DEM-error P10 and P90, when DEM uncertainty was run.
+
+Proposed crossings are left out, because the coverage check delineates them against the embankment rather than from the routing. The base row is the run's own outlet, so it equals the package. The snap and threshold variants snap the crossing's input point again; the flat-method variant snaps the run's outlet onto the other method's streams. Each row gives the change from the base, whether the outlet moved more than one cell and whether the stream was lost. A summary names each crossing's largest change and the factor behind it. A snap or threshold variant that moves the area by more than 25 % becomes a register finding; the flat method and DEM error already have their own.
+
+The pipeline writes all four: `tables/review_register.csv` (also a sheet in the XLSX), `report/crossing_sheets.html`, `tables/crossing_sensitivity.csv` (also a sheet in the XLSX; switch it off to save one more routing) and `layers/fill_depressions.gpkg`. The run report lists the high and medium findings. With burning on, the depressions are measured on the burned DEM, so the fills left against the road are the ones no crossing explains. For any package, *Review register and crossing sheets* builds the register and sheets. Add the DEM the fill ran on and the filled DEM to include the flat-method check and the depressions.
 
 ## Data sources by region
 

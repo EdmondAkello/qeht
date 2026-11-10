@@ -55,7 +55,8 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
             "<b>quicklooks/</b> (PNG + world file + legend of the rasters, for "
             "viewing without a GIS), <b>report/run_report.html</b>, <b>report/crossing_sheets.html</b> (one review page per "
             "crossing), <b>tables/review_register.csv</b> (every finding with an ID and "
-            "severity) and <b>settings.json</b>.\n\n"
+            "severity), <b>tables/crossing_sensitivity.csv</b> (area and flow path per crossing "
+            "under the other flat method, half / twice the snap radius and stream threshold) and <b>settings.json</b>.\n\n"
             "<b>Steps:</b> optionally Prepare DEM (merge tiles, bilinear to the local UTM "
             "zone; off by default) → optionally clip to the road's contributing area (large "
             "DEMs; off by default) → DEM checks (NoData, nearest-neighbour resampling) → fill → D8 "
@@ -156,6 +157,9 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
             "QUICKLOOKS", "Raster quicklooks (PNG + world file + legend, for viewing without a GIS)",
             defaultValue=True))
         self.add_uncertainty_parameters()
+        self.addParameter(QgsProcessingParameterBoolean(
+            "SENSITIVITY", "Crossing sensitivity table (flat method, snap radius, stream "
+            "threshold; routes the DEM once more)", defaultValue=True))
         for key, label, val in (
                 ("REVIEW_MIN_DEPTH", "Review: list fill depressions at least this deep (m)", 0.5),
                 ("REVIEW_DEEP", "Review: flag fills at least this deep at or near the road (m)", 1.0)):
@@ -437,6 +441,24 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
                      "(no stream within one cell), so the crossing position depends on flat "
                      "routing: " + ", ".join(moved) + ".")
 
+        # 7a. per-crossing sensitivity (1.2) ------------------------------------------
+        sens_rows, sens_by = [], {}
+        if crs_rows and (self.parameterAsBool(p, "SENSITIVITY", context) if "SENSITIVITY" in p
+                         else True):
+            fb.setProgressText("Crossing sensitivity table")
+            from .alg_crossing_sensitivity import run_sensitivity
+            from ..core.review.sensitivity import write_csv, by_uid, SUMMARY_FIELDS
+            from ..core.grid import decode_d8
+            d8r, _, _ = read_dem(R("flow_direction.tif"))
+            sens_rows, sens_sum = run_sensitivity(package, filled, fvalid, finfo,
+                                                  decode_d8(d8r.astype(int)))
+            del d8r
+            sens_by = by_uid(sens_rows)
+            outputs["Crossing sensitivity"] = write_csv(
+                sens_rows, os.path.join(d["tables"], "crossing_sensitivity.csv"))
+            write_csv(sens_sum, os.path.join(d["tables"], "crossing_sensitivity_summary.csv"),
+                      SUMMARY_FIELDS)
+
         # 7b. review: fill depressions and the review register (1.2) ------------------
         fb.setProgressText("Review register")
         from .alg_review_package import package_review
@@ -448,7 +470,7 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
             if p.get(key) not in (None, ""):
                 rset[k] = self.parameterAsDouble(p, key, context)
         register, deps, dsum = package_review(package, rdem, filled, rvalid & fvalid, finfo, rset,
-                                              flat, warnings, audit)
+                                              flat, warnings, audit, sensitivity=sens_by)
         del rdem, rvalid, filled, fvalid
         if deps:
             outputs["Fill depressions"] = write_depressions(
@@ -497,7 +519,8 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
                                            wgs84_transformer(package), title=ttl,
                                            relief=relief_quicklook(package))
                 outputs["XLSX"] = write_workbook(package, os.path.join(ex, "design_hydrology.xlsx"),
-                                                 extra=flat, title=ttl, register=register)
+                                                 extra=flat, title=ttl, register=register,
+                                                 sensitivity=sens_rows)
             except (OSError, ValueError, RuntimeError) as e:
                 warn(f"Exports failed: {e}")
 
@@ -523,7 +546,8 @@ class HydrologyPipelineAlgorithm(QehtAlgorithm):
         from ..core.review.sheets import write_sheets
         outputs["Crossing sheets"] = write_sheets(
             package, os.path.join(d["report"], "crossing_sheets.html"), register,
-            {"flat_check": flat}, deps, title=p.get("RUN_NAME") or "QEHT hydrology run")
+            {"flat_check": flat, "sensitivity": sens_by}, deps,
+            title=p.get("RUN_NAME") or "QEHT hydrology run")
         write_report(package, report, title=p.get("RUN_NAME") or "QEHT hydrology run",
                      extra={"register": register,
                             "warnings": warnings, "dem_audit": audit, "flat_check": flat,

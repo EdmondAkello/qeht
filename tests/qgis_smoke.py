@@ -63,10 +63,10 @@ def main(in_qgis=False):
         reg.addProvider(QehtProvider())
     algs = sorted(a.id() for a in reg.providerById("qeht").algorithms())
     print("QEHT algorithms:", ", ".join(algs))
-    check("provider loads with 25 algorithms incl. exchange, crossings, burn, relink, soils, "
+    check("provider loads with 26 algorithms incl. exchange, crossings, burn, relink, soils, "
           "erosion, alignment profile, pipeline, run report, prepare DEM, review tools",
-          len(algs) == 25 and all(a in algs for a in ("qeht:alignmentprofile", "qeht:drainagecoverage",
-              "qeht:reviewdepressions", "qeht:reviewpackage",
+          len(algs) == 26 and all(a in algs for a in ("qeht:alignmentprofile", "qeht:drainagecoverage",
+              "qeht:reviewdepressions", "qeht:reviewpackage", "qeht:crossingsensitivity",
               "qeht:preparedem", "qeht:exportpackage", "qeht:autoclip", "qeht:demuncertainty",
               "qeht:hydrologypipeline", "qeht:runreport",
               "qeht:buildheasexchange", "qeht:crossingcandidates", "qeht:burncrossings",
@@ -947,6 +947,25 @@ def main(in_qgis=False):
           os.path.exists(rr["SHEETS"]) and "DEPRESSIONS" in rr
           and {(r["category"], r["outlet_uid"]) for r in reg3 if r["category"] not in ("fill", "run", "DEM")}
           <= {(r["category"], r["outlet_uid"]) for r in reg_s}, f"{len(reg_s)} finding(s)")
+    with open(os.path.join(pf3, "tables", "crossing_sensitivity.csv"), encoding="utf-8-sig") as fh:
+        sen3 = list(_csv3.DictReader(fh))
+    rs = processing.run("qeht:crossingsensitivity", {
+        "PACKAGE": pkg3, "FILLED": os.path.join(pf3, "rasters", "filled.tif"),
+        "OUTPUT": out("sens.csv"), "SUMMARY_CSV": out("sens_summary.csv")})
+    with open(rs["OUTPUT"], encoding="utf-8-sig") as fh:
+        sen_s = list(_csv3.DictReader(fh))
+    base3 = {r["outlet_uid"]: float(r["area_km2"]) for r in sen3 if r["factor"] == "base" and r["area_km2"]}
+    check("crossing sensitivity: pipeline table has base + 5 variants per existing crossing, matching the "
+          "package; the stand-alone tool (routing again) gives the same table",
+          {r["outlet_uid"] for r in sen3} == {c["outlet_uid"] for c in cr3 if c["status"] != "proposed"}
+          and sum(1 for r in sen3 if r["factor"] != "DEM error")
+          == 6 * sum(1 for c in cr3 if c["status"] != "proposed")
+          and all(abs(base3[c["outlet_uid"]] - c["acc_at_outlet_km2"]) <= 1e-8 * max(1.0, c["acc_at_outlet_km2"])
+                  for c in cr3 if c["outlet_uid"] in base3)
+          and [(r["outlet_uid"], r["factor"], r["area_km2"]) for r in sen_s]
+          == [(r["outlet_uid"], r["factor"], r["area_km2"]) for r in sen3]
+          and "Sensitivity" in wbx and os.path.exists(rs["SUMMARY_CSV"]),
+          f"{len(sen3)} rows, {len(base3)} measured bases")
     rd = processing.run("qeht:reviewdepressions", {
         "DEM": dem, "ROAD": out("road.gpkg"), "START": 1000.0,
         "CROSSINGS": os.path.join(pf3, "layers", "crossings.gpkg"), "MIN_DEPTH": 0.0,

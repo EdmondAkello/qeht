@@ -40,6 +40,7 @@ from .alg_autoclip import AutoClipAlgorithm
 from .alg_dem_uncertainty import DemUncertaintyAlgorithm
 from .alg_review_depressions import ReviewDepressionsAlgorithm
 from .alg_review_package import ReviewPackageAlgorithm
+from .alg_crossing_sensitivity import CrossingSensitivityAlgorithm
 
 
 class QehtProvider(QgsProcessingProvider):
@@ -71,6 +72,7 @@ class QehtProvider(QgsProcessingProvider):
             DemUncertaintyAlgorithm(),
             ReviewDepressionsAlgorithm(),
             ReviewPackageAlgorithm(),
+            CrossingSensitivityAlgorithm(),
         ):
             self.addAlgorithm(alg)
 
