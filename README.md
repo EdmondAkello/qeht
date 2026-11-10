@@ -562,14 +562,14 @@ A single catchment area from one DEM hides how much the DEM's error can move it.
 3. Area, longest flow path, 10–85 slope and Kirpich Tc are measured.
 4. This repeats for N = 50 realisations (seed 2026, recorded).
 
-Per crossing the run gives P10, P50, P90 and the coefficient of variation of each value (`unc_*`), plus two shares: `unc_lost_pct`, where the outlet lost its stream, and `unc_switch_pct`, where the area moved by more than 25 %, the sign of a catchment that switches between crossings. A crossing with no stream within the snap radius on the deterministic DEM (a proposed sag crossing below the stream threshold, for example) is not assessed: its percentiles stay empty, because a realisation that finds a stream has snapped to another channel. For the three largest crossings the run is repeated at 0.5× and 2× the correlation length.
+Per crossing the run gives P10, P50, P90 and the coefficient of variation of each value (`unc_*`), plus two shares: `unc_lost_pct`, where the outlet lost its stream, and `unc_switch_pct`, where the area moved by more than 25 %, the sign of a catchment that switches between crossings. A crossing with no stream within the snap radius on the deterministic DEM (a proposed sag crossing below the stream threshold, for example) is not assessed: its percentiles stay empty, because a realisation that finds a stream has snapped to another channel. Optionally (*correlation-length sensitivity*, off by default), the run is repeated at 0.5× and 2× the correlation length for the three largest crossings.
 
 **Vertical error, with no default:**
 - **AW3D30:** 4.4 m, the 4.40 m RMSE of the JAXA validation (Tadono et al. 2016, 5,121 check points).
 - **FABDEM:** 2.5 m, an ESTIMATE from Hawker et al. (2022), whose mean absolute error runs from 1.1 m (built-up) to 2.9 m (forest).
 - **Custom:** your own value.
 
-Realisations run several at a time, one per CPU core less one (at most 8, fewer when memory is short), with identical results; set *DEM uncertainty: realisations at the same time* to override. The number of realisations (*DEM uncertainty: realisations*, default 50) and the seed are advanced settings. Run time scales with N, and the correlation-length sensitivity triples it. The time per realisation is reported before the loop. Clip a large DEM to the road's contributing area first. Settings and sources are in `uncertainty_json`; the run report and the KMZ cards show the ranges.
+Realisations run several at a time, one per CPU core less one (at most 8, fewer when memory is short), with identical results; set *DEM uncertainty: realisations at the same time* to override. The number of realisations (*DEM uncertainty: realisations*, default 50) and the seed are advanced settings. Run time scales with N, and switching on the correlation-length sensitivity triples it. The time per realisation is reported before the loop. Clip a large DEM to the road's contributing area first. Settings and sources are in `uncertainty_json`; the run report and the KMZ cards show the ranges.
 
 ## 1.2: review register, crossing sheets, sensitivity and fill depressions
 
