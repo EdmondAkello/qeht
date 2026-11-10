@@ -264,21 +264,28 @@ def build_report(package_path, title=None, extra=None):
         P.append("<p>Resampling audit: no repeated rows or columns, no NoData problems.</p>")
     if flat:
         frows = []
-        flagged = {u: v for u, v in flat.items() if v.get("flat_sensitive")}
+        flagged = {u: v for u, v in flat.items() if v.get("flat_sensitive") or v.get("flat_moved")}
         for uid, v in sorted(flagged.items(), key=lambda kv: -(kv[1].get("flat_sensitivity_pct") or 0)):
             frows.append({"outlet_uid": _e(uid), "area_barnes_km2": _fmt(v.get("area_barnes_km2")),
                           "area_toward_km2": _fmt(v.get("area_toward_km2")),
                           "flat_sensitivity_pct": _fmt(v.get("flat_sensitivity_pct")),
-                          "flag": "<span class='flag'>verify</span>" if v.get("flat_sensitive") else "–"})
+                          "flat_moved": "yes" if v.get("flat_moved") else "–",
+                          "flat_catch_share_pct": _fmt(v.get("flat_catch_share_pct")),
+                          "flag": "<span class='flag'>verify</span>"})
         P.append("<h3>Flat-method check</h3><p class='sub'>Contributing area under both flat "
                  "methods (largest within one cell of the outlet). A flagged crossing's area "
-                 "depends on how flats are routed: verify it against mapped drainage or on site."
+                 "depends on how flats are routed: verify it against mapped drainage or on site. "
+                 "'Moved' means the channel itself runs elsewhere under the other method (no "
+                 "stream within one cell), so the crossing position depends on flat routing; "
+                 "the flat share is the part of the catchment whose flow direction the flat "
+                 "method chose."
                  f"</p><p>{len(flagged)} of {len(flat)} crossing(s) flagged"
                  + (" (the others agree within the tolerance; values in the characteristics "
                     "table)." if flagged else ".") + "</p>"
                  + (_table(["outlet_uid", "area_barnes_km2", "area_toward_km2",
-                            "flat_sensitivity_pct", "flag"], frows,
-                           {"area_barnes_km2", "area_toward_km2", "flat_sensitivity_pct"})
+                            "flat_sensitivity_pct", "flat_moved", "flat_catch_share_pct", "flag"],
+                           frows, {"area_barnes_km2", "area_toward_km2", "flat_sensitivity_pct",
+                                   "flat_catch_share_pct"})
                     if flagged else ""))
 
     # DEM uncertainty (F15)

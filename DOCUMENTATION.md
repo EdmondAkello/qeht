@@ -132,6 +132,8 @@ Conditioning is deliberately a standalone step producing only a conditioned elev
 
 **Flat-method sensitivity (v0.13.1).** Catchment characteristics routes the conditioned DEM with both flat methods and reports each outlet's contributing area under each (`area_barnes_km2`, `area_toward_km2`, `flat_sensitivity_pct`); `flat_sensitive = 1` above a tolerance (default 10 %). A flagged catchment is decided by flats or ties, not terrain, and needs checking against mapped drainage or on site. On Site C (a road project) the check flagged exactly the four crossings on the section built from a nearest-neighbour DEM (areas differing by 40–100 %) and none of the six stable ones; on a bilinear resample it flagged none.
 
+**Moved crossings and flat shares (1.1).** A crossing can fail in two ways under flat routing: its area changes, or the channel itself runs somewhere else so that no stream reaches the crossing point at all. `flat_moved = 1` marks the second case: one method has a stream (at the run's stream threshold) within one cell of the outlet and the other has none. Such a crossing needs its position checked, not only its area. `flat_area_ratio` is the toward / Barnes area. `flat_catch_share_pct` and `flat_lfp_share_pct` give the share of the catchment and of its longest flow path (Barnes routing) on cells with no downhill neighbour after filling, whose direction the flat method chose: a high share means the catchment shape owes more to flat routing than to the terrain.
+
 ### 4.2 D8 flow direction
 
 Flow direction selects the neighbour of steepest descent, weighted by distance:

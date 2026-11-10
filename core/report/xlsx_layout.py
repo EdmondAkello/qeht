@@ -76,6 +76,7 @@ CHARACTERISTICS = [
     ("xs_w_1p0_m", "crossings", "Channel width (bed + 1 m)", "m", "0.0"),
     # 13. flags
     ("flat_sensitive", "extra", "Flat-sensitive", "0/1", "0"),
+    ("flat_moved", "extra", "Channel moves with flat method", "0/1", "0"),
     ("xs_quality", "crossings", "Channel section quality", "", None),
     ("map_agrees", "crossings", "Agrees with mapped drainage", "0/1", "0"),
 ]
