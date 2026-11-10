@@ -4,19 +4,25 @@
 """Peak-memory estimate for a run, from measured per-step peaks (v0.12).
 
 QEHT holds the whole grid in memory. The bytes-per-cell figures below were
-measured with tracemalloc on a 2.25-million-cell surface (30 % filled
-cells) for the v0.12 vectorised core; RESIDENT covers the arrays a tool
-keeps while a step runs (input DEM, validity mask, outputs). They are
-estimates, rounded up - use them to decide whether to clip, not as a
-guarantee. No QGIS imports.
+measured with tracemalloc (1.2) on the synthetic benchmark surface of
+tools/dev/bench_core.py at 2.25 million cells, half of them without descent
+before flat resolution - a flat-heavy, whole-metre case, so ordinary DEMs
+need less. RESIDENT covers the arrays a tool keeps while a step runs (input
+DEM, validity mask, outputs). They are estimates, rounded up - use them to
+decide whether to clip, not as a guarantee. No QGIS imports.
+
+Up to 1.1 the flat resolvers built a link graph with int64 indices and
+peaked at about 360 (Barnes) and 285 (toward-lower) bytes per cell on that
+surface, twice the figures in this table at the time; 1.2 cut them to the
+values below.
 """
 
 import os
 
 STEP_BYTES_PER_CELL = {
     "fill": 44,
-    "flow_direction": 119,           # toward-lower flats
-    "flow_direction_barnes": 165,    # Barnes / hybrid flats
+    "flow_direction": 115,           # toward-lower flats (1.2: was ~285 measured)
+    "flow_direction_barnes": 135,    # Barnes / hybrid flats (1.2: was ~360 measured)
     "accumulation": 82,
     "strahler": 83,
     "catchment": 82,

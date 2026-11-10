@@ -74,7 +74,7 @@ def _neighbours(r, c, k, rows, cols):
 
 def _components(n, a, b):
     """Connected components of n nodes with undirected edges (a, b)."""
-    parent = np.arange(n, dtype=np.int64)
+    parent = np.arange(n, dtype=np.int32 if n < 2**31 - 1 else np.int64)
     if a.size == 0:
         return parent
     while True:
@@ -123,14 +123,52 @@ def _bfs(n, indptr, indices, seeds):
     return dist
 
 
+def _bfs_grid(seeds, fr, fc, idx, e, tol):
+    """Layered multi-source BFS over equal-elevation 8-neighbours of the cells (fr, fc).
+
+    The same distances as _bfs over the link graph {i -> j : |e[j] - e[i]| <= tol},
+    but read from the grid index `idx` (cell -> position, -1 elsewhere) one
+    frontier at a time instead of building the graph (1.2): the link lists
+    and their sorted copies cost up to ~400 bytes per flat cell.
+    """
+    rows, cols = idx.shape
+    n = fr.size
+    dist = np.zeros(n, dtype=np.int32)
+    front = np.unique(seeds)
+    if front.size == 0:
+        return dist
+    dist[front] = 1
+    layer = 1
+    while front.size:
+        r, c, ef = fr[front], fc[front], e[front]
+        nxt = []
+        for k in range(8):
+            nr, nc, inside = _neighbours(r, c, k, rows, cols)
+            j = np.where(inside, idx[nr, nc], -1)
+            ok = j >= 0
+            jj = j[ok]
+            m = np.abs(e[jj] - ef[ok]) <= tol
+            jj = jj[m]
+            nxt.append(jj[dist[jj] == 0])
+        nb = np.unique(np.concatenate(nxt)) if nxt else np.zeros(0, dtype=np.int64)
+        if nb.size == 0:
+            break
+        layer += 1
+        dist[nb] = layer
+        front = nb
+    return dist
+
+
 def _one_pass(elev, valid, direction, w, small_flat_cells, drain):
     rows, cols = elev.shape
     fr, fc = np.nonzero(valid & (direction < 0) & ~drain)
     n = fr.size
     if n == 0:
         return 0, 0
-    idx = np.full((rows, cols), -1, dtype=np.int64)
-    idx[fr, fc] = np.arange(n)
+    # 1.2: int32 index and links, no link graph, no full-grid label or mask
+    # copies (peak memory about a third of 1.1 on flat-heavy DEMs).
+    idx = np.full((rows, cols), -1, dtype=np.int32)
+    idx[fr, fc] = np.arange(n, dtype=np.int32)
     e = elev[fr, fc]
 
     # -- edges and equal-elevation links -----------------------------------
@@ -143,50 +181,53 @@ def _one_pass(elev, valid, direction, w, small_flat_cells, drain):
         routed = (direction[nr, nc] >= 0) | drain[nr, nc]
         low |= ok & ((ne < e - _TOL) | (routed & (np.abs(ne - e) <= _TOL)))
         high |= ok & (ne > e + _TOL)
-        j = idx[nr, nc]
-        link = ok & (j >= 0) & (np.abs(ne - e) <= _TOL)
-        ea.append(np.flatnonzero(link)); eb.append(j[link])
+        if (int(DROW[k]), int(DCOL[k])) > (0, 0):         # each undirected link once (1.2)
+            j = idx[nr, nc]
+            link = ok & (j >= 0) & (np.abs(ne - e) <= _TOL)
+            ea.append(np.flatnonzero(link).astype(np.int32)); eb.append(j[link])
+            del j, link
+        del nr, nc, inside, ok, ne, routed
     if not low.any():
         return 0, 0
     a = np.concatenate(ea); b = np.concatenate(eb)
+    del ea, eb
 
     # -- labels: equal-elevation components that contain a low edge --------
     root = _components(n, a, b)
+    del a, b
     has_low = np.zeros(n, dtype=bool)
     has_low[root[low]] = True
     labelled = has_low[root]
     uroots, lab = np.unique(root, return_inverse=True)
+    del root, uroots, has_low
     lab = np.where(labelled, lab + 1, 0)                   # 0 = not labelled
     n_labels = int(np.unique(lab[labelled]).size)
 
-    keep = labelled[a]                                       # links inside labelled flats
-    indptr, indices = _csr(n, a[keep], b[keep])
-
-    # -- gradients ------------------------------------------------------------
-    toward = _bfs(n, indptr, indices, np.flatnonzero(low & labelled))
+    # -- gradients (BFS on the grid within each labelled flat) ---------------
+    toward = _bfs_grid(np.flatnonzero(low & labelled), fr, fc, idx, e, _TOL).astype(np.int64)
     size = np.bincount(lab, minlength=int(lab.max()) + 1)
     big = size[lab] >= int(small_flat_cells) if small_flat_cells else np.ones(n, dtype=bool)
-    away = _bfs(n, indptr, indices, np.flatnonzero(high & labelled & big))
+    away = _bfs_grid(np.flatnonzero(high & labelled & big), fr, fc, idx, e, _TOL).astype(np.int64)
     fheight = np.zeros(int(lab.max()) + 1, dtype=np.int64)
     np.maximum.at(fheight, lab, away)
     wt = float(w) * toward
     fmask = np.where(away > 0, (fheight[lab] - away) + wt, wt).astype(np.float64)
     fmask = np.where(big, fmask, toward.astype(np.float64))
     fmask[~labelled] = 0.0
+    del toward, away, wt, big, size
 
     # -- assignment: lowest flat_mask among same-flat neighbours -------------
     L = np.flatnonzero(labelled)
     lr, lc = fr[L], fc[L]
-    lab_grid = np.zeros((rows, cols), dtype=np.int64)
-    lab_grid[fr, fc] = lab
-    fm_grid = np.zeros((rows, cols), dtype=np.float64)
-    fm_grid[fr, fc] = fmask
+    labL = lab[L]
     best_v = fmask[L].copy()
     best_k = np.full(L.size, -1, dtype=np.int64)
     for k in _ORDER:
         nr, nc, inside = _neighbours(lr, lc, k, rows, cols)
-        same = inside & (lab_grid[nr, nc] == lab[L])
-        v = fm_grid[nr, nc]
+        j = np.where(inside, idx[nr, nc], -1)
+        jj = np.maximum(j, 0)
+        same = (j >= 0) & (lab[jj] == labL)
+        v = np.where(j >= 0, fmask[jj], 0.0)
         better = same & ((v < best_v) | ((v == best_v) & (best_k >= 0)
                                          & ~_IS_CARDINAL[np.maximum(best_k, 0)]
                                          & _IS_CARDINAL[k]))
@@ -203,10 +244,12 @@ def _one_pass(elev, valid, direction, w, small_flat_cells, drain):
     # BEFORE the pass, so they are order-independent and cannot form cycles.
     # Cardinal preferred over diagonal, then W, NW, N, NE ... order.
     best_k[low[L]] = -1
-    d0 = direction.copy()
+    lm = np.flatnonzero(best_k < 0)
+    routed_before = None
+    if lm.size:
+        routed_before = (direction >= 0) | drain           # 1 byte per cell (was a full int64 copy)
     direction[lr[best_k >= 0], lc[best_k >= 0]] = best_k[best_k >= 0]
     resolved = int((best_k >= 0).sum())
-    lm = np.flatnonzero(best_k < 0)
     if lm.size:
         mr, mc = lr[lm], lc[lm]
         ev = elev[mr, mc]
@@ -215,7 +258,7 @@ def _one_pass(elev, valid, direction, w, small_flat_cells, drain):
             nr, nc, inside = _neighbours(mr, mc, k, rows, cols)
             ok = inside & valid[nr, nc] & (
                 (elev[nr, nc] < ev - _TOL)
-                | (((d0[nr, nc] >= 0) | drain[nr, nc]) & (np.abs(elev[nr, nc] - ev) <= _TOL)))
+                | (routed_before[nr, nc] & (np.abs(elev[nr, nc] - ev) <= _TOL)))
             take = ok & ((exit_k < 0) | (~_IS_CARDINAL[np.maximum(exit_k, 0)] & _IS_CARDINAL[k]))
             exit_k = np.where(take, k, exit_k)
         got = exit_k >= 0
