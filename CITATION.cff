@@ -14,7 +14,7 @@ authors:
     given-names: "Edmond"
     email: "francenicklaus@gmail.com"
     orcid: "https://orcid.org/0009-0009-5901-4574"
-version: 1.1.0
+version: 1.2.0
 date-released: "2026-11-10"
 license: GPL-2.0-or-later
 type: software

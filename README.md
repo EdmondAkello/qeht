@@ -1,4 +1,4 @@
-# QEHT — QGIS Engineering Hydrology Toolkit v1.1.0
+# QEHT — QGIS Engineering Hydrology Toolkit v1.2.0
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23393476.svg)](https://doi.org/10.5281/zenodo.23393476)
 [![tests](https://github.com/EdmondAkello/qeht/actions/workflows/tests.yml/badge.svg)](https://github.com/EdmondAkello/qeht/actions/workflows/tests.yml)
@@ -54,14 +54,14 @@ which are C++ libraries already loaded inside the QGIS process. There is no
       tests/qgis_smoke.py    ← every Processing tool, run inside QGIS
 
 The core is importable without QGIS. That is what makes the hydrology testable:
-27 pure-Python suites (710 checks at 1.1.0) run on bare Python with NumPy, for
+28 pure-Python suites (764 checks at 1.2.0) run on bare Python with NumPy, for
 example
 
     python -m qeht.tests.test_core        # analytic surfaces: fill, D8, accumulation, catchments
     python -m qeht.tests.test_interop     # outlet_uid, slopes, the package and its golden fixture
 
 and `tools/dev/run_tests.sh` (in the repository, not the plugin zip) runs every
-suite, the QGIS smoke test (`tests/qgis_smoke.py`, 80 checks) and the end-to-end
+suite, the QGIS smoke test (`tests/qgis_smoke.py`, 86 checks) and the end-to-end
 pipeline test (`tests/qgis_e2e.py`, 25 checks). Run them after any change to the
 core, and before trusting any output on a real project.
 
@@ -673,7 +673,7 @@ Stated explicitly because a drainage report needs them stated:
 
 ## Validation
 
-**Level 1 — synthetic analytic DEMs.** 27 pure-Python suites, 710 checks at 1.1.0: analytic planes and valleys, the v0.8.3 reference implementations, Barnes against a port of RichDEM, the A14 erosion study's tables and the package against its golden fixture. `tests/qgis_smoke.py` (80 checks) runs every tool inside QGIS 3.34 and 4.2, and `tests/qgis_e2e.py` (25 checks) runs the pipeline on a synthetic road site.
+**Level 1 — synthetic analytic DEMs.** 28 pure-Python suites, 764 checks at 1.2.0: analytic planes and valleys, the v0.8.3 reference implementations, Barnes against a port of RichDEM, the A14 erosion study's tables and the package against its golden fixture. `tests/qgis_smoke.py` (86 checks) runs every tool inside QGIS 3.34, 3.44 and 4.2, and `tests/qgis_e2e.py` (25 checks) runs the pipeline on a synthetic road site.
 
 **Level 3 — reference hydrology toolset production output, Site A.** 718 x 775
 cells @ 30.92 m, EPSG:21037, 16 road-crossing pour points with reference

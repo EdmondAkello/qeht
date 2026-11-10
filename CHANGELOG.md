@@ -3,7 +3,7 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
-## [Unreleased]
+## [1.2.0] — 2026-11-10
 ### Changed
 - **Faster depression filling.** The frontier relaxation in `fill_depressions` now expands the pending cells in water-level order (the lowest part of the pending set first, at least 4,096 cells or 5 % of it per pass), so most cells are lowered once instead of about ten times. The fixed point is unique and the output is unchanged, bit for bit. On the synthetic benchmark: 4 Mcells 8.7 s → 3.9 s, 16 Mcells 68 s → 15.5 s. Every tool that fills benefits, the DEM-uncertainty Monte Carlo most.
 - **Less memory in flat resolution.** Barnes and toward-lower flat routing no longer build a link graph with int64 indices: the breadth-first searches read neighbours from an int32 grid index, equal-elevation links are stored once per pair for the connected-components step, and the full-grid label, mask and direction copies are gone. Results are identical (RichDEM and v0.8.3 oracles; 320 direction grids from 80 FABDEM and 80 ALOS clips, both methods). Peak memory on the flat-heavy benchmark: Barnes 358 → 126 bytes per cell, toward-lower 284 → 109. A 16 Mcell run that ran out of memory on a 7 GB machine now completes (Barnes 25 s).
@@ -19,6 +19,13 @@ development history of the numerical core and Processing tools.
 - `tools/dev/bench_core.py`: times the audits, fill, both flat methods and accumulation on a seeded synthetic DEM (repository only, not in the plugin zip).
 - Test: the ordered fill against the heap reference on surfaces larger than one batch, with and without epsilon (`tests/test_flats.py`, 1b).
 - Tests: new suite `tests/test_review.py` (52 checks); four QGIS smoke checks (pipeline review outputs, the three review tools; the provider now has 26 algorithms). Pure suites 762 checks; QGIS 4.2.3 smoke 86/86, end-to-end 25/25.
+
+### Fixed
+- **QGIS 3.x test runs exit cleanly.** The stand-alone smoke and end-to-end tests segfaulted on QGIS 3.34 and 3.44 (exit code 139) when QGIS and Processing were torn down at interpreter exit, after every check had passed. Buffered output had made it look like a crash part-way through the suite. Both now flush and leave without that teardown. The plugin itself was not affected.
+### Removed
+- Unused link-graph helpers `_csr` and `_bfs` in `core/flow/flats.py`, no longer called since the flat-resolution memory change.
+### Tests
+- Tested: 28 pure suites (764 checks); QGIS smoke 86/86 and end-to-end 25/25 on QGIS 3.34, 3.44.15 and 4.2.3, each exiting with code 0; Bandit clean.
 
 ## [1.1.0] — 2026-11-10
 ### Added
