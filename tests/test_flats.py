@@ -155,6 +155,34 @@ def _toward_steps(f, valid, d0):
     return dist
 
 
+def test_fill_large():
+    print("\n1b. Ordered fill on surfaces larger than one batch == v0.8.3 reference (1.2)")
+    from ..core.conditioning import fill as F
+    rng = np.random.default_rng(12)
+    bad = 0
+    cases = 0
+    for n, kind in ((130, 0), (150, 1), (140, None), (160, 3)):
+        z, v = rand_surface(rng, kind)
+        z = np.kron(z, np.ones((max(1, n // z.shape[0]), max(1, n // z.shape[1])))) \
+            + rng.random((max(1, n // z.shape[0]) * z.shape[0], max(1, n // z.shape[1]) * z.shape[1])) * 0.3
+        v = np.ones_like(z, dtype=bool)
+        v[: z.shape[0] // 5, : z.shape[1] // 4] = False         # a NoData corner
+        for eps in (0.0, 1e-3):
+            for batch in (64, F.FILL_BATCH):                      # small batches force the ordered path
+                old = F.FILL_BATCH
+                F.FILL_BATCH = batch
+                try:
+                    b = fill_depressions(z, v, eps, 30.0, 30.0)
+                finally:
+                    F.FILL_BATCH = old
+                a = R.reference_fill_depressions(z, v, eps, 30.0, 30.0)
+                cases += 1
+                bad += not (np.array_equal(np.nan_to_num(a[0], nan=-9), np.nan_to_num(b[0], nan=-9))
+                            and a[1:] == b[1:])
+    check("ordered fill identical to the heap reference (4 surfaces x 2 epsilons x 2 batch sizes)",
+          bad == 0, f"{bad} of {cases} differ")
+
+
 def test_hybrid_family():
     print("\n2. Hybrid family flat_mask = w*toward + (flat_height - away)")
     rng = np.random.default_rng(7)
@@ -323,6 +351,7 @@ def main(argv=None):
     print("QEHT FLATS & PERFORMANCE - v0.12 (WP-E)")
     print("=" * 62)
     test_oracles()
+    test_fill_large()
     test_hybrid_family()
     test_size_switch()
     test_edge_drains()
