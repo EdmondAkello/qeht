@@ -743,7 +743,7 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
                 optional=default is None, minValue=0)))
         self.addParameter(self._advanced(QgsProcessingParameterBoolean(
             "UNC_SENS", "DEM uncertainty: correlation-length sensitivity (0.5x and 2x) for the "
-            "three largest crossings", defaultValue=True)))
+            "three largest crossings (adds 2 x N realisations)", defaultValue=False)))
 
     def uncertainty_workers(self, parameters, context, cells, feedback=None):
         """Threads for the Monte Carlo: UNC_THREADS, or automatic (CPU cores and free memory)."""
@@ -772,7 +772,7 @@ class QehtAlgorithm(QgsProcessingAlgorithm):
                                          "default.")
         g = lambda key, d: (self.parameterAsDouble(parameters, key, context)  # noqa: E731
                             if parameters.get(key) not in (None, "") else d)
-        sens = self.parameterAsBool(parameters, "UNC_SENS", context) if "UNC_SENS" in parameters else True
+        sens = self.parameterAsBool(parameters, "UNC_SENS", context) if "UNC_SENS" in parameters else False
         return (sigma, preset, src, g("UNC_CORR", 90.0), max(1, int(g("UNC_N", 50))),
                 int(g("UNC_SEED", 2026)), sens)
 

@@ -43,8 +43,10 @@ class DemUncertaintyAlgorithm(QehtAlgorithm):
             "custom value. Correlation length 90 m, 50 realisations and seed 2026 by default; "
             "the seed is recorded so the run repeats exactly.\n\n"
             "<b>Run time:</b> one fill, D8 and accumulation per realisation; the time per "
-            "realisation is reported before the loop. Clip a large DEM to the road's "
-            "contributing area first.")
+            "realisation is reported before the loop. Realisations run several at a time "
+            "(results do not change). The correlation-length sensitivity (0.5x and 2x, three "
+            "largest crossings) is off by default; switched on it adds 2 x N realisations. Clip "
+            "a large DEM to the road's contributing area first.")
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterRasterLayer("DEM", "Raw DEM (projected, metres)"))
