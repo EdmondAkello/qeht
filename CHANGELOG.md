@@ -3,6 +3,10 @@
 All notable changes to QEHT are recorded here. Versions follow the
 development history of the numerical core and Processing tools.
 
+## [Unreleased]
+### Documentation
+- README front page: a one-line summary, figures from the demonstration site and the highlights before the details. The v0.5–v0.8 flat-resolution investigation moved to `HISTORY.md`.
+
 ## [1.2.0] — 2026-11-10
 ### Changed
 - **Faster depression filling.** The frontier relaxation in `fill_depressions` now expands the pending cells in water-level order (the lowest part of the pending set first, at least 4,096 cells or 5 % of it per pass), so most cells are lowered once instead of about ten times. The fixed point is unique and the output is unchanged, bit for bit. On the synthetic benchmark: 4 Mcells 8.7 s → 3.9 s, 16 Mcells 68 s → 15.5 s. Every tool that fills benefits, the DEM-uncertainty Monte Carlo most.
